@@ -47,7 +47,7 @@ public class ParamAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
-                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> paramPayloads = buildParamPayloads();
 
@@ -55,18 +55,18 @@ public class ParamAttack implements AttackStrategy {
         String basePath = extractPathAndQuery(targetUrl);
 
         // Phase 1: Fuzz existing URL query parameters first
-        fuzzExistingUrlParams(api, originalRequest, basePath, resultCallback, isRunning, rateLimiter);
+        fuzzExistingUrlParams(originalRequest, basePath, resultCallback, isRunning, rateLimiter, attackExecutor);
 
         // Phase 2: Add new URL query string parameters
-        executeUrlParamAttacks(api, originalRequest, basePath, paramPayloads, resultCallback, isRunning, rateLimiter);
+        executeUrlParamAttacks(api, originalRequest, basePath, paramPayloads, resultCallback, isRunning, rateLimiter, attackExecutor);
     }
 
     /**
      * Fuzz existing URL query parameters by trying different values while preserving param name case.
      */
-    private void fuzzExistingUrlParams(MontoyaApi api, HttpRequest originalRequest, String basePath,
+    private void fuzzExistingUrlParams(HttpRequest originalRequest, String basePath,
                                        Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                       RateLimiter rateLimiter) {
+                                       RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         // Parse existing query parameters
         Map<String, String> existingParams = parseQueryParams(basePath);
@@ -104,25 +104,12 @@ public class ParamAttack implements AttackStrategy {
 
                     String modifiedPath = pathOnly + "?" + newQuery;
 
-                    // Apply rate limiting
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     HttpRequest modifiedRequest = originalRequest.withPath(modifiedPath);
-                    HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                    AttackResult result = new AttackResult(
-                        EXISTING_PARAM_TYPE,
-                        paramName + "=" + fuzzValue,
-                        modifiedRequest,
-                        response
-                    );
-
-                    resultCallback.accept(result);
-
+                    if (!attackExecutor.execute(EXISTING_PARAM_TYPE, paramName + "=" + fuzzValue, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                        return;
+                    }
                 } catch (Exception e) {
-                    api.logging().logToError("Error fuzzing existing param '" + paramName + "': " + e.getMessage());
+                    // caller logs with API when available
                 }
             }
         }
@@ -133,7 +120,7 @@ public class ParamAttack implements AttackStrategy {
      */
     private void executeUrlParamAttacks(MontoyaApi api, HttpRequest originalRequest, String basePath,
                                         List<String> paramPayloads, Consumer<AttackResult> resultCallback,
-                                        BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                                        BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         for (String param : paramPayloads) {
             if (!isRunning.getAsBoolean()) {
@@ -143,21 +130,10 @@ public class ParamAttack implements AttackStrategy {
             try {
                 String modifiedPath = appendParameter(basePath, param);
 
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
                 HttpRequest modifiedRequest = originalRequest.withPath(modifiedPath);
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                AttackResult result = new AttackResult(
-                    ATTACK_TYPE,
-                    param,
-                    modifiedRequest,
-                    response
-                );
-
-                resultCallback.accept(result);
-
+                if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                    break;
+                }
             } catch (Exception e) {
                 api.logging().logToError("Error in param attack with payload '" + param + "': " + e.getMessage());
             }

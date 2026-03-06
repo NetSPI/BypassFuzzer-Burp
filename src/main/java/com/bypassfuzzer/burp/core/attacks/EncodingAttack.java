@@ -34,7 +34,7 @@ public class EncodingAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                        Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                       RateLimiter rateLimiter) {
+                       RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         try {
             api.logging().logToOutput("Starting Encoding Attack");
@@ -87,18 +87,14 @@ public class EncodingAttack implements AttackStrategy {
                 }
 
                 try {
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     // Encode just the path portion, then re-add query string
                     String encodedPath = encodeRandomChars(path, encodingType, random);
                     String fullPath = buildPathWithQuery(baseRequest.url(), encodedPath);
                     HttpRequest modifiedRequest = baseRequest.withPath(fullPath);
-                    HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
                     String payload = "Path " + encodingType + " #" + (variation + 1) + ": " + encodedPath;
-                    resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+                    if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                        return;
+                    }
                     count++;
                 } catch (NullPointerException e) {
                     return;
@@ -162,18 +158,14 @@ public class EncodingAttack implements AttackStrategy {
                     }
 
                     try {
-                        if (rateLimiter != null) {
-                            rateLimiter.waitBeforeRequest();
-                        }
-
                         // Encode parameter name
                         String encodedName = encodeRandomChars(actualParamName, encodingType, random);
                         HttpRequest modifiedRequest = replaceParameterName(baseRequest, actualParamName, encodedName, paramValue, isBodyParam);
-                        HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
                         String location = isBodyParam ? "body" : "query";
                         String payload = "Param name " + encodingType + " (" + location + "): " + actualParamName + " → " + encodedName;
-                        resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+                        if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                            return;
+                        }
                         count++;
                     } catch (NullPointerException e) {
                         return;
@@ -187,18 +179,14 @@ public class EncodingAttack implements AttackStrategy {
                     }
 
                     try {
-                        if (rateLimiter != null) {
-                            rateLimiter.waitBeforeRequest();
-                        }
-
                         // Encode parameter value
                         String encodedValue = encodeRandomChars(paramValue, encodingType, random);
                         HttpRequest modifiedRequest = replaceParameterValue(baseRequest, actualParamName, encodedValue, isBodyParam);
-                        HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
                         String location = isBodyParam ? "body" : "query";
                         String payload = "Param value " + encodingType + " (" + location + "): " + actualParamName + "=" + encodedValue;
-                        resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+                        if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                            return;
+                        }
                         count++;
                     } catch (NullPointerException e) {
                         return;

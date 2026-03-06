@@ -48,17 +48,17 @@ public class CookieParamAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
-                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> paramPayloads = buildParamPayloads();
 
         // Phase 1: Fuzz existing cookies first (if enabled)
         if (fuzzExistingCookies) {
-            fuzzExistingCookies(api, originalRequest, resultCallback, isRunning, rateLimiter);
+            fuzzExistingCookies(api, originalRequest, resultCallback, isRunning, rateLimiter, attackExecutor);
         }
 
         // Phase 2: Add new cookies
-        executeNewCookieAttacks(api, originalRequest, paramPayloads, resultCallback, isRunning, rateLimiter);
+        executeNewCookieAttacks(api, originalRequest, paramPayloads, resultCallback, isRunning, rateLimiter, attackExecutor);
     }
 
     /**
@@ -66,7 +66,7 @@ public class CookieParamAttack implements AttackStrategy {
      */
     private void fuzzExistingCookies(MontoyaApi api, HttpRequest originalRequest,
                                      Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                     RateLimiter rateLimiter) {
+                                     RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         String existingCookie = originalRequest.headerValue("Cookie");
         if (existingCookie == null || existingCookie.isEmpty()) {
@@ -104,22 +104,10 @@ public class CookieParamAttack implements AttackStrategy {
                         }
                     }
 
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     HttpRequest modifiedRequest = originalRequest.withUpdatedHeader("Cookie", newCookie.toString());
-                    HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                    AttackResult result = new AttackResult(
-                        EXISTING_COOKIE_TYPE,
-                        cookieName + "=" + fuzzValue,
-                        modifiedRequest,
-                        response
-                    );
-
-                    resultCallback.accept(result);
-
+                    if (!attackExecutor.execute(EXISTING_COOKIE_TYPE, cookieName + "=" + fuzzValue, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                        return;
+                    }
                 } catch (Exception e) {
                     api.logging().logToError("Error fuzzing existing cookie '" + cookieName + "': " + e.getMessage());
                 }
@@ -132,7 +120,7 @@ public class CookieParamAttack implements AttackStrategy {
      */
     private void executeNewCookieAttacks(MontoyaApi api, HttpRequest originalRequest,
                                          List<String> paramPayloads, Consumer<AttackResult> resultCallback,
-                                         BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                                         BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         String existingCookie = originalRequest.headerValue("Cookie");
 
@@ -142,10 +130,6 @@ public class CookieParamAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest modifiedRequest;
                 if (existingCookie != null && !existingCookie.isEmpty()) {
                     modifiedRequest = originalRequest.withUpdatedHeader("Cookie", existingCookie + "; " + param);
@@ -153,17 +137,9 @@ public class CookieParamAttack implements AttackStrategy {
                     modifiedRequest = originalRequest.withAddedHeader("Cookie", param);
                 }
 
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                AttackResult result = new AttackResult(
-                    ATTACK_TYPE,
-                    param,
-                    modifiedRequest,
-                    response
-                );
-
-                resultCallback.accept(result);
-
+                if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                    break;
+                }
             } catch (Exception e) {
                 api.logging().logToError("Error in cookie param attack with payload '" + param + "': " + e.getMessage());
             }

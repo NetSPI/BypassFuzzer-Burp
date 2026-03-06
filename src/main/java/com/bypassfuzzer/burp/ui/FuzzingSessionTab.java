@@ -5,9 +5,14 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
-import com.bypassfuzzer.burp.core.FuzzerEngine;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.filter.*;
+import com.bypassfuzzer.burp.session.FuzzingSessionController;
+import com.bypassfuzzer.burp.session.SessionPreflightAnalyzer;
+import com.bypassfuzzer.burp.session.SessionRunOptions;
+import com.bypassfuzzer.burp.session.SessionState;
+import com.bypassfuzzer.burp.ui.session.AttackSelectionPanel;
+import com.bypassfuzzer.burp.ui.session.RunOptionsPanel;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -30,10 +35,11 @@ import java.util.Set;
 public class FuzzingSessionTab extends JPanel {
 
     private final MontoyaApi api;
+    private final FuzzingSessionController sessionController;
     private final FuzzerConfig config;
-    private final FuzzerEngine engine;
     private final HttpRequest request;
     private final String tabTitle;
+    private final SessionPreflightAnalyzer preflightAnalyzer;
 
     private JButton startButton;
     private JButton stopButton;
@@ -42,23 +48,8 @@ public class FuzzingSessionTab extends JPanel {
     private JTable resultsTable;
     private FuzzerResultsTableModel tableModel;
 
-    // Attack type checkboxes
-    private JCheckBox headerAttackCheckbox;
-    private JCheckBox pathAttackCheckbox;
-    private JCheckBox verbAttackCheckbox;
-    private JCheckBox paramAttackCheckbox;
-    private JCheckBox trailingDotAttackCheckbox;
-    private JCheckBox trailingSlashAttackCheckbox;
-    private JCheckBox extensionAttackCheckbox;
-    private JCheckBox contentTypeAttackCheckbox;
-    private JCheckBox encodingAttackCheckbox;
-    private JCheckBox protocolAttackCheckbox;
-    private JCheckBox caseAttackCheckbox;
-    private JCheckBox collaboratorCheckbox;
-    private JCheckBox cookieParamAttackCheckbox;
-    private JCheckBox fuzzExistingCookiesCheckbox;
-    private JButton checkAllButton;
-    private JButton uncheckAllButton;
+    private AttackSelectionPanel attackSelectionPanel;
+    private RunOptionsPanel runOptionsPanel;
 
     // Request/Response viewers
     private HttpRequestEditor requestViewer;
@@ -89,14 +80,12 @@ public class FuzzingSessionTab extends JPanel {
     private JButton applyFilterButton;
     private JLabel filterStatusLabel;
     private JLabel warningLabel;
-    private JTextField requestsPerSecondField;
-    private JTextField throttleStatusCodesField;
-
-    public FuzzingSessionTab(MontoyaApi api, HttpRequest request) {
+    public FuzzingSessionTab(MontoyaApi api, FuzzingSessionController sessionController) {
         this.api = api;
-        this.request = request;
-        this.config = new FuzzerConfig();
-        this.engine = new FuzzerEngine(api, config);
+        this.sessionController = sessionController;
+        this.request = sessionController.request();
+        this.config = sessionController.config();
+        this.preflightAnalyzer = new SessionPreflightAnalyzer();
 
         // Initialize filters
         this.filterConfig = new FilterConfig();
@@ -107,6 +96,9 @@ public class FuzzingSessionTab extends JPanel {
         String method = request.method();
         String path = extractPath(request.url());
         this.tabTitle = method + " " + truncate(path, 30);
+
+        sessionController.addResultListener(this::addResult);
+        sessionController.addStateListener(this::handleSessionStateChange);
 
         initializeUI();
     }
@@ -133,154 +125,9 @@ public class FuzzingSessionTab extends JPanel {
         controlPanel.add(stopButton);
         controlPanel.add(clearButton);
 
-        // Attack type selection panel with wrapping layout
-        JPanel attackPanel = new JPanel();
-        attackPanel.setLayout(new BoxLayout(attackPanel, BoxLayout.Y_AXIS));
-        attackPanel.setBorder(BorderFactory.createTitledBorder("Attack Types"));
-
-        headerAttackCheckbox = new JCheckBox("Header", config.isEnableHeaderAttack());
-        pathAttackCheckbox = new JCheckBox("Path", config.isEnablePathAttack());
-        verbAttackCheckbox = new JCheckBox("Verb", config.isEnableVerbAttack());
-        paramAttackCheckbox = new JCheckBox("Debug Params", config.isEnableParamAttack());
-        trailingDotAttackCheckbox = new JCheckBox("Trailing Dot", config.isEnableTrailingDotAttack());
-        trailingSlashAttackCheckbox = new JCheckBox("Trailing Slash", config.isEnableTrailingSlashAttack());
-        extensionAttackCheckbox = new JCheckBox("Extension", config.isEnableExtensionAttack());
-        contentTypeAttackCheckbox = new JCheckBox("Content-Type", config.isEnableContentTypeAttack());
-        encodingAttackCheckbox = new JCheckBox("Encoding", config.isEnableEncodingAttack());
-        protocolAttackCheckbox = new JCheckBox("Protocol", config.isEnableProtocolAttack());
-        caseAttackCheckbox = new JCheckBox("Case Variation", config.isEnableCaseAttack());
-        cookieParamAttackCheckbox = new JCheckBox("Debug Cookies", config.isEnableCookieParamAttack());
-
-        // Add listeners to clear warning when checkboxes are changed
-        headerAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        pathAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        verbAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        paramAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        trailingDotAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        trailingSlashAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        extensionAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        contentTypeAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        encodingAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        protocolAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        caseAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-        cookieParamAttackCheckbox.addActionListener(e -> warningLabel.setVisible(false));
-
-        // Row 1: Header, Path, Verb, Debug Params, Debug Cookies
-        JPanel row1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        row1.add(headerAttackCheckbox);
-        row1.add(pathAttackCheckbox);
-        row1.add(verbAttackCheckbox);
-        row1.add(paramAttackCheckbox);
-        row1.add(cookieParamAttackCheckbox);
-        attackPanel.add(row1);
-
-        // Row 2: Trailing Dot, Trailing Slash, Extension, Content-Type, Protocol
-        JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        row2.add(trailingDotAttackCheckbox);
-        row2.add(trailingSlashAttackCheckbox);
-        row2.add(extensionAttackCheckbox);
-        row2.add(contentTypeAttackCheckbox);
-        row2.add(protocolAttackCheckbox);
-        attackPanel.add(row2);
-
-        // Row 3: Encoding, Case Variation
-        JPanel row3 = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        row3.add(encodingAttackCheckbox);
-        row3.add(caseAttackCheckbox);
-        attackPanel.add(row3);
-
-        // Add Check All / Uncheck All buttons
-        checkAllButton = new JButton("Check All");
-        checkAllButton.addActionListener(e -> {
-            headerAttackCheckbox.setSelected(true);
-            pathAttackCheckbox.setSelected(true);
-            verbAttackCheckbox.setSelected(true);
-            paramAttackCheckbox.setSelected(true);
-            trailingDotAttackCheckbox.setSelected(true);
-            trailingSlashAttackCheckbox.setSelected(true);
-            extensionAttackCheckbox.setSelected(true);
-            contentTypeAttackCheckbox.setSelected(true);
-            encodingAttackCheckbox.setSelected(true);
-            protocolAttackCheckbox.setSelected(true);
-            caseAttackCheckbox.setSelected(true);
-            cookieParamAttackCheckbox.setSelected(true);
-        });
-
-        uncheckAllButton = new JButton("Uncheck All");
-        uncheckAllButton.addActionListener(e -> {
-            headerAttackCheckbox.setSelected(false);
-            pathAttackCheckbox.setSelected(false);
-            verbAttackCheckbox.setSelected(false);
-            paramAttackCheckbox.setSelected(false);
-            trailingDotAttackCheckbox.setSelected(false);
-            trailingSlashAttackCheckbox.setSelected(false);
-            extensionAttackCheckbox.setSelected(false);
-            contentTypeAttackCheckbox.setSelected(false);
-            encodingAttackCheckbox.setSelected(false);
-            protocolAttackCheckbox.setSelected(false);
-            caseAttackCheckbox.setSelected(false);
-            cookieParamAttackCheckbox.setSelected(false);
-        });
-
-        JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        buttonRow.add(checkAllButton);
-        buttonRow.add(uncheckAllButton);
-        attackPanel.add(buttonRow);
-
-        // Options panel with vertical layout
-        JPanel optionsPanel = new JPanel();
-        optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
-        optionsPanel.setBorder(BorderFactory.createTitledBorder("Options"));
-
-        // Collaborator row
-        JPanel collabRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        collaboratorCheckbox = new JCheckBox("Include Collaborator payloads in headers?", config.isEnableCollaboratorPayloads());
-
-        // Check if Collaborator is available
         boolean collaboratorAvailable = isCollaboratorAvailable();
-        JLabel collabInfoIcon = null;
-        if (!collaboratorAvailable) {
-            collaboratorCheckbox.setEnabled(false);
-            collaboratorCheckbox.setSelected(false);
-            collaboratorCheckbox.setToolTipText("Burp Collaborator is not available. Requires Burp Suite Professional with Collaborator configured.");
-
-            // Add info icon to indicate disabled state with tooltip
-            collabInfoIcon = new JLabel("ⓘ");
-            collabInfoIcon.setForeground(new java.awt.Color(100, 100, 100));
-            collabInfoIcon.setToolTipText("Burp Collaborator is not available. Requires Burp Suite Professional with Collaborator configured.");
-            collabInfoIcon.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-        }
-
-        collabRow.add(collaboratorCheckbox);
-        if (collabInfoIcon != null) {
-            collabRow.add(collabInfoIcon);
-        }
-        optionsPanel.add(collabRow);
-
-        // Fuzz existing cookies row
-        JPanel fuzzCookiesRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        fuzzExistingCookiesCheckbox = new JCheckBox("Debug Cookies: also fuzz existing cookies in request", config.isEnableFuzzExistingCookies());
-        fuzzExistingCookiesCheckbox.setToolTipText("When enabled, tries debug values on cookies already in the request");
-        fuzzCookiesRow.add(fuzzExistingCookiesCheckbox);
-        optionsPanel.add(fuzzCookiesRow);
-
-        // Rate limiting row
-        JPanel rateRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        rateRow.add(new JLabel("Requests/second (0 = unlimited):"));
-        requestsPerSecondField = new JTextField(String.valueOf(config.getRequestsPerSecond()), 5);
-        rateRow.add(requestsPerSecondField);
-        optionsPanel.add(rateRow);
-
-        // Auto-throttle row
-        JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
-        throttleStatusCodesField = new JTextField(formatStatusCodes(config.getThrottleStatusCodes()), 10);
-        throttleRow.add(throttleStatusCodesField);
-        JLabel throttleHelp = new JLabel("(comma-separated, e.g., 429,503)");
-        throttleHelp.setFont(throttleHelp.getFont().deriveFont(Font.ITALIC, 11f));
-        throttleHelp.setForeground(Color.GRAY);
-        throttleRow.add(throttleHelp);
-        optionsPanel.add(throttleRow);
+        attackSelectionPanel = new AttackSelectionPanel(config, () -> warningLabel.setVisible(false));
+        runOptionsPanel = new RunOptionsPanel(config, collaboratorAvailable);
 
         // Status label
         statusLabel = new JLabel("Ready. Target: " + request.method() + " " + request.url());
@@ -307,8 +154,8 @@ public class FuzzingSessionTab extends JPanel {
 
         // Row 2: Attack selection and options
         JPanel middleRow = new JPanel(new BorderLayout());
-        middleRow.add(attackPanel, BorderLayout.CENTER);
-        middleRow.add(optionsPanel, BorderLayout.EAST);
+        middleRow.add(attackSelectionPanel, BorderLayout.CENTER);
+        middleRow.add(runOptionsPanel, BorderLayout.EAST);
         topContent.add(middleRow);
 
         topPanel.add(topContent, BorderLayout.CENTER);
@@ -742,44 +589,22 @@ public class FuzzingSessionTab extends JPanel {
         return tabTitle;
     }
 
+    public String getSessionId() {
+        return sessionController.sessionId();
+    }
+
     private void startFuzzing() {
-        // Update config from checkboxes
-        config.setEnableHeaderAttack(headerAttackCheckbox.isSelected());
-        config.setEnablePathAttack(pathAttackCheckbox.isSelected());
-        config.setEnableVerbAttack(verbAttackCheckbox.isSelected());
-        config.setEnableParamAttack(paramAttackCheckbox.isSelected());
-        config.setEnableTrailingDotAttack(trailingDotAttackCheckbox.isSelected());
-        config.setEnableTrailingSlashAttack(trailingSlashAttackCheckbox.isSelected());
-        config.setEnableExtensionAttack(extensionAttackCheckbox.isSelected());
-        config.setEnableContentTypeAttack(contentTypeAttackCheckbox.isSelected());
-        config.setEnableEncodingAttack(encodingAttackCheckbox.isSelected());
-        config.setEnableProtocolAttack(protocolAttackCheckbox.isSelected());
-        config.setEnableCaseAttack(caseAttackCheckbox.isSelected());
-        config.setEnableCollaboratorPayloads(collaboratorCheckbox.isSelected());
-        config.setEnableCookieParamAttack(cookieParamAttackCheckbox.isSelected());
-        config.setEnableFuzzExistingCookies(fuzzExistingCookiesCheckbox.isSelected());
-
-        // Read rate limiting settings
-        try {
-            int rps = Integer.parseInt(requestsPerSecondField.getText().trim());
-            config.setRequestsPerSecond(Math.max(0, rps));
-        } catch (NumberFormatException e) {
-            config.setRequestsPerSecond(0); // Default to unlimited
-        }
-
-        // Parse throttle status codes
-        config.setThrottleStatusCodes(parseStatusCodes(throttleStatusCodesField.getText()));
-        config.setEnableAutoThrottle(!config.getThrottleStatusCodes().isEmpty());
+        SessionRunOptions runOptions = collectRunOptions();
 
         // Check if at least one attack is selected
-        if (config.getAttackTypes().isEmpty()) {
+        if (!runOptions.hasEnabledAttacks()) {
             warningLabel.setText("⚠ Please select at least one attack type before starting!");
             warningLabel.setVisible(true);
             return;
         }
 
         // Warn if Collaborator is enabled but not available
-        if (collaboratorCheckbox.isSelected() && !isCollaboratorAvailable()) {
+        if (runOptions.collaboratorPayloads() && !isCollaboratorAvailable()) {
             int choice = JOptionPane.showConfirmDialog(
                 api.userInterface().swingUtils().suiteFrame(),
                 "Burp Collaborator is not available.\n" +
@@ -794,9 +619,11 @@ public class FuzzingSessionTab extends JPanel {
             }
 
             // Disable collaborator in config since it's not available
-            config.setEnableCollaboratorPayloads(false);
-            collaboratorCheckbox.setSelected(false);
+            runOptionsPanel.setCollaboratorEnabled(false);
+            runOptions = runOptions.withoutCollaboratorPayloads();
         }
+
+        runOptions.applyTo(config);
 
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
@@ -808,56 +635,7 @@ public class FuzzingSessionTab extends JPanel {
         // Clear any previous warnings and check for new ones
         warningLabel.setVisible(false);
 
-        List<String> warnings = new ArrayList<>();
-
-        // Check if we're fuzzing root path and show warning
-        String targetPath = extractPath(request.url());
-        if ("/".equals(targetPath)) {
-            List<String> skippedAttacks = new ArrayList<>();
-            if (config.getAttackTypes().contains("path")) {
-                skippedAttacks.add("Path");
-            }
-            if (config.getAttackTypes().contains("trailingslash")) {
-                skippedAttacks.add("Trailing Slash");
-            }
-            if (config.getAttackTypes().contains("extension")) {
-                skippedAttacks.add("Extension");
-            }
-            if (config.getAttackTypes().contains("encoding")) {
-                skippedAttacks.add("Encoding");
-            }
-
-            if (!skippedAttacks.isEmpty()) {
-                String warning = String.join(", ", skippedAttacks) +
-                    " attack" + (skippedAttacks.size() > 1 ? "s" : "") +
-                    " will be skipped (root path '/' detected)";
-                warnings.add(warning);
-            }
-        }
-
-        // Check if Content-Type attack will be skipped (non-body methods with no parameters)
-        if (config.getAttackTypes().contains("contenttype")) {
-            String method = request.method();
-            if (!method.equals("POST") && !method.equals("PUT") && !method.equals("PATCH")) {
-                // Check if there are any parameters (query or body)
-                boolean hasParams = false;
-
-                // Check query parameters
-                String url = request.url();
-                if (url != null && url.contains("?")) {
-                    hasParams = true;
-                }
-
-                // Check body parameters
-                if (!hasParams && request.body() != null && request.body().length() > 0) {
-                    hasParams = true;
-                }
-
-                if (!hasParams) {
-                    warnings.add("Content-Type attack will be skipped (" + method + " method with no parameters)");
-                }
-            }
-        }
+        List<String> warnings = preflightAnalyzer.analyze(request, runOptions);
 
         // Display all warnings
         if (!warnings.isEmpty()) {
@@ -867,38 +645,47 @@ public class FuzzingSessionTab extends JPanel {
         }
 
         // Start fuzzing in background
-        engine.startFuzzing(request, this::addResult);
+        if (!sessionController.start()) {
+            startButton.setEnabled(true);
+            stopButton.setEnabled(false);
+            setAttackCheckboxesEnabled(true);
+            statusLabel.setText("Unable to start fuzzing");
+        }
+    }
 
-        // Start a thread to monitor completion
-        new Thread(() -> {
-            try {
-                // Poll every 500ms to check if fuzzing is complete
-                while (engine.isRunning()) {
-                    Thread.sleep(500);
-                }
-                // Fuzzing completed, update UI on Swing thread
-                SwingUtilities.invokeLater(() -> {
-                    if (!isShuttingDown && !engine.isRunning()) {
-                        int totalSent = tableModel.getAllResultsCount();
-                        int showing = tableModel.getRowCount();
-                        statusLabel.setText("Completed: " + totalSent + " requests sent, showing " + showing);
-                        startButton.setEnabled(true);
-                        stopButton.setEnabled(false);
-                        setAttackCheckboxesEnabled(true);
-                    }
-                });
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }).start();
+    private SessionRunOptions collectRunOptions() {
+        int requestsPerSecond;
+        try {
+            requestsPerSecond = Math.max(0, Integer.parseInt(runOptionsPanel.requestsPerSecondText().trim()));
+        } catch (NumberFormatException e) {
+            requestsPerSecond = 0;
+        }
+
+        return new SessionRunOptions(
+            attackSelectionPanel.isHeaderAttackEnabled(),
+            attackSelectionPanel.isPathAttackEnabled(),
+            attackSelectionPanel.isVerbAttackEnabled(),
+            attackSelectionPanel.isParamAttackEnabled(),
+            attackSelectionPanel.isTrailingDotAttackEnabled(),
+            attackSelectionPanel.isTrailingSlashAttackEnabled(),
+            attackSelectionPanel.isExtensionAttackEnabled(),
+            attackSelectionPanel.isContentTypeAttackEnabled(),
+            attackSelectionPanel.isEncodingAttackEnabled(),
+            attackSelectionPanel.isProtocolAttackEnabled(),
+            attackSelectionPanel.isCaseAttackEnabled(),
+            runOptionsPanel.isCollaboratorEnabled(),
+            attackSelectionPanel.isCookieParamAttackEnabled(),
+            runOptionsPanel.isFuzzExistingCookiesEnabled(),
+            requestsPerSecond,
+            parseStatusCodes(runOptionsPanel.throttleStatusCodesText())
+        );
     }
 
     public void stopFuzzing() {
-        engine.stopFuzzing();
-        startButton.setEnabled(true);
+        sessionController.stop();
+        startButton.setEnabled(false);
         stopButton.setEnabled(false);
-        statusLabel.setText("Stopped");
-        setAttackCheckboxesEnabled(true);
+        statusLabel.setText("Stopping...");
     }
 
     /**
@@ -906,7 +693,7 @@ public class FuzzingSessionTab extends JPanel {
      */
     public void cleanup() {
         isShuttingDown = true;
-        engine.cleanup();
+        sessionController.dispose();
     }
 
     private void clearResults() {
@@ -1122,33 +909,8 @@ public class FuzzingSessionTab extends JPanel {
             return;
         }
 
-        headerAttackCheckbox.setEnabled(enabled);
-        pathAttackCheckbox.setEnabled(enabled);
-        verbAttackCheckbox.setEnabled(enabled);
-        paramAttackCheckbox.setEnabled(enabled);
-        trailingDotAttackCheckbox.setEnabled(enabled);
-        trailingSlashAttackCheckbox.setEnabled(enabled);
-        extensionAttackCheckbox.setEnabled(enabled);
-        contentTypeAttackCheckbox.setEnabled(enabled);
-        encodingAttackCheckbox.setEnabled(enabled);
-        protocolAttackCheckbox.setEnabled(enabled);
-        caseAttackCheckbox.setEnabled(enabled);
-        cookieParamAttackCheckbox.setEnabled(enabled);
-        fuzzExistingCookiesCheckbox.setEnabled(enabled);
-        checkAllButton.setEnabled(enabled);
-        uncheckAllButton.setEnabled(enabled);
-
-        // Disable rate limiting configuration during fuzzing
-        requestsPerSecondField.setEnabled(enabled);
-        throttleStatusCodesField.setEnabled(enabled);
-
-        // Only enable collaborator checkbox if Collaborator is available
-        if (enabled && isCollaboratorAvailable()) {
-            collaboratorCheckbox.setEnabled(true);
-        } else if (!enabled) {
-            collaboratorCheckbox.setEnabled(false);
-        }
-        // If enabled=true but Collaborator not available, keep it disabled
+        attackSelectionPanel.setControlsEnabled(enabled);
+        runOptionsPanel.setControlsEnabled(enabled, isCollaboratorAvailable());
     }
 
     /**
@@ -1192,7 +954,7 @@ public class FuzzingSessionTab extends JPanel {
                 // Update status
                 int totalSent = tableModel.getAllResultsCount();
                 int showing = tableModel.getRowCount();
-                if (engine.isRunning()) {
+                if (sessionController.isRunning()) {
                     statusLabel.setText("Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")");
                 } else {
                     statusLabel.setText("Completed: " + totalSent + " requests sent, showing " + showing);
@@ -1205,6 +967,46 @@ public class FuzzingSessionTab extends JPanel {
                 updateFilterStatus();
             } catch (Exception e) {
                 api.logging().logToError("Error in addResult: " + e.getMessage());
+            }
+        });
+    }
+
+    private void handleSessionStateChange(SessionState state) {
+        SwingUtilities.invokeLater(() -> {
+            if (state == SessionState.RUNNING) {
+                statusLabel.setText("Fuzzing in progress...");
+                startButton.setEnabled(false);
+                stopButton.setEnabled(true);
+                setAttackCheckboxesEnabled(false);
+                return;
+            }
+
+            if (isShuttingDown && state != SessionState.DISPOSED) {
+                return;
+            }
+
+            int totalSent = tableModel.getAllResultsCount();
+            int showing = tableModel.getRowCount();
+
+            switch (state) {
+                case STOPPED -> {
+                    statusLabel.setText("Stopped: " + totalSent + " requests sent, showing " + showing);
+                    startButton.setEnabled(true);
+                    stopButton.setEnabled(false);
+                    setAttackCheckboxesEnabled(true);
+                }
+                case COMPLETED -> {
+                    statusLabel.setText("Completed: " + totalSent + " requests sent, showing " + showing);
+                    startButton.setEnabled(true);
+                    stopButton.setEnabled(false);
+                    setAttackCheckboxesEnabled(true);
+                }
+                case DISPOSED -> {
+                    startButton.setEnabled(false);
+                    stopButton.setEnabled(false);
+                }
+                default -> {
+                }
             }
         });
     }

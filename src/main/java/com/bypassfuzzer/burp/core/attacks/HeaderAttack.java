@@ -15,21 +15,23 @@ public class HeaderAttack implements AttackStrategy {
     private final HeaderPayloadProcessor processor;
     private final List<String> headerTemplates;
     private final List<String> ipPayloads;
-    private final String targetUrl;
-    private final String oobPayload;
+    private final boolean collaboratorEnabled;
 
     public HeaderAttack(String targetUrl, String oobPayload, boolean enableCollaborator) {
-        this.targetUrl = targetUrl;
-        this.oobPayload = oobPayload;
+        this.collaboratorEnabled = enableCollaborator;
         this.processor = new HeaderPayloadProcessor(targetUrl, oobPayload);
         this.headerTemplates = PayloadLoader.loadPayloads("header_payload_templates.txt");
         this.ipPayloads = PayloadLoader.loadPayloads("ip_payloads.txt");
     }
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         // Process header templates with dynamic Collaborator payload generation
-        List<String> headerPayloads = processor.processHeaderTemplates(headerTemplates, ipPayloads, api);
+        List<String> headerPayloads = processor.processHeaderTemplates(
+            headerTemplates,
+            ipPayloads,
+            collaboratorEnabled ? api : null
+        );
 
         try {
             api.logging().logToOutput("Starting Header Attack: " + headerPayloads.size() + " total payloads");
@@ -58,11 +60,6 @@ public class HeaderAttack implements AttackStrategy {
                 }
             }
 
-            // Apply rate limiting
-            if (rateLimiter != null) {
-                rateLimiter.waitBeforeRequest();
-            }
-
             try {
                 String[] parts = payload.split(":", 2);
                 if (parts.length != 2) {
@@ -85,8 +82,9 @@ public class HeaderAttack implements AttackStrategy {
                     displayPayload = payload;
                 }
 
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-                resultCallback.accept(new AttackResult(getAttackType(), displayPayload, modifiedRequest, response));
+                if (!attackExecutor.execute(getAttackType(), displayPayload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    break;
+                }
                 count++;
             } catch (NullPointerException e) {
                 break;

@@ -29,7 +29,7 @@ public class ExtensionAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                        Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                       RateLimiter rateLimiter) {
+                       RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
@@ -75,21 +75,14 @@ public class ExtensionAttack implements AttackStrategy {
                     }
                 }
 
-                // Apply rate limiting
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 // Build modified path with extension
                 String modifiedPath = buildPathWithExtension(targetUrl, extension);
-
-                HttpRequest modifiedRequest = baseRequest.withPath(modifiedPath);
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                // Create payload description for display
                 String payloadDescription = originalPath + extension;
 
-                resultCallback.accept(new AttackResult(getAttackType(), payloadDescription, modifiedRequest, response));
+                HttpRequest modifiedRequest = baseRequest.withPath(modifiedPath);
+                if (!attackExecutor.execute(getAttackType(), payloadDescription, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    break;
+                }
                 count++;
 
             } catch (NullPointerException e) {

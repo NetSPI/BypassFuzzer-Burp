@@ -11,7 +11,7 @@ import java.util.function.Consumer;
 public class TrailingDotAttack implements AttackStrategy {
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         try {
             api.logging().logToOutput("Starting Trailing Dot Attack");
         } catch (Exception e) {
@@ -29,9 +29,9 @@ public class TrailingDotAttack implements AttackStrategy {
             String host = baseRequest.httpService().host();
             String hostWithDot = host + ".";
             HttpRequest modifiedRequest = baseRequest.withUpdatedHeader("Host", hostWithDot);
-            HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-            String payload = "Host: " + hostWithDot;
-            resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+            if (!attackExecutor.execute(getAttackType(), "Host: " + hostWithDot, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                return;
+            }
             api.logging().logToOutput("Trailing Dot Attack completed: 1 result sent");
         } catch (NullPointerException e) {
             // API null, abort

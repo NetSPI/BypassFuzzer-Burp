@@ -34,7 +34,7 @@ public class VerbAttack implements AttackStrategy {
     private static final List<String> BODY_METHODS = Arrays.asList("POST", "PUT", "PATCH");
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         try {
             api.logging().logToOutput("Starting Verb Attack");
         } catch (Exception e) {
@@ -51,13 +51,10 @@ public class VerbAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest modifiedRequest = createMethodRequest(baseRequest, method);
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-                resultCallback.accept(new AttackResult(getAttackType(), "Method: " + method, modifiedRequest, response));
+                if (!attackExecutor.execute(getAttackType(), "Method: " + method, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (NullPointerException e) {
                 return;
@@ -76,13 +73,10 @@ public class VerbAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest modifiedRequest = baseRequest.withMethod(methodVariation);
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-                resultCallback.accept(new AttackResult(getAttackType(), "Method: " + methodVariation + " (case)", modifiedRequest, response));
+                if (!attackExecutor.execute(getAttackType(), "Method: " + methodVariation + " (case)", modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (NullPointerException e) {
                 return;
@@ -100,13 +94,10 @@ public class VerbAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest modifiedRequest = baseRequest.withMethod(xMethod);
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-                resultCallback.accept(new AttackResult(getAttackType(), "Method: " + xMethod, modifiedRequest, response));
+                if (!attackExecutor.execute(getAttackType(), "Method: " + xMethod, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (NullPointerException e) {
                 return;
@@ -124,13 +115,11 @@ public class VerbAttack implements AttackStrategy {
                 }
 
                 try {
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
                     HttpRequest modifiedRequest = baseRequest.withAddedHeader(header, method);
-                    HttpResponse response = api.http().sendRequest(modifiedRequest).response();
                     String payload = header + ": " + method;
-                    resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+                    if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                        return;
+                    }
                     count++;
                 } catch (NullPointerException e) {
                     return;
@@ -150,15 +139,13 @@ public class VerbAttack implements AttackStrategy {
                     }
 
                     try {
-                        if (rateLimiter != null) {
-                            rateLimiter.waitBeforeRequest();
-                        }
                         HttpRequest modifiedRequest = baseRequest
                             .withMethod(baseMethod)
                             .withAddedHeader(header, overrideMethod);
-                        HttpResponse response = api.http().sendRequest(modifiedRequest).response();
                         String payload = baseMethod + " + " + header + ": " + overrideMethod;
-                        resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
+                        if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                            return;
+                        }
                         count++;
                     } catch (NullPointerException e) {
                         return;
@@ -170,7 +157,7 @@ public class VerbAttack implements AttackStrategy {
         }
 
         // Test 6: Parameter location variations for POST/PUT/PATCH
-        count += testParameterVariations(api, baseRequest, resultCallback, shouldContinue, rateLimiter);
+        count += testParameterVariations(api, baseRequest, resultCallback, shouldContinue, rateLimiter, attackExecutor);
 
         try {
             api.logging().logToOutput("Verb Attack completed: " + count + " results sent");
@@ -209,7 +196,8 @@ public class VerbAttack implements AttackStrategy {
     private int testParameterVariations(MontoyaApi api, HttpRequest baseRequest,
                                        Consumer<AttackResult> resultCallback,
                                        BooleanSupplier shouldContinue,
-                                       RateLimiter rateLimiter) {
+                                       RateLimiter rateLimiter,
+                                       AttackExecutor attackExecutor) {
         int count = 0;
 
         // Only test variations for methods that support bodies
@@ -232,14 +220,10 @@ public class VerbAttack implements AttackStrategy {
                 if (!shouldContinue.getAsBoolean()) return count;
 
                 try {
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     HttpRequest request = moveQueryToBody(baseRequest, method, queryParams);
-                    HttpResponse response = api.http().sendRequest(request).response();
-                    resultCallback.accept(new AttackResult(getAttackType(),
-                        method + " (params query→body)", request, response));
+                    if (!attackExecutor.execute(getAttackType(), method + " (params query→body)", request, resultCallback, shouldContinue, rateLimiter)) {
+                        return count;
+                    }
                     count++;
                 } catch (Exception e) {
                     logError(api, "Error testing query→body: " + e.getMessage());
@@ -251,14 +235,10 @@ public class VerbAttack implements AttackStrategy {
                 if (!shouldContinue.getAsBoolean()) return count;
 
                 try {
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     HttpRequest request = moveBodyToQuery(baseRequest, method, bodyParams);
-                    HttpResponse response = api.http().sendRequest(request).response();
-                    resultCallback.accept(new AttackResult(getAttackType(),
-                        method + " (params body→query)", request, response));
+                    if (!attackExecutor.execute(getAttackType(), method + " (params body→query)", request, resultCallback, shouldContinue, rateLimiter)) {
+                        return count;
+                    }
                     count++;
                 } catch (Exception e) {
                     logError(api, "Error testing body→query: " + e.getMessage());
@@ -271,15 +251,11 @@ public class VerbAttack implements AttackStrategy {
                 if (!shouldContinue.getAsBoolean()) return count;
 
                 try {
-                    if (rateLimiter != null) {
-                        rateLimiter.waitBeforeRequest();
-                    }
-
                     String params = queryParams != null ? queryParams : bodyParams;
                     HttpRequest request = putParamsInBoth(baseRequest, method, params);
-                    HttpResponse response = api.http().sendRequest(request).response();
-                    resultCallback.accept(new AttackResult(getAttackType(),
-                        method + " (params in query+body)", request, response));
+                    if (!attackExecutor.execute(getAttackType(), method + " (params in query+body)", request, resultCallback, shouldContinue, rateLimiter)) {
+                        return count;
+                    }
                     count++;
                 } catch (Exception e) {
                     logError(api, "Error testing params in both: " + e.getMessage());

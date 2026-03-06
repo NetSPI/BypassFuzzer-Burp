@@ -2,11 +2,11 @@ package com.bypassfuzzer.burp.ui;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.bypassfuzzer.burp.session.FuzzingSessionController;
+import com.bypassfuzzer.burp.session.SessionRegistry;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Main UI tab for the BypassFuzzer extension.
@@ -16,13 +16,12 @@ public class BypassFuzzerTab extends JPanel {
 
     private final MontoyaApi api;
     private final JTabbedPane tabbedPane;
-    private final List<FuzzingSessionTab> sessionTabs;
-    private int sessionCounter = 1;
+    private final SessionRegistry sessionRegistry;
 
     public BypassFuzzerTab(MontoyaApi api) {
         this.api = api;
         this.tabbedPane = new JTabbedPane();
-        this.sessionTabs = new ArrayList<>();
+        this.sessionRegistry = new SessionRegistry(api);
         initializeUI();
     }
 
@@ -117,9 +116,8 @@ public class BypassFuzzerTab extends JPanel {
      * @param request The HTTP request to fuzz
      */
     public void loadRequest(HttpRequest request) {
-        // Create new session tab
-        FuzzingSessionTab sessionTab = new FuzzingSessionTab(api, request);
-        sessionTabs.add(sessionTab);
+        FuzzingSessionController sessionController = sessionRegistry.createSession(request);
+        FuzzingSessionTab sessionTab = new FuzzingSessionTab(api, sessionController);
 
         // Add tab with close button
         int tabIndex = tabbedPane.getTabCount();
@@ -130,7 +128,6 @@ public class BypassFuzzerTab extends JPanel {
         tabbedPane.setSelectedIndex(tabIndex);
 
         api.logging().logToOutput("New fuzzing session created: " + request.url());
-        sessionCounter++;
     }
 
     /**
@@ -144,14 +141,14 @@ public class BypassFuzzerTab extends JPanel {
             // API may be unavailable during unload
         }
 
-        for (FuzzingSessionTab sessionTab : sessionTabs) {
-            try {
+        for (int index = 0; index < tabbedPane.getTabCount(); index++) {
+            Component component = tabbedPane.getComponentAt(index);
+            if (component instanceof FuzzingSessionTab sessionTab) {
                 sessionTab.cleanup();
-            } catch (Exception e) {
-                // Ignore errors during cleanup
             }
         }
-        sessionTabs.clear();
+
+        sessionRegistry.closeAllSessions();
 
         try {
             api.logging().logToOutput("BypassFuzzer cleanup completed");
@@ -190,6 +187,11 @@ public class BypassFuzzerTab extends JPanel {
                         JOptionPane.YES_NO_OPTION
                     );
                     if (confirm == JOptionPane.YES_OPTION) {
+                        Component tabContent = tabbedPane.getComponentAt(currentIndex);
+                        if (tabContent instanceof FuzzingSessionTab sessionTab) {
+                            sessionTab.cleanup();
+                            sessionRegistry.closeSession(sessionTab.getSessionId());
+                        }
                         tabbedPane.removeTabAt(currentIndex);
                     }
                 }

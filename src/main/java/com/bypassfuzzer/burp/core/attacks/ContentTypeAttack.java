@@ -21,7 +21,7 @@ public class ContentTypeAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                        Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                       RateLimiter rateLimiter) {
+                       RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         try {
             api.logging().logToOutput("Starting Content-Type Attack");
@@ -74,14 +74,10 @@ public class ContentTypeAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest request = convertToUrlEncoded(requestToModify, params);
-                HttpResponse response = api.http().sendRequest(request).response();
-                resultCallback.accept(new AttackResult(getAttackType(),
-                    "Content-Type: URL-encoded", request, response));
+                if (!attackExecutor.execute(getAttackType(), "Content-Type: URL-encoded", request, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (Exception e) {
                 logError(api, "Error converting to URL-encoded: " + e.getMessage());
@@ -96,14 +92,10 @@ public class ContentTypeAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest request = convertToJson(requestToModify, params);
-                HttpResponse response = api.http().sendRequest(request).response();
-                resultCallback.accept(new AttackResult(getAttackType(),
-                    "Content-Type: JSON", request, response));
+                if (!attackExecutor.execute(getAttackType(), "Content-Type: JSON", request, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (Exception e) {
                 logError(api, "Error converting to JSON: " + e.getMessage());
@@ -118,14 +110,10 @@ public class ContentTypeAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest request = convertToXml(requestToModify, params);
-                HttpResponse response = api.http().sendRequest(request).response();
-                resultCallback.accept(new AttackResult(getAttackType(),
-                    "Content-Type: XML", request, response));
+                if (!attackExecutor.execute(getAttackType(), "Content-Type: XML", request, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (Exception e) {
                 logError(api, "Error converting to XML: " + e.getMessage());
@@ -140,14 +128,10 @@ public class ContentTypeAttack implements AttackStrategy {
             }
 
             try {
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
-
                 HttpRequest request = convertToMultipart(requestToModify, params);
-                HttpResponse response = api.http().sendRequest(request).response();
-                resultCallback.accept(new AttackResult(getAttackType(),
-                    "Content-Type: multipart/form-data", request, response));
+                if (!attackExecutor.execute(getAttackType(), "Content-Type: multipart/form-data", request, resultCallback, shouldContinue, rateLimiter)) {
+                    return;
+                }
                 count++;
             } catch (Exception e) {
                 logError(api, "Error converting to multipart: " + e.getMessage());

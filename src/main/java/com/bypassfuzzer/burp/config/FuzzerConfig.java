@@ -1,6 +1,11 @@
 package com.bypassfuzzer.burp.config;
 
+import com.bypassfuzzer.burp.core.attacks.AttackType;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -233,20 +238,31 @@ public class FuzzerConfig {
     /**
      * Get list of enabled attack types as lowercase strings.
      */
-    public java.util.List<String> getAttackTypes() {
-        java.util.List<String> types = new java.util.ArrayList<>();
-        if (enableHeaderAttack) types.add("header");
-        if (enablePathAttack) types.add("path");
-        if (enableVerbAttack) types.add("verb");
-        if (enableParamAttack) types.add("param");
-        if (enableTrailingDotAttack) types.add("trailingdot");
-        if (enableProtocolAttack) types.add("protocol");
-        if (enableCaseAttack) types.add("case");
-        if (enableTrailingSlashAttack) types.add("trailingslash");
-        if (enableExtensionAttack) types.add("extension");
-        if (enableContentTypeAttack) types.add("contenttype");
-        if (enableEncodingAttack) types.add("encoding");
-        if (enableCookieParamAttack) types.add("cookie");
+    public Set<AttackType> getEnabledAttackTypes() {
+        Set<AttackType> types = EnumSet.noneOf(AttackType.class);
+        if (enableHeaderAttack) types.add(AttackType.HEADER);
+        if (enablePathAttack) types.add(AttackType.PATH);
+        if (enableVerbAttack) types.add(AttackType.VERB);
+        if (enableParamAttack) types.add(AttackType.PARAM);
+        if (enableTrailingDotAttack) types.add(AttackType.TRAILING_DOT);
+        if (enableProtocolAttack) types.add(AttackType.PROTOCOL);
+        if (enableCaseAttack) types.add(AttackType.CASE);
+        if (enableTrailingSlashAttack) types.add(AttackType.TRAILING_SLASH);
+        if (enableExtensionAttack) types.add(AttackType.EXTENSION);
+        if (enableContentTypeAttack) types.add(AttackType.CONTENT_TYPE);
+        if (enableEncodingAttack) types.add(AttackType.ENCODING);
+        if (enableCookieParamAttack) types.add(AttackType.COOKIE);
+        return types;
+    }
+
+    /**
+     * Legacy helper retained while UI code still formats attack identifiers for display/logging.
+     */
+    public List<String> getAttackTypes() {
+        List<String> types = new ArrayList<>();
+        for (AttackType type : getEnabledAttackTypes()) {
+            types.add(type.id());
+        }
         return types;
     }
 }

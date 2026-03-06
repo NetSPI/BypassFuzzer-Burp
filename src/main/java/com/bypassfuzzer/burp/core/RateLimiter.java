@@ -40,9 +40,9 @@ public class RateLimiter {
     /**
      * Wait before sending the next request according to rate limit.
      */
-    public void waitBeforeRequest() {
+    public boolean waitBeforeRequest() {
         if (delayMs <= 0) {
-            return; // No rate limiting
+            return !Thread.currentThread().isInterrupted();
         }
 
         long currentTime = System.currentTimeMillis();
@@ -54,10 +54,12 @@ public class RateLimiter {
                 Thread.sleep(sleepTime);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                return false;
             }
         }
 
         lastRequestTime.set(System.currentTimeMillis());
+        return !Thread.currentThread().isInterrupted();
     }
 
     /**

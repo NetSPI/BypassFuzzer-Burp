@@ -4,8 +4,9 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.*;
+import com.bypassfuzzer.burp.http.MontoyaRequestSender;
+import com.bypassfuzzer.burp.http.TargetUrlResolver;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -19,10 +20,14 @@ public class FuzzerEngine {
     private volatile boolean running = false;
     private Thread fuzzerThread;
     private RateLimiter rateLimiter;
+    private final TargetUrlResolver targetUrlResolver;
+    private final AttackRegistry attackRegistry;
 
     public FuzzerEngine(MontoyaApi api, FuzzerConfig config) {
         this.api = api;
         this.config = config;
+        this.targetUrlResolver = new TargetUrlResolver();
+        this.attackRegistry = new AttackRegistry();
     }
 
     /**
@@ -31,10 +36,14 @@ public class FuzzerEngine {
      * @param request The HTTP request to fuzz
      * @param resultCallback Callback to handle each result as it comes in
      */
-    public void startFuzzing(HttpRequest request, Consumer<AttackResult> resultCallback) {
+    public boolean startFuzzing(HttpRequest request, Consumer<AttackResult> resultCallback) {
+        return startFuzzing(request, resultCallback, null);
+    }
+
+    public boolean startFuzzing(HttpRequest request, Consumer<AttackResult> resultCallback, Runnable completionCallback) {
         if (running) {
             safeLog("Fuzzer is already running!");
-            return;
+            return false;
         }
 
         // Wait for previous thread to finish if it exists
@@ -61,10 +70,14 @@ public class FuzzerEngine {
                 safeLogError("Fuzzer error: " + e.getMessage());
             } finally {
                 running = false;
+                if (completionCallback != null) {
+                    completionCallback.run();
+                }
             }
-        });
+        }, "bypassfuzzer-engine");
 
         fuzzerThread.start();
+        return true;
     }
 
     /**
@@ -102,31 +115,12 @@ public class FuzzerEngine {
     }
 
     private void executeFuzzing(HttpRequest request, Consumer<AttackResult> resultCallback) {
-        String targetUrl = request.url();
-
-        // Handle case where url() might return null or just a path
-        if (targetUrl == null || targetUrl.isEmpty()) {
-            safeLog("Error: Unable to determine target URL from request");
-            running = false;
+        final String targetUrl;
+        try {
+            targetUrl = targetUrlResolver.resolve(request);
+        } catch (IllegalArgumentException e) {
+            safeLog("Error: " + e.getMessage());
             return;
-        }
-
-        // If targetUrl is just a path (e.g., "/"), reconstruct full URL from Host header
-        if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-            String host = request.headerValue("Host");
-            if (host != null && !host.isEmpty()) {
-                // Determine protocol - assume HTTPS if port 443, otherwise HTTP
-                String protocol = "http";
-                if (host.contains(":443") || request.isInScope()) {
-                    protocol = "https";
-                }
-                targetUrl = protocol + "://" + host + targetUrl;
-                safeLog("Reconstructed full URL from Host header: " + targetUrl);
-            } else {
-                safeLog("Error: No Host header found and URL is not absolute");
-                running = false;
-                return;
-            }
         }
 
         // Initialize rate limiter
@@ -139,7 +133,7 @@ public class FuzzerEngine {
 
         safeLog("=== BypassFuzzer Started ===");
         safeLog("Target: " + targetUrl);
-        safeLog("Attack types enabled: " + String.join(", ", config.getAttackTypes()));
+        safeLog("Attack types enabled: " + formatEnabledAttackTypes());
 
         if (config.getRequestsPerSecond() > 0) {
             safeLog("Rate limit: " + config.getRequestsPerSecond() + " requests/second");
@@ -151,28 +145,21 @@ public class FuzzerEngine {
             safeLog("Auto-throttle enabled for status codes: " + config.getThrottleStatusCodes());
         }
 
-        List<AttackStrategy> strategies = buildAttackStrategies(targetUrl);
-        safeLog("Built " + strategies.size() + " attack strategies");
+        List<RegisteredAttack> attacks = attackRegistry.buildEnabledAttacks(config, targetUrl);
+        AttackExecutor attackExecutor = new AttackExecutor(new MontoyaRequestSender(api));
+        safeLog("Built " + attacks.size() + " attack strategies");
 
-        for (AttackStrategy strategy : strategies) {
+        for (RegisteredAttack attack : attacks) {
             if (!running) {
                 safeLog("Fuzzer stopped during execution");
                 break;
             }
 
-            String attackTypeLower = strategy.getAttackType().toLowerCase();
-            boolean enabled = config.getAttackTypes().contains(attackTypeLower);
-
-            if (!enabled) {
-                safeLog("Skipping " + strategy.getAttackType() + " (disabled in config)");
-                continue;
-            }
-
-            safeLog("\n=== Executing " + strategy.getAttackType() + " Attack ===");
+            safeLog("\n=== Executing " + attack.type().displayName() + " Attack ===");
 
             try {
                 // Pass callback and running check to strategy - results sent immediately as they're generated
-                strategy.execute(api, request, targetUrl, result -> {
+                attack.strategy().execute(api, request, targetUrl, result -> {
                     if (running) {
                         try {
                             resultCallback.accept(result);
@@ -184,10 +171,10 @@ public class FuzzerEngine {
                             safeLogError("Error sending result to UI callback: " + callbackEx.getMessage());
                         }
                     }
-                }, () -> running, rateLimiter);
+                }, () -> running, rateLimiter, attackExecutor);
 
             } catch (Exception e) {
-                safeLogError("Error in " + strategy.getAttackType() + " attack: " + e.getMessage());
+                safeLogError("Error in " + attack.type().displayName() + " attack: " + e.getMessage());
             }
         }
 
@@ -220,47 +207,10 @@ public class FuzzerEngine {
         }
     }
 
-    private List<AttackStrategy> buildAttackStrategies(String targetUrl) {
-        List<AttackStrategy> strategies = new ArrayList<>();
-
-        // Order matches Python implementation
-        if (config.isEnableHeaderAttack()) {
-            strategies.add(new HeaderAttack(targetUrl, config.getOobPayload(), config.isEnableCollaboratorPayloads()));
-        }
-        if (config.isEnablePathAttack()) {
-            strategies.add(new PathAttack(targetUrl));
-        }
-        if (config.isEnableVerbAttack()) {
-            strategies.add(new VerbAttack());
-        }
-        if (config.isEnableParamAttack()) {
-            strategies.add(new ParamAttack());
-        }
-        if (config.isEnableCookieParamAttack()) {
-            strategies.add(new CookieParamAttack(config.isEnableFuzzExistingCookies()));
-        }
-        if (config.isEnableTrailingDotAttack()) {
-            strategies.add(new TrailingDotAttack());
-        }
-        if (config.isEnableTrailingSlashAttack()) {
-            strategies.add(new TrailingSlashAttack());
-        }
-        if (config.isEnableExtensionAttack()) {
-            strategies.add(new ExtensionAttack(targetUrl));
-        }
-        if (config.isEnableContentTypeAttack()) {
-            strategies.add(new ContentTypeAttack());
-        }
-        if (config.isEnableEncodingAttack()) {
-            strategies.add(new EncodingAttack());
-        }
-        if (config.isEnableProtocolAttack()) {
-            strategies.add(new ProtocolAttack());
-        }
-        if (config.isEnableCaseAttack()) {
-            strategies.add(new CaseAttack());
-        }
-
-        return strategies;
+    private String formatEnabledAttackTypes() {
+        return config.getEnabledAttackTypes().stream()
+            .map(AttackType::displayName)
+            .toList()
+            .toString();
     }
 }

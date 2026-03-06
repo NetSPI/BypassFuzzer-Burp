@@ -30,7 +30,7 @@ public class CaseAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
-                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> urlVariations = buildUrlVariations(targetUrl);
 
@@ -54,19 +54,9 @@ public class CaseAttack implements AttackStrategy {
             try {
                 // Create new request with modified URL
                 HttpRequest modifiedRequest = originalRequest.withPath(urlVariation);
-
-                // Send request
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                // Create result
-                AttackResult result = new AttackResult(
-                    ATTACK_TYPE,
-                    urlVariation,
-                    modifiedRequest,
-                    response
-                );
-
-                resultCallback.accept(result);
+                if (!attackExecutor.execute(ATTACK_TYPE, urlVariation, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                    break;
+                }
                 count++;
 
             } catch (Exception e) {

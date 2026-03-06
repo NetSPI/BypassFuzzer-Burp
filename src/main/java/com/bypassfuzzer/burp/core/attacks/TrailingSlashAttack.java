@@ -29,7 +29,7 @@ public class TrailingSlashAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
-                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter) {
+                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
@@ -76,25 +76,10 @@ public class TrailingSlashAttack implements AttackStrategy {
                     }
                 }
 
-                // Create new request with modified URL
-                // Apply rate limiting
-                if (rateLimiter != null) {
-                    rateLimiter.waitBeforeRequest();
-                }
                 HttpRequest modifiedRequest = originalRequest.withPath(urlVariation);
-
-                // Send request
-                HttpResponse response = api.http().sendRequest(modifiedRequest).response();
-
-                // Create result
-                AttackResult result = new AttackResult(
-                    ATTACK_TYPE,
-                    urlVariation,
-                    modifiedRequest,
-                    response
-                );
-
-                resultCallback.accept(result);
+                if (!attackExecutor.execute(ATTACK_TYPE, urlVariation, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
+                    break;
+                }
                 count++;
 
             } catch (Exception e) {

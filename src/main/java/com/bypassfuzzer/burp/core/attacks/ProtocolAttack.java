@@ -2,13 +2,12 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.core.ByteArray;
 import com.bypassfuzzer.burp.core.RateLimiter;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -17,7 +16,7 @@ public class ProtocolAttack implements AttackStrategy {
     private static final int REQUEST_TIMEOUT_SECONDS = 5;
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         try {
             api.logging().logToOutput("Starting Protocol Attack");
         } catch (Exception e) {
@@ -35,12 +34,21 @@ public class ProtocolAttack implements AttackStrategy {
             try {
                 api.logging().logToOutput("Testing protocol: " + version);
                 HttpRequest modifiedRequest = buildRequestWithVersion(api, baseRequest, version);
-                HttpResponse response = sendRequestWithTimeout(api, modifiedRequest, version, shouldContinue, rateLimiter);
+                AttackExecutionResult result = attackExecutor.executeWithTimeout(
+                    getAttackType(),
+                    "Protocol: " + version,
+                    modifiedRequest,
+                    resultCallback,
+                    shouldContinue,
+                    rateLimiter,
+                    REQUEST_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS
+                );
 
-                if (response != null) {
-                    String payload = "Protocol: " + version;
-                    resultCallback.accept(new AttackResult(getAttackType(), payload, modifiedRequest, response));
-                    api.logging().logToOutput("Protocol " + version + " completed with status: " + response.statusCode());
+                if (result.outcome() == AttackExecutionOutcome.EXECUTED) {
+                    api.logging().logToOutput("Protocol " + version + " completed with status: " + result.response().statusCode());
+                } else if (result.outcome() == AttackExecutionOutcome.STOPPED) {
+                    return;
                 } else {
                     api.logging().logToOutput("Protocol " + version + " timed out after " + REQUEST_TIMEOUT_SECONDS + " seconds");
                 }
@@ -112,44 +120,6 @@ public class ProtocolAttack implements AttackStrategy {
 
         return baseRequest;
     }
-
-    private HttpResponse sendRequestWithTimeout(MontoyaApi api, HttpRequest request, String version, BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<HttpResponse> future = null;
-
-        try {
-            future = executor.submit(() -> {
-                try {
-                    return api.http().sendRequest(request).response();
-                } catch (Exception e) {
-                    return null;
-                }
-            });
-
-            HttpResponse response = future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            return response;
-        } catch (TimeoutException e) {
-            try {
-                api.logging().logToOutput(version + " request TIMED OUT after " + REQUEST_TIMEOUT_SECONDS + " seconds");
-            } catch (Exception logError) {}
-            if (future != null) {
-                future.cancel(true);
-            }
-            return null;
-        } catch (InterruptedException e) {
-            return null;
-        } catch (Exception e) {
-            return null;
-        } finally {
-            try {
-                executor.shutdownNow();
-                executor.awaitTermination(1, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                // Ignore
-            }
-        }
-    }
-
     @Override
     public String getAttackType() {
         return "Protocol";
