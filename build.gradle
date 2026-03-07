@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bypassfuzzer'
-version = '1.0.4'
+version = '1.0.5'
 
 repositories {
     mavenCentral()
@@ -30,7 +30,14 @@ java {
 }
 
 // Create fat JAR with dependencies
+tasks.register('cleanShadowJarArtifacts', Delete) {
+    delete fileTree(layout.buildDirectory.dir('libs')) {
+        include 'bypassfuzzer-burp-*.jar'
+    }
+}
+
 shadowJar {
+    dependsOn tasks.named('cleanShadowJarArtifacts')
     archiveClassifier.set('')
     archiveBaseName.set('bypassfuzzer-burp')
     minimize()

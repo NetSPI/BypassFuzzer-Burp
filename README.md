@@ -46,7 +46,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 ./gradlew clean shadowJar
 
 # The compiled JAR will be at:
-# build/libs/bypassfuzzer-burp-1.0.4.jar
+# build/libs/bypassfuzzer-burp-1.0.5.jar
 ```
 
 ## Testing
@@ -66,7 +66,7 @@ The smoke suite starts a local vulnerable app automatically and exercises the re
 1. Open Burp Suite
 2. Go to **Extensions** → **Installed**
 3. Click **Add**
-4. Select **Extension file**: `bypassfuzzer-burp-1.0.4.jar`
+4. Select **Extension file**: `bypassfuzzer-burp-1.0.5.jar`
 5. Click **Next**
 6. The extension will load and a "BypassFuzzer" tab will appear
 
