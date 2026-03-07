@@ -6,6 +6,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.payloads.HeaderPayloadProcessor;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
+import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -75,10 +76,10 @@ public class HeaderAttack implements AttackStrategy {
                 if (headerValue.endsWith(" [PATH_SWAP]")) {
                     // Remove marker, swap path to /
                     headerValue = headerValue.replace(" [PATH_SWAP]", "");
-                    modifiedRequest = baseRequest.withPath("/").withAddedHeader(headerName, headerValue);
+                    modifiedRequest = RequestHeaderUtils.applyAttackHeader(baseRequest.withPath("/"), headerName, headerValue);
                     displayPayload = headerName + ": " + headerValue + " (path→/)";
                 } else {
-                    modifiedRequest = baseRequest.withAddedHeader(headerName, headerValue);
+                    modifiedRequest = RequestHeaderUtils.applyAttackHeader(baseRequest, headerName, headerValue);
                     displayPayload = payload;
                 }
 

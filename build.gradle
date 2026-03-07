@@ -40,5 +40,14 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+tasks.register('smokeTestPlaybooks', Test) {
+    useJUnitPlatform()
+    description = 'Runs attack-driven smoke tests against the local vulnerable smoke lab.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    include '**/AttackPlaybookSmokeTest.class'
+}
+
 // Make shadowJar the default build artifact
 build.dependsOn shadowJar

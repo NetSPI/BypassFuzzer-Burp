@@ -116,7 +116,7 @@ public class CookieParamAttack implements AttackStrategy {
 
             try {
                 HttpRequest modifiedRequest = existingCookie != null && !existingCookie.isEmpty()
-                    ? originalRequest.withUpdatedHeader("Cookie", CookieHeaderUtils.appendCookie(existingCookie, param))
+                    ? originalRequest.withUpdatedHeader("Cookie", CookieHeaderUtils.upsertCookie(existingCookie, param))
                     : originalRequest.withAddedHeader("Cookie", param);
 
                 if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {

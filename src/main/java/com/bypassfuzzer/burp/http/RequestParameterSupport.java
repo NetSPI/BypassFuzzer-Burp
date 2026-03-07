@@ -56,8 +56,8 @@ public final class RequestParameterSupport {
     public static List<LocatedParameter> extractLocatedParameters(HttpRequest request) {
         List<LocatedParameter> params = new ArrayList<>();
 
-        for (Map.Entry<String, String> entry : QueryStringUtils.parseRaw(request.query()).entrySet()) {
-            params.add(new LocatedParameter(entry.getKey(), entry.getValue(), ParameterLocation.QUERY));
+        for (QueryStringUtils.QueryParameter parameter : QueryStringUtils.parseRawParameters(request.query())) {
+            params.add(new LocatedParameter(parameter.name(), parameter.value(), ParameterLocation.QUERY));
         }
 
         String contentType = request.headerValue("Content-Type");
@@ -68,6 +68,14 @@ public final class RequestParameterSupport {
         }
 
         return params;
+    }
+
+    public static HttpRequest prepareForBodyFormat(HttpRequest request, String method) {
+        HttpRequest preparedRequest = request.withMethod(method);
+        if (request.query() == null || request.query().isEmpty()) {
+            return preparedRequest;
+        }
+        return preparedRequest.withPath(request.pathWithoutQuery());
     }
 
     public static HttpRequest applyBodyFormat(HttpRequest request, Map<String, String> params, RequestBodyFormat format) {

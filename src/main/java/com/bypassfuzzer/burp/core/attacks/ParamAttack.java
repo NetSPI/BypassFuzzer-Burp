@@ -8,7 +8,6 @@ import com.bypassfuzzer.burp.http.QueryStringUtils;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 
 import java.util.List;
-import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -62,12 +61,15 @@ public class ParamAttack implements AttackStrategy {
                                        Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
                                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
-        Map<String, String> existingParams = QueryStringUtils.parsePathQueryDecoded(basePath);
-        if (existingParams.isEmpty()) {
+        List<String> existingParamNames = QueryStringUtils.parseDecodedParameters(RequestPathUtils.queryFromPath(basePath)).stream()
+            .map(QueryStringUtils.QueryParameter::name)
+            .distinct()
+            .toList();
+        if (existingParamNames.isEmpty()) {
             return;
         }
 
-        for (String paramName : existingParams.keySet()) {
+        for (String paramName : existingParamNames) {
             for (String fuzzValue : FUZZ_VALUES) {
                 if (!isRunning.getAsBoolean()) {
                     return;
@@ -104,7 +106,7 @@ public class ParamAttack implements AttackStrategy {
             }
 
             try {
-                String modifiedPath = RequestPathUtils.appendQueryParameter(basePath, param);
+                String modifiedPath = QueryStringUtils.upsertParameter(basePath, param);
                 HttpRequest modifiedRequest = originalRequest.withPath(modifiedPath);
                 if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
                     break;

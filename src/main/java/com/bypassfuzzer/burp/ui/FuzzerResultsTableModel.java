@@ -4,7 +4,9 @@ import com.bypassfuzzer.burp.core.attacks.AttackResult;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Thread-safe table model for fuzzer results.
@@ -17,10 +19,14 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
 
     private final List<AttackResult> results;
     private final List<AttackResult> allResults; // Unfiltered results
+    private final Map<AttackResult, Integer> resultIds;
+    private int nextResultId;
 
     public FuzzerResultsTableModel() {
         this.results = new ArrayList<>();
         this.allResults = new ArrayList<>();
+        this.resultIds = new HashMap<>();
+        this.nextResultId = 1;
     }
 
     @Override
@@ -52,7 +58,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
         AttackResult result = results.get(rowIndex);
 
         return switch (columnIndex) {
-            case 0 -> rowIndex + 1; // Row number (1-indexed)
+            case 0 -> resultIds.getOrDefault(result, 0);
             case 1 -> result.getAttackType();
             case 2 -> truncatePayload(result.getPayload(), 100);
             case 3 -> result.getStatusCode();
@@ -75,6 +81,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
      * @param passesFilter Whether this result passes the current filter
      */
     public synchronized void addResult(AttackResult result, boolean passesFilter) {
+        resultIds.putIfAbsent(result, nextResultId++);
         allResults.add(result);
 
         if (passesFilter) {
@@ -137,6 +144,8 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
     public synchronized void clear() {
         results.clear();
         allResults.clear();
+        resultIds.clear();
+        nextResultId = 1;
         fireTableDataChanged();
     }
 

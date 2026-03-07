@@ -15,6 +15,8 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
+import javax.swing.RowSorter;
+import javax.swing.SortOrder;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -157,6 +159,7 @@ public class SessionResultsPanel extends JPanel {
         sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));
         sorter.setComparator(3, Comparator.comparingInt(o -> (Integer) o));
         sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
+        sorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
         resultsTable.setRowSorter(sorter);
     }
 

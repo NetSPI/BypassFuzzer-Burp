@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.attacks;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -104,7 +105,7 @@ public class VerbAttack implements AttackStrategy {
                 }
 
                 try {
-                    HttpRequest modifiedRequest = baseRequest.withAddedHeader(header, method);
+                    HttpRequest modifiedRequest = RequestHeaderUtils.upsertHeader(baseRequest, header, method);
                     if (!attackExecutor.execute(getAttackType(), header + ": " + method, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
                         return;
                     }
@@ -126,7 +127,7 @@ public class VerbAttack implements AttackStrategy {
                     }
 
                     try {
-                        HttpRequest modifiedRequest = baseRequest.withMethod(baseMethod).withAddedHeader(header, overrideMethod);
+                        HttpRequest modifiedRequest = RequestHeaderUtils.upsertHeader(baseRequest.withMethod(baseMethod), header, overrideMethod);
                         String payload = baseMethod + " + " + header + ": " + overrideMethod;
                         if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
                             return;

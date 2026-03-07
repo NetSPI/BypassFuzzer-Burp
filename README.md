@@ -29,6 +29,9 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
   - Send results to Repeater/Intruder
   - Graceful shutdown and resource cleanup
 - Colorize interesting requests for future filtering
+- **Smoke Testing:**
+  - Local vulnerable smoke lab under `src/test/smoke_lab`
+  - Attack-driven smoke suite that reuses the real attack classes and payload logic without Burp
 
 ## Requirements
 
@@ -45,6 +48,18 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 # The compiled JAR will be at:
 # build/libs/bypassfuzzer-burp-1.0.4.jar
 ```
+
+## Testing
+
+```bash
+# Unit and regression tests
+./gradlew test
+
+# Attack-driven smoke suite
+./gradlew smokeTestPlaybooks
+```
+
+The smoke suite starts a local vulnerable app automatically and exercises the real attack strategies, payload expansion, registry wiring, and shared executor flow without requiring Burp.
 
 ## Installation
 
@@ -86,9 +101,27 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 5. **Scan History:**
    - Export results to CSV/JSON (TODO)
 
+## Smoke Lab
+
+For manual Burp validation and local attack smoke tests, use the vulnerable app in [`src/test/smoke_lab`](src/test/smoke_lab).
+
+Manual run:
+
+```bash
+python3 src/test/smoke_lab/app.py
+```
+
+Then:
+
+1. Request `GET /login` to receive `session=lab-user`
+2. Use `/admin`, `/api/admin/settings`, and `/protocol/admin` as base targets
+3. Run the extension against those requests or execute `./gradlew smokeTestPlaybooks`
+
+The detailed route matrix and black-box lab checks are documented in [`src/test/smoke_lab/README.md`](src/test/smoke_lab/README.md).
+
 ## Custom Payloads
 
-You can edit the payload files beforee building. UI config for this will be added in a future release.
+You can edit the payload files before building. UI config for this will be added in a future release.
 
 1. **Header Templates:** One template per line, use placeholders:
    - `{IP PAYLOAD}` - Replaced with IP addresses from ip_payloads.txt

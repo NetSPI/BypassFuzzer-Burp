@@ -44,7 +44,7 @@ public class ContentTypeAttack implements AttackStrategy {
             } catch (Exception e) {
                 // Ignore
             }
-            requestToModify = baseRequest.withMethod("POST");
+            requestToModify = RequestParameterSupport.prepareForBodyFormat(baseRequest, "POST");
         }
 
         String currentContentType = requestToModify.headerValue("Content-Type");

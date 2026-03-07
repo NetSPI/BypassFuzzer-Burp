@@ -38,4 +38,32 @@ class QueryStringUtilsTest {
 
         assertEquals("first=1&second=2", QueryStringUtils.toQueryString(params));
     }
+
+    @Test
+    void upsertsParameterByReplacingExistingName() {
+        String updated = QueryStringUtils.upsertParameter("/admin?debug=false&role=user", "debug=true");
+
+        assertEquals("/admin?debug=true&role=user", updated);
+    }
+
+    @Test
+    void upsertsParameterByAppendingWhenNameDoesNotExist() {
+        String updated = QueryStringUtils.upsertParameter("/admin?role=user", "debug=true");
+
+        assertEquals("/admin?role=user&debug=true", updated);
+    }
+
+    @Test
+    void replacesDuplicateParameterValuesWithoutCollapsingThem() {
+        String updated = QueryStringUtils.replaceValue("/admin?debug=1&debug=2&role=user", "debug", "true");
+
+        assertEquals("/admin?debug=true&debug=true&role=user", updated);
+    }
+
+    @Test
+    void upsertsParameterWithoutDiscardingDuplicateNames() {
+        String updated = QueryStringUtils.upsertParameter("/admin?debug=1&debug=2&role=user", "debug=true");
+
+        assertEquals("/admin?debug=true&debug=true&role=user", updated);
+    }
 }

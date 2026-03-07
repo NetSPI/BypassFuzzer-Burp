@@ -92,6 +92,33 @@ class RequestParameterSupportTest {
         assertEquals("", movedToQuery.bodyToString());
     }
 
+    @Test
+    void preparesQueryOnlyRequestForBodyFormatByDroppingTheQuery() {
+        HttpRequest request = request("/admin?debug=1&role=user", "debug=1&role=user", "GET", null, "");
+
+        HttpRequest prepared = RequestParameterSupport.prepareForBodyFormat(request, "POST");
+
+        assertEquals("POST", prepared.method());
+        assertEquals("/admin", prepared.path());
+        assertEquals("", prepared.query());
+    }
+
+    @Test
+    void preservesDuplicateQueryParametersWhenExtractingLocatedParameters() {
+        HttpRequest request = request("/admin?debug=1&debug=2&role=user", "debug=1&debug=2&role=user", "GET", null, "");
+
+        List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(request);
+
+        assertEquals(
+            List.of(
+                new LocatedParameter("debug", "1", ParameterLocation.QUERY),
+                new LocatedParameter("debug", "2", ParameterLocation.QUERY),
+                new LocatedParameter("role", "user", ParameterLocation.QUERY)
+            ),
+            params
+        );
+    }
+
     private HttpRequest request(String path, String query, String method, String contentType, String body) {
         ByteArray byteArray = byteArray(body.length());
 

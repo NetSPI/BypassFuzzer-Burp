@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.attacks;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpService;
 import com.bypassfuzzer.burp.core.RateLimiter;
 
 import java.util.Arrays;
@@ -14,6 +15,15 @@ import java.util.function.Consumer;
 public class ProtocolAttack implements AttackStrategy {
     private static final List<String> HTTP_VERSIONS = Arrays.asList("HTTP/2", "HTTP/1.1", "HTTP/1.0", "HTTP/0.9");
     private static final int REQUEST_TIMEOUT_SECONDS = 5;
+    private final RawRequestFactory rawRequestFactory;
+
+    public ProtocolAttack() {
+        this((service, rawRequest) -> HttpRequest.httpRequest(service, ByteArray.byteArray(rawRequest)));
+    }
+
+    public ProtocolAttack(RawRequestFactory rawRequestFactory) {
+        this.rawRequestFactory = rawRequestFactory;
+    }
 
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
@@ -110,7 +120,7 @@ public class ProtocolAttack implements AttackStrategy {
                 try {
                     api.logging().logToOutput("Built " + newVersion + " request: " + newRequestLine);
                 } catch (Exception e) {}
-                return HttpRequest.httpRequest(baseRequest.httpService(), ByteArray.byteArray(newRawRequest));
+                return rawRequestFactory.create(baseRequest.httpService(), newRawRequest);
             }
         } catch (Exception e) {
             try {
@@ -123,5 +133,10 @@ public class ProtocolAttack implements AttackStrategy {
     @Override
     public String getAttackType() {
         return "Protocol";
+    }
+
+    @FunctionalInterface
+    public interface RawRequestFactory {
+        HttpRequest create(HttpService service, String rawRequest);
     }
 }
