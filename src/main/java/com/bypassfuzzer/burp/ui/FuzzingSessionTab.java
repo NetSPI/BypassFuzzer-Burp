@@ -2,35 +2,36 @@ package com.bypassfuzzer.burp.ui;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.ui.editor.HttpRequestEditor;
-import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
-import com.bypassfuzzer.burp.core.filter.*;
+import com.bypassfuzzer.burp.core.filter.ResultFilterController;
+import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import com.bypassfuzzer.burp.session.SessionPreflightAnalyzer;
 import com.bypassfuzzer.burp.session.SessionRunOptions;
 import com.bypassfuzzer.burp.session.SessionState;
 import com.bypassfuzzer.burp.ui.session.AttackSelectionPanel;
+import com.bypassfuzzer.burp.ui.session.FilterPanel;
 import com.bypassfuzzer.burp.ui.session.RunOptionsPanel;
+import com.bypassfuzzer.burp.ui.session.SessionResultsPanel;
 
-import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableRowSorter;
-import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.SwingUtilities;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Individual fuzzing session tab.
- * Each request sent to BypassFuzzer gets its own tab.
  */
 public class FuzzingSessionTab extends JPanel {
 
@@ -39,550 +40,32 @@ public class FuzzingSessionTab extends JPanel {
     private final FuzzerConfig config;
     private final HttpRequest request;
     private final String tabTitle;
-    private final SessionPreflightAnalyzer preflightAnalyzer;
+    private final SessionPreflightAnalyzer preflightAnalyzer = new SessionPreflightAnalyzer();
+    private final ResultFilterController filterController = new ResultFilterController();
 
     private JButton startButton;
     private JButton stopButton;
-    private JButton clearButton;
     private JLabel statusLabel;
-    private JTable resultsTable;
-    private FuzzerResultsTableModel tableModel;
-
+    private JLabel warningLabel;
     private AttackSelectionPanel attackSelectionPanel;
     private RunOptionsPanel runOptionsPanel;
+    private FilterPanel filterPanel;
+    private SessionResultsPanel resultsPanel;
 
-    // Request/Response viewers
-    private HttpRequestEditor requestViewer;
-    private HttpResponseEditor responseViewer;
+    private volatile boolean shuttingDown = false;
 
-    // Row coloring - map result object to color
-    private Map<AttackResult, Color> resultColors = new HashMap<>();
-    private JPopupMenu tablePopupMenu;
-
-    // Cleanup flag to prevent API calls during shutdown
-    private volatile boolean isShuttingDown = false;
-
-    // Filtering
-    private FilterConfig filterConfig;
-    private SmartFilter smartFilter;
-    private ManualFilter manualFilter;
-    private JCheckBox smartFilterCheckbox;
-    private JCheckBox manualFilterCheckbox;
-    private JTextField hideStatusCodesField;
-    private JTextField showOnlyStatusCodesField;
-    private JTextField minLengthField;
-    private JTextField maxLengthField;
-    private JTextField hideContentLengthsField;
-    private JTextField showOnlyContentLengthsField;
-    private JTextField contentTypeField;
-    private JTextField payloadContainsField;
-    private JComboBox<String> highlightColorFilter;
-    private JButton applyFilterButton;
-    private JLabel filterStatusLabel;
-    private JLabel warningLabel;
     public FuzzingSessionTab(MontoyaApi api, FuzzingSessionController sessionController) {
         this.api = api;
         this.sessionController = sessionController;
         this.request = sessionController.request();
         this.config = sessionController.config();
-        this.preflightAnalyzer = new SessionPreflightAnalyzer();
-
-        // Initialize filters
-        this.filterConfig = new FilterConfig();
-        this.smartFilter = new SmartFilter(filterConfig);
-        this.manualFilter = new ManualFilter(filterConfig);
-
-        // Create tab title from request
-        String method = request.method();
-        String path = extractPath(request.url());
-        this.tabTitle = method + " " + truncate(path, 30);
+        this.tabTitle = request.method() + " " + truncate(RequestPathUtils.extractPath(request.url()), 30);
 
         sessionController.addResultListener(this::addResult);
         sessionController.addStateListener(this::handleSessionStateChange);
 
-        initializeUI();
-    }
-
-    private void initializeUI() {
-        setLayout(new BorderLayout());
-
-        // Top panel - Controls and Attack Selection
-        JPanel topPanel = new JPanel(new BorderLayout());
-
-        // Control buttons
-        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        startButton = new JButton("Start Fuzzing");
-        startButton.addActionListener(e -> startFuzzing());
-
-        stopButton = new JButton("Stop");
-        stopButton.setEnabled(false);
-        stopButton.addActionListener(e -> stopFuzzing());
-
-        clearButton = new JButton("Clear Results");
-        clearButton.addActionListener(e -> clearResults());
-
-        controlPanel.add(startButton);
-        controlPanel.add(stopButton);
-        controlPanel.add(clearButton);
-
-        boolean collaboratorAvailable = isCollaboratorAvailable();
-        attackSelectionPanel = new AttackSelectionPanel(config, () -> warningLabel.setVisible(false));
-        runOptionsPanel = new RunOptionsPanel(config, collaboratorAvailable);
-
-        // Status label
-        statusLabel = new JLabel("Ready. Target: " + request.method() + " " + request.url());
-
-        // Warning label for skipped attacks (initially hidden)
-        warningLabel = new JLabel("");
-        warningLabel.setForeground(new Color(204, 102, 0)); // Orange color
-        warningLabel.setVisible(false);
-
-        // Combine top panels using BoxLayout for better wrapping
-        JPanel topContent = new JPanel();
-        topContent.setLayout(new BoxLayout(topContent, BoxLayout.Y_AXIS));
-
-        // Row 1: Control buttons and status
-        JPanel topRow = new JPanel(new BorderLayout());
-        topRow.add(controlPanel, BorderLayout.WEST);
-        topRow.add(statusLabel, BorderLayout.CENTER);
-        topContent.add(topRow);
-
-        // Warning row (initially hidden)
-        JPanel warningRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        warningRow.add(warningLabel);
-        topContent.add(warningRow);
-
-        // Row 2: Attack selection and options
-        JPanel middleRow = new JPanel(new BorderLayout());
-        middleRow.add(attackSelectionPanel, BorderLayout.CENTER);
-        middleRow.add(runOptionsPanel, BorderLayout.EAST);
-        topContent.add(middleRow);
-
-        topPanel.add(topContent, BorderLayout.CENTER);
-
-        // Filter panel (will be on left side)
-        JPanel filterPanel = createFilterPanel();
-        JScrollPane filterScrollPane = new JScrollPane(filterPanel);
-        filterScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        filterScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        filterScrollPane.setMinimumSize(new Dimension(250, 100));
-
-        // Center panel - Split pane with table on top and request/response on bottom
-        JSplitPane mainSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        mainSplitPane.setResizeWeight(0.4); // 40% for table, 60% for viewers
-
-        // Top of split - Results table with thread-safe model
-        tableModel = new FuzzerResultsTableModel();
-        resultsTable = new JTable(tableModel);
-        resultsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-
-        // Initialize row sorter with proper numeric comparators
-        initializeRowSorter();
-
-        // Add selection listener to show request/response
-        resultsTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int selectedRow = resultsTable.getSelectedRow();
-                if (selectedRow >= 0) {
-                    // Convert view row to model row (in case table is sorted)
-                    int modelRow = resultsTable.convertRowIndexToModel(selectedRow);
-                    showResultDetails(modelRow);
-                }
-            }
-        });
-
-        // Add custom cell renderer for row coloring and alignment
-        resultsTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
-                    boolean isSelected, boolean hasFocus, int row, int column) {
-                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-
-                // Left-align # and Attack Type columns
-                if (column == 0 || column == 1) {
-                    setHorizontalAlignment(SwingConstants.LEFT);
-                } else {
-                    setHorizontalAlignment(SwingConstants.LEFT);
-                }
-
-                if (!isSelected) {
-                    // Convert view row to model row, then get the result object
-                    int modelRow = table.convertRowIndexToModel(row);
-                    AttackResult result = tableModel.getResult(modelRow);
-                    if (result != null) {
-                        Color rowColor = resultColors.get(result);
-                        if (rowColor != null) {
-                            c.setBackground(rowColor);
-                            c.setForeground(Color.BLACK); // Ensure text is black for readability
-                        } else {
-                            c.setBackground(table.getBackground());
-                            c.setForeground(table.getForeground());
-                        }
-                    } else {
-                        c.setBackground(table.getBackground());
-                        c.setForeground(table.getForeground());
-                    }
-                }
-
-                return c;
-            }
-        });
-
-        // Create popup menu for coloring
-        createTablePopupMenu();
-
-        // Add right-click listener
-        resultsTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showPopup(e);
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showPopup(e);
-                }
-            }
-
-            private void showPopup(MouseEvent e) {
-                int row = resultsTable.rowAtPoint(e.getPoint());
-                if (row >= 0) {
-                    resultsTable.setRowSelectionInterval(row, row);
-                    tablePopupMenu.show(e.getComponent(), e.getX(), e.getY());
-                }
-            }
-        });
-
-        // Set column widths - smaller for # and Attack Type
-        resultsTable.getColumnModel().getColumn(0).setPreferredWidth(30);  // #
-        resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);         // # max width
-        resultsTable.getColumnModel().getColumn(1).setPreferredWidth(60);  // Attack Type
-        resultsTable.getColumnModel().getColumn(1).setMaxWidth(80);         // Attack Type max width
-        resultsTable.getColumnModel().getColumn(2).setPreferredWidth(300); // Payload
-        resultsTable.getColumnModel().getColumn(3).setPreferredWidth(60);  // Status
-        resultsTable.getColumnModel().getColumn(4).setPreferredWidth(80);  // Length
-        resultsTable.getColumnModel().getColumn(5).setPreferredWidth(150); // Content-Type
-
-        JScrollPane tableScrollPane = new JScrollPane(resultsTable);
-
-        // Create horizontal split: filters on LEFT, table on RIGHT
-        JSplitPane horizontalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        horizontalSplit.setLeftComponent(filterScrollPane);
-        horizontalSplit.setRightComponent(tableScrollPane);
-        horizontalSplit.setDividerSize(6);
-        horizontalSplit.setResizeWeight(0.0); // Give extra space to right (table) side
-
-        // Set initial divider location for filters
-        SwingUtilities.invokeLater(() -> {
-            horizontalSplit.setDividerLocation(500); // Width for filter panel
-        });
-
-        // Request/Response viewers (full width)
-        requestViewer = api.userInterface().createHttpRequestEditor();
-        responseViewer = api.userInterface().createHttpResponseEditor();
-
-        JTabbedPane viewerTabs = new JTabbedPane();
-        viewerTabs.addTab("Request", requestViewer.uiComponent());
-        viewerTabs.addTab("Response", responseViewer.uiComponent());
-
-        // Vertical split: filters+table on top, viewers on bottom (full width)
-        mainSplitPane.setTopComponent(horizontalSplit);
-        mainSplitPane.setBottomComponent(viewerTabs);
-
-        // Main layout: controls on top, main split below
-        JPanel mainPanel = new JPanel(new BorderLayout());
-        mainPanel.add(topPanel, BorderLayout.NORTH);
-        mainPanel.add(mainSplitPane, BorderLayout.CENTER);
-
-        add(mainPanel, BorderLayout.CENTER);
-
-        // Bottom panel - Request info
-        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JLabel infoLabel = new JLabel(String.format("Target: %s %s", request.method(), request.url()));
-        infoPanel.add(infoLabel);
-        add(infoPanel, BorderLayout.SOUTH);
-    }
-
-    private JPanel createFilterPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        // Top section - Smart Filter
-        JPanel smartPanel = new JPanel();
-        smartPanel.setLayout(new BoxLayout(smartPanel, BoxLayout.Y_AXIS));
-        smartPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        smartPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder("Smart Filter"),
-            BorderFactory.createEmptyBorder(5, 5, 5, 5)
-        ));
-
-        smartFilterCheckbox = new JCheckBox("Enable (auto-detect patterns)");
-        smartFilterCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        smartFilterCheckbox.addActionListener(e -> {
-            filterConfig.setSmartFilterEnabled(smartFilterCheckbox.isSelected());
-            applyFilters();
-        });
-        smartPanel.add(smartFilterCheckbox);
-
-        smartPanel.add(Box.createVerticalStrut(5));
-        filterStatusLabel = new JLabel("No filters active");
-        filterStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        filterStatusLabel.setFont(filterStatusLabel.getFont().deriveFont(11f));
-        smartPanel.add(filterStatusLabel);
-
-        panel.add(smartPanel);
-        panel.add(Box.createVerticalStrut(10));
-
-        // Bottom section - Manual Filter
-        JPanel manualPanel = new JPanel();
-        manualPanel.setLayout(new BoxLayout(manualPanel, BoxLayout.Y_AXIS));
-        manualPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        manualPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder("Manual Filter"),
-            BorderFactory.createEmptyBorder(5, 5, 5, 5)
-        ));
-
-        // Manual filter checkbox
-        manualFilterCheckbox = new JCheckBox("Enable Manual Filter");
-        manualFilterCheckbox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        manualFilterCheckbox.addActionListener(e -> {
-            boolean enabled = manualFilterCheckbox.isSelected();
-            hideStatusCodesField.setEnabled(enabled);
-            showOnlyStatusCodesField.setEnabled(enabled);
-            minLengthField.setEnabled(enabled);
-            maxLengthField.setEnabled(enabled);
-            hideContentLengthsField.setEnabled(enabled);
-            showOnlyContentLengthsField.setEnabled(enabled);
-            contentTypeField.setEnabled(enabled);
-            payloadContainsField.setEnabled(enabled);
-            highlightColorFilter.setEnabled(enabled);
-            applyFilterButton.setEnabled(enabled);
-
-            // Toggle the filter config
-            filterConfig.setManualFilterEnabled(enabled);
-
-            // If disabling, also apply filters to update display
-            if (!enabled) {
-                applyFilters();
-            }
-        });
-        manualPanel.add(manualFilterCheckbox);
-        manualPanel.add(Box.createVerticalStrut(5));
-
-        // Apply button at top for easy access
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        applyFilterButton = new JButton("Apply Manual Filters");
-        applyFilterButton.setEnabled(false);
-        applyFilterButton.addActionListener(e -> applyManualFilters());
-        buttonPanel.add(applyFilterButton);
-        manualPanel.add(buttonPanel);
-        manualPanel.add(Box.createVerticalStrut(10));
-
-        // Status Code Filters
-        JPanel statusCodePanel = new JPanel();
-        statusCodePanel.setLayout(new BoxLayout(statusCodePanel, BoxLayout.Y_AXIS));
-        statusCodePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        statusCodePanel.setBorder(BorderFactory.createTitledBorder("Status Code"));
-
-        JPanel hideStatusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        hideStatusRow.add(new JLabel("Hide codes:"));
-        hideStatusCodesField = new JTextField(15);
-        hideStatusCodesField.setToolTipText("Comma-separated, e.g., 404,403,500");
-        hideStatusCodesField.setEnabled(false);
-        hideStatusRow.add(hideStatusCodesField);
-        hideStatusRow.add(new JLabel("(e.g. 404,403,500)"));
-        hideStatusRow.add(Box.createHorizontalStrut(5));
-        statusCodePanel.add(hideStatusRow);
-
-        JPanel showStatusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        showStatusRow.add(new JLabel("Show only:"));
-        showOnlyStatusCodesField = new JTextField(15);
-        showOnlyStatusCodesField.setToolTipText("Comma-separated, e.g., 200,302");
-        showOnlyStatusCodesField.setEnabled(false);
-        showStatusRow.add(showOnlyStatusCodesField);
-        showStatusRow.add(new JLabel("(e.g. 200,302)"));
-        showStatusRow.add(Box.createHorizontalStrut(5));
-        statusCodePanel.add(showStatusRow);
-
-        manualPanel.add(statusCodePanel);
-        manualPanel.add(Box.createVerticalStrut(5));
-
-        // Length Filter
-        JPanel lengthPanel = new JPanel();
-        lengthPanel.setLayout(new BoxLayout(lengthPanel, BoxLayout.Y_AXIS));
-        lengthPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        lengthPanel.setBorder(BorderFactory.createTitledBorder("Content Length (bytes)"));
-
-        JPanel lengthRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        lengthRow.add(new JLabel("Min:"));
-        minLengthField = new JTextField(8);
-        minLengthField.setToolTipText("Minimum bytes");
-        minLengthField.setEnabled(false);
-        lengthRow.add(minLengthField);
-        lengthRow.add(new JLabel("Max:"));
-        maxLengthField = new JTextField(8);
-        maxLengthField.setToolTipText("Maximum bytes");
-        maxLengthField.setEnabled(false);
-        lengthRow.add(maxLengthField);
-        lengthRow.add(new JLabel("(e.g. 1000 or 5000)"));
-        lengthRow.add(Box.createHorizontalStrut(5));
-        lengthPanel.add(lengthRow);
-
-        JPanel hideLengthRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        hideLengthRow.add(new JLabel("Hide lengths:"));
-        hideContentLengthsField = new JTextField(15);
-        hideContentLengthsField.setToolTipText("Comma-separated, e.g., 0,1234,5678");
-        hideContentLengthsField.setEnabled(false);
-        hideLengthRow.add(hideContentLengthsField);
-        lengthPanel.add(hideLengthRow);
-
-        JPanel showLengthRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        showLengthRow.add(new JLabel("Show only:"));
-        showOnlyContentLengthsField = new JTextField(15);
-        showOnlyContentLengthsField.setToolTipText("Comma-separated, e.g., 200,500");
-        showOnlyContentLengthsField.setEnabled(false);
-        showLengthRow.add(showOnlyContentLengthsField);
-        lengthPanel.add(showLengthRow);
-
-        manualPanel.add(lengthPanel);
-        manualPanel.add(Box.createVerticalStrut(5));
-
-        // Content-Type Filter
-        JPanel contentTypePanel = new JPanel();
-        contentTypePanel.setLayout(new BoxLayout(contentTypePanel, BoxLayout.Y_AXIS));
-        contentTypePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentTypePanel.setBorder(BorderFactory.createTitledBorder("Content-Type"));
-
-        JPanel contentTypeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        contentTypeRow.add(new JLabel("Contains:"));
-        contentTypeField = new JTextField(20);
-        contentTypeField.setToolTipText("Filter by content-type (e.g., 'json', 'html')");
-        contentTypeField.setEnabled(false);
-        contentTypeRow.add(contentTypeField);
-        contentTypeRow.add(new JLabel("(e.g. html, json)"));
-        contentTypeRow.add(Box.createHorizontalStrut(5));
-        contentTypePanel.add(contentTypeRow);
-
-        manualPanel.add(contentTypePanel);
-        manualPanel.add(Box.createVerticalStrut(5));
-
-        // Payload Contains Filter
-        JPanel payloadPanel = new JPanel();
-        payloadPanel.setLayout(new BoxLayout(payloadPanel, BoxLayout.Y_AXIS));
-        payloadPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        payloadPanel.setBorder(BorderFactory.createTitledBorder("Payload"));
-
-        JPanel payloadRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        payloadRow.add(new JLabel("Contains:"));
-        payloadContainsField = new JTextField(20);
-        payloadContainsField.setToolTipText("Filter by payload content (case-insensitive)");
-        payloadContainsField.setEnabled(false);
-        payloadRow.add(payloadContainsField);
-        payloadPanel.add(payloadRow);
-
-        manualPanel.add(payloadPanel);
-        manualPanel.add(Box.createVerticalStrut(5));
-
-        // Highlight Color Filter
-        JPanel highlightPanel = new JPanel();
-        highlightPanel.setLayout(new BoxLayout(highlightPanel, BoxLayout.Y_AXIS));
-        highlightPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        highlightPanel.setBorder(BorderFactory.createTitledBorder("Highlight Color"));
-
-        JPanel highlightRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        highlightRow.add(new JLabel("Show only:"));
-        highlightColorFilter = new JComboBox<>(new String[]{
-            "All",
-            "Red",
-            "Orange",
-            "Yellow",
-            "Green",
-            "Blue",
-            "Cyan",
-            "Magenta",
-            "Gray"
-        });
-        highlightColorFilter.setEnabled(false);
-        highlightRow.add(highlightColorFilter);
-        highlightPanel.add(highlightRow);
-
-        manualPanel.add(highlightPanel);
-
-        panel.add(manualPanel);
-
-        return panel;
-    }
-
-    private void createTablePopupMenu() {
-        tablePopupMenu = new JPopupMenu();
-
-        // Color options with better contrast (darker backgrounds for readability)
-        JMenuItem redItem = new JMenuItem("Highlight Red");
-        redItem.addActionListener(e -> colorSelectedRow(new Color(255, 150, 150)));
-        tablePopupMenu.add(redItem);
-
-        JMenuItem orangeItem = new JMenuItem("Highlight Orange");
-        orangeItem.addActionListener(e -> colorSelectedRow(new Color(255, 180, 120)));
-        tablePopupMenu.add(orangeItem);
-
-        JMenuItem yellowItem = new JMenuItem("Highlight Yellow");
-        yellowItem.addActionListener(e -> colorSelectedRow(new Color(255, 255, 150)));
-        tablePopupMenu.add(yellowItem);
-
-        JMenuItem greenItem = new JMenuItem("Highlight Green");
-        greenItem.addActionListener(e -> colorSelectedRow(new Color(150, 255, 150)));
-        tablePopupMenu.add(greenItem);
-
-        JMenuItem blueItem = new JMenuItem("Highlight Blue");
-        blueItem.addActionListener(e -> colorSelectedRow(new Color(150, 200, 255)));
-        tablePopupMenu.add(blueItem);
-
-        JMenuItem cyanItem = new JMenuItem("Highlight Cyan");
-        cyanItem.addActionListener(e -> colorSelectedRow(new Color(150, 255, 255)));
-        tablePopupMenu.add(cyanItem);
-
-        JMenuItem magentaItem = new JMenuItem("Highlight Magenta");
-        magentaItem.addActionListener(e -> colorSelectedRow(new Color(255, 150, 255)));
-        tablePopupMenu.add(magentaItem);
-
-        JMenuItem grayItem = new JMenuItem("Highlight Gray");
-        grayItem.addActionListener(e -> colorSelectedRow(new Color(200, 200, 200)));
-        tablePopupMenu.add(grayItem);
-
-        tablePopupMenu.addSeparator();
-
-        JMenuItem clearItem = new JMenuItem("Clear Highlight");
-        clearItem.addActionListener(e -> clearSelectedRowColor());
-        tablePopupMenu.add(clearItem);
-    }
-
-    private void colorSelectedRow(Color color) {
-        int selectedRow = resultsTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            int modelRow = resultsTable.convertRowIndexToModel(selectedRow);
-            AttackResult result = tableModel.getResult(modelRow);
-            if (result != null) {
-                resultColors.put(result, color);
-                resultsTable.repaint();
-            }
-        }
-    }
-
-    private void clearSelectedRowColor() {
-        int selectedRow = resultsTable.getSelectedRow();
-        if (selectedRow >= 0) {
-            int modelRow = resultsTable.convertRowIndexToModel(selectedRow);
-            AttackResult result = tableModel.getResult(modelRow);
-            if (result != null) {
-                resultColors.remove(result);
-                resultsTable.repaint();
-            }
-        }
+        initializeUi();
+        applyFilters();
     }
 
     public String getTabTitle() {
@@ -593,62 +76,132 @@ public class FuzzingSessionTab extends JPanel {
         return sessionController.sessionId();
     }
 
+    public void stopFuzzing() {
+        sessionController.stop();
+        startButton.setEnabled(false);
+        stopButton.setEnabled(false);
+        statusLabel.setText("Stopping...");
+    }
+
+    public void cleanup() {
+        shuttingDown = true;
+        sessionController.dispose();
+    }
+
+    private void initializeUi() {
+        setLayout(new BorderLayout());
+        add(buildTopPanel(), BorderLayout.NORTH);
+        add(buildCenterPanel(), BorderLayout.CENTER);
+
+        JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        infoPanel.add(new JLabel(String.format("Target: %s %s", request.method(), request.url())));
+        add(infoPanel, BorderLayout.SOUTH);
+    }
+
+    private JPanel buildTopPanel() {
+        JPanel topPanel = new JPanel(new BorderLayout());
+
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        startButton = new JButton("Start Fuzzing");
+        startButton.addActionListener(e -> startFuzzing());
+        stopButton = new JButton("Stop");
+        stopButton.setEnabled(false);
+        stopButton.addActionListener(e -> stopFuzzing());
+        JButton clearButton = new JButton("Clear Results");
+        clearButton.addActionListener(e -> clearResults());
+        controlPanel.add(startButton);
+        controlPanel.add(stopButton);
+        controlPanel.add(clearButton);
+
+        statusLabel = new JLabel("Ready. Target: " + request.method() + " " + request.url());
+        warningLabel = new JLabel("");
+        warningLabel.setForeground(new java.awt.Color(204, 102, 0));
+        warningLabel.setVisible(false);
+
+        attackSelectionPanel = new AttackSelectionPanel(config, () -> warningLabel.setVisible(false));
+        runOptionsPanel = new RunOptionsPanel(config, isCollaboratorAvailable());
+
+        JPanel topContent = new JPanel();
+        topContent.setLayout(new BoxLayout(topContent, BoxLayout.Y_AXIS));
+
+        JPanel topRow = new JPanel(new BorderLayout());
+        topRow.add(controlPanel, BorderLayout.WEST);
+        topRow.add(statusLabel, BorderLayout.CENTER);
+        topContent.add(topRow);
+
+        JPanel warningRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        warningRow.add(warningLabel);
+        topContent.add(warningRow);
+
+        JPanel optionsRow = new JPanel(new BorderLayout());
+        optionsRow.add(attackSelectionPanel, BorderLayout.CENTER);
+        optionsRow.add(runOptionsPanel, BorderLayout.EAST);
+        topContent.add(optionsRow);
+
+        topPanel.add(topContent, BorderLayout.CENTER);
+        return topPanel;
+    }
+
+    private JSplitPane buildCenterPanel() {
+        filterPanel = new FilterPanel(filterController.filterConfig(), message -> api.logging().logToError(message));
+        filterPanel.setFilterChangeListener(this::applyFilters);
+
+        JScrollPane filterScrollPane = new JScrollPane(filterPanel);
+        filterScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        filterScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        filterScrollPane.setMinimumSize(new Dimension(250, 100));
+
+        resultsPanel = new SessionResultsPanel(api, filterController.highlighter(), this::applyFilters);
+
+        JSplitPane horizontalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, filterScrollPane, resultsPanel);
+        horizontalSplit.setDividerSize(6);
+        horizontalSplit.setResizeWeight(0.0);
+        SwingUtilities.invokeLater(() -> horizontalSplit.setDividerLocation(500));
+        return horizontalSplit;
+    }
+
     private void startFuzzing() {
         SessionRunOptions runOptions = collectRunOptions();
-
-        // Check if at least one attack is selected
         if (!runOptions.hasEnabledAttacks()) {
-            warningLabel.setText("⚠ Please select at least one attack type before starting!");
+            warningLabel.setText("Please select at least one attack type before starting.");
             warningLabel.setVisible(true);
             return;
         }
 
-        // Warn if Collaborator is enabled but not available
         if (runOptions.collaboratorPayloads() && !isCollaboratorAvailable()) {
             int choice = JOptionPane.showConfirmDialog(
                 api.userInterface().swingUtils().suiteFrame(),
-                "Burp Collaborator is not available.\n" +
-                "Collaborator requires Burp Suite Professional with Collaborator configured.\n\n" +
-                "Continue fuzzing without Collaborator payloads?",
+                "Burp Collaborator is not available.\n\nContinue fuzzing without Collaborator payloads?",
                 "Collaborator Not Available",
                 JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+                JOptionPane.WARNING_MESSAGE
+            );
 
             if (choice != JOptionPane.YES_OPTION) {
                 return;
             }
 
-            // Disable collaborator in config since it's not available
             runOptionsPanel.setCollaboratorEnabled(false);
             runOptions = runOptions.withoutCollaboratorPayloads();
         }
 
         runOptions.applyTo(config);
-
+        warningLabel.setVisible(false);
+        setAttackControlsEnabled(false);
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
         statusLabel.setText("Fuzzing in progress...");
 
-        // Disable checkboxes during fuzzing
-        setAttackCheckboxesEnabled(false);
-
-        // Clear any previous warnings and check for new ones
-        warningLabel.setVisible(false);
-
         List<String> warnings = preflightAnalyzer.analyze(request, runOptions);
-
-        // Display all warnings
         if (!warnings.isEmpty()) {
-            String warningText = "⚠ Note: " + String.join("; ", warnings);
-            warningLabel.setText(warningText);
+            warningLabel.setText("Note: " + String.join("; ", warnings));
             warningLabel.setVisible(true);
         }
 
-        // Start fuzzing in background
         if (!sessionController.start()) {
             startButton.setEnabled(true);
             stopButton.setEnabled(false);
-            setAttackCheckboxesEnabled(true);
+            setAttackControlsEnabled(true);
             statusLabel.setText("Unable to start fuzzing");
         }
     }
@@ -681,289 +234,40 @@ public class FuzzingSessionTab extends JPanel {
         );
     }
 
-    public void stopFuzzing() {
-        sessionController.stop();
-        startButton.setEnabled(false);
-        stopButton.setEnabled(false);
-        statusLabel.setText("Stopping...");
-    }
-
-    /**
-     * Cleanup when tab is closed or extension is unloaded.
-     */
-    public void cleanup() {
-        isShuttingDown = true;
-        sessionController.dispose();
-    }
-
     private void clearResults() {
-        tableModel.clear();
-        resultColors.clear();
-        smartFilter.reset();
-        requestViewer.setRequest(null);
-        responseViewer.setResponse(null);
+        resultsPanel.clear();
+        filterController.reset();
         statusLabel.setText("Results cleared");
         updateFilterStatus();
     }
 
-    private void applyManualFilters() {
-        // Parse hide status codes
-        Set<Integer> hideStatusCodes = new HashSet<>();
-        String hideText = hideStatusCodesField.getText().trim();
-        if (!hideText.isEmpty()) {
-            for (String code : hideText.split(",")) {
-                try {
-                    hideStatusCodes.add(Integer.parseInt(code.trim()));
-                } catch (NumberFormatException e) {
-                    api.logging().logToError("Invalid status code: " + code);
-                }
-            }
-        }
-        filterConfig.setHiddenStatusCodes(hideStatusCodes);
-
-        // Parse show only status codes
-        Set<Integer> showStatusCodes = new HashSet<>();
-        String showText = showOnlyStatusCodesField.getText().trim();
-        if (!showText.isEmpty()) {
-            for (String code : showText.split(",")) {
-                try {
-                    showStatusCodes.add(Integer.parseInt(code.trim()));
-                } catch (NumberFormatException e) {
-                    api.logging().logToError("Invalid status code: " + code);
-                }
-            }
-        }
-        filterConfig.setShownStatusCodes(showStatusCodes);
-
-        // Parse length range
-        try {
-            String minText = minLengthField.getText().trim();
-            if (!minText.isEmpty()) {
-                filterConfig.setMinContentLength(Integer.parseInt(minText));
-            } else {
-                filterConfig.setMinContentLength(null);
-            }
-        } catch (NumberFormatException e) {
-            api.logging().logToError("Invalid min length: " + minLengthField.getText());
-            filterConfig.setMinContentLength(null);
-        }
-
-        try {
-            String maxText = maxLengthField.getText().trim();
-            if (!maxText.isEmpty()) {
-                filterConfig.setMaxContentLength(Integer.parseInt(maxText));
-            } else {
-                filterConfig.setMaxContentLength(null);
-            }
-        } catch (NumberFormatException e) {
-            api.logging().logToError("Invalid max length: " + maxLengthField.getText());
-            filterConfig.setMaxContentLength(null);
-        }
-
-        // Parse hide content lengths
-        Set<Integer> hideContentLengths = new HashSet<>();
-        String hideLengthText = hideContentLengthsField.getText().trim();
-        if (!hideLengthText.isEmpty()) {
-            for (String length : hideLengthText.split(",")) {
-                try {
-                    hideContentLengths.add(Integer.parseInt(length.trim()));
-                } catch (NumberFormatException e) {
-                    api.logging().logToError("Invalid content length: " + length);
-                }
-            }
-        }
-        filterConfig.setHiddenContentLengths(hideContentLengths);
-
-        // Parse show only content lengths
-        Set<Integer> showContentLengths = new HashSet<>();
-        String showLengthText = showOnlyContentLengthsField.getText().trim();
-        if (!showLengthText.isEmpty()) {
-            for (String length : showLengthText.split(",")) {
-                try {
-                    showContentLengths.add(Integer.parseInt(length.trim()));
-                } catch (NumberFormatException e) {
-                    api.logging().logToError("Invalid content length: " + length);
-                }
-            }
-        }
-        filterConfig.setShownContentLengths(showContentLengths);
-
-        // Parse content-type filter
-        String contentTypeText = contentTypeField.getText().trim();
-        if (!contentTypeText.isEmpty()) {
-            filterConfig.setContentTypeFilter(contentTypeText);
-        } else {
-            filterConfig.setContentTypeFilter(null);
-        }
-
-        // Parse payload contains filter
-        String payloadText = payloadContainsField.getText().trim();
-        if (!payloadText.isEmpty()) {
-            filterConfig.setPayloadContainsFilter(payloadText);
-        } else {
-            filterConfig.setPayloadContainsFilter(null);
-        }
-
-        applyFilters();
-    }
-
     private void applyFilters() {
-        // Save current sort state before rebuilding
-        List<? extends javax.swing.RowSorter.SortKey> savedSortKeys = null;
-        if (resultsTable.getRowSorter() != null) {
-            savedSortKeys = new ArrayList<>(resultsTable.getRowSorter().getSortKeys());
-        }
-
-        // Apply filter using predicate - model handles the data internally
-        tableModel.applyFilter(this::shouldShowResult);
-
-        // Restore sorter with proper numeric comparators
-        initializeRowSorter();
-
-        // Restore previous sort state if any
-        if (savedSortKeys != null && !savedSortKeys.isEmpty() && resultsTable.getRowSorter() != null) {
-            try {
-                resultsTable.getRowSorter().setSortKeys(savedSortKeys);
-            } catch (Exception e) {
-                // Ignore if sort keys can't be restored
-            }
-        }
-
+        filterController.setHighlightColorFilter(filterPanel.selectedHighlightColor());
+        resultsPanel.applyFilter(filterController::shouldShow);
         updateFilterStatus();
-        resultsTable.repaint(); // Repaint to show any preserved colors
-        api.logging().logToOutput("Filters applied: showing " + tableModel.getRowCount() + " of " + tableModel.getAllResultsCount() + " results");
-    }
-
-    private boolean shouldShowResult(AttackResult result) {
-        // Check smart filter first
-        if (!smartFilter.shouldShow(result)) {
-            return false;
-        }
-
-        // Check manual filter
-        if (filterConfig.isManualFilterEnabled() && !manualFilter.shouldShow(result)) {
-            return false;
-        }
-
-        // Check highlight color filter
-        if (filterConfig.isManualFilterEnabled() && highlightColorFilter.getSelectedIndex() > 0) {
-            Color filterColor = getColorFromName((String) highlightColorFilter.getSelectedItem());
-            Color resultColor = resultColors.get(result);
-
-            // Only show if result has the selected highlight color
-            if (!colorMatches(resultColor, filterColor)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private Color getColorFromName(String colorName) {
-        switch (colorName) {
-            case "Red": return new Color(255, 150, 150);
-            case "Orange": return new Color(255, 180, 120);
-            case "Yellow": return new Color(255, 255, 150);
-            case "Green": return new Color(150, 255, 150);
-            case "Blue": return new Color(150, 200, 255);
-            case "Cyan": return new Color(150, 255, 255);
-            case "Magenta": return new Color(255, 150, 255);
-            case "Gray": return new Color(200, 200, 200);
-            default: return null;
-        }
-    }
-
-    private boolean colorMatches(Color c1, Color c2) {
-        if (c1 == null || c2 == null) {
-            return false;
-        }
-        return c1.getRed() == c2.getRed() &&
-               c1.getGreen() == c2.getGreen() &&
-               c1.getBlue() == c2.getBlue();
-    }
-
-    private void updateFilterStatus() {
-        boolean anyFilterActive = filterConfig.isSmartFilterEnabled() || filterConfig.isManualFilterEnabled();
-
-        if (!anyFilterActive) {
-            filterStatusLabel.setText("No filters active");
-        } else {
-            StringBuilder status = new StringBuilder();
-            if (filterConfig.isSmartFilterEnabled()) {
-                status.append("Smart: ").append(smartFilter.getStatistics());
-            }
-            if (filterConfig.isManualFilterEnabled()) {
-                if (status.length() > 0) {
-                    status.append(" | ");
-                }
-                status.append("Manual: Active");
-            }
-            status.append(" | Showing ").append(tableModel.getRowCount()).append(" of ").append(tableModel.getAllResultsCount());
-            filterStatusLabel.setText(status.toString());
-        }
-    }
-
-    private void setAttackCheckboxesEnabled(boolean enabled) {
-        // Don't modify UI during shutdown
-        if (isShuttingDown) {
-            return;
-        }
-
-        attackSelectionPanel.setControlsEnabled(enabled);
-        runOptionsPanel.setControlsEnabled(enabled, isCollaboratorAvailable());
-    }
-
-    /**
-     * Initialize the row sorter with proper numeric comparators.
-     */
-    private void initializeRowSorter() {
-        TableRowSorter<FuzzerResultsTableModel> sorter = new TableRowSorter<>(tableModel);
-        // Column 0: # (Integer)
-        sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));
-        // Column 3: Status (Integer)
-        sorter.setComparator(3, Comparator.comparingInt(o -> (Integer) o));
-        // Column 4: Length (Integer)
-        sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
-        resultsTable.setRowSorter(sorter);
-    }
-
-    private boolean isCollaboratorAvailable() {
-        if (isShuttingDown) {
-            return false;
-        }
-        try {
-            return api.collaborator() != null && api.collaborator().defaultPayloadGenerator() != null;
-        } catch (Exception e) {
-            return false;
-        }
+        api.logging().logToOutput(
+            "Filters applied: showing " + resultsPanel.shownResultsCount() + " of " + resultsPanel.allResultsCount() + " results"
+        );
     }
 
     private void addResult(AttackResult result) {
-        // All UI and filter operations must happen on EDT to avoid deadlocks
         SwingUtilities.invokeLater(() -> {
             try {
-                // Track pattern in smart filter
-                smartFilter.track(result);
+                filterController.track(result);
+                resultsPanel.addResult(result, filterController.shouldShow(result));
 
-                // Check if result passes current filters (accesses Swing components)
-                boolean passesFilter = shouldShowResult(result);
+                int totalSent = resultsPanel.allResultsCount();
+                int showing = resultsPanel.shownResultsCount();
+                statusLabel.setText(sessionController.isRunning()
+                    ? "Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")"
+                    : "Completed: " + totalSent + " requests sent, showing " + showing);
 
-                // Add to model
-                tableModel.addResult(result, passesFilter);
-
-                // Update status
-                int totalSent = tableModel.getAllResultsCount();
-                int showing = tableModel.getRowCount();
-                if (sessionController.isRunning()) {
-                    statusLabel.setText("Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")");
-                } else {
-                    statusLabel.setText("Completed: " + totalSent + " requests sent, showing " + showing);
+                if (!sessionController.isRunning()) {
                     startButton.setEnabled(true);
                     stopButton.setEnabled(false);
-                    setAttackCheckboxesEnabled(true);
+                    setAttackControlsEnabled(true);
                 }
 
-                // Update filter status
                 updateFilterStatus();
             } catch (Exception e) {
                 api.logging().logToError("Error in addResult: " + e.getMessage());
@@ -977,30 +281,20 @@ public class FuzzingSessionTab extends JPanel {
                 statusLabel.setText("Fuzzing in progress...");
                 startButton.setEnabled(false);
                 stopButton.setEnabled(true);
-                setAttackCheckboxesEnabled(false);
+                setAttackControlsEnabled(false);
                 return;
             }
 
-            if (isShuttingDown && state != SessionState.DISPOSED) {
+            if (shuttingDown && state != SessionState.DISPOSED) {
                 return;
             }
 
-            int totalSent = tableModel.getAllResultsCount();
-            int showing = tableModel.getRowCount();
+            int totalSent = resultsPanel.allResultsCount();
+            int showing = resultsPanel.shownResultsCount();
 
             switch (state) {
-                case STOPPED -> {
-                    statusLabel.setText("Stopped: " + totalSent + " requests sent, showing " + showing);
-                    startButton.setEnabled(true);
-                    stopButton.setEnabled(false);
-                    setAttackCheckboxesEnabled(true);
-                }
-                case COMPLETED -> {
-                    statusLabel.setText("Completed: " + totalSent + " requests sent, showing " + showing);
-                    startButton.setEnabled(true);
-                    stopButton.setEnabled(false);
-                    setAttackCheckboxesEnabled(true);
-                }
+                case STOPPED -> updateIdleUi("Stopped: " + totalSent + " requests sent, showing " + showing);
+                case COMPLETED -> updateIdleUi("Completed: " + totalSent + " requests sent, showing " + showing);
                 case DISPOSED -> {
                     startButton.setEnabled(false);
                     stopButton.setEnabled(false);
@@ -1011,75 +305,63 @@ public class FuzzingSessionTab extends JPanel {
         });
     }
 
-    private void showResultDetails(int modelRow) {
-        AttackResult result = tableModel.getResult(modelRow);
-        if (result != null) {
-            // Display request and response in Burp's native editors
-            if (result.getRequest() != null) {
-                requestViewer.setRequest(result.getRequest());
-            }
-
-            if (result.getResponse() != null) {
-                responseViewer.setResponse(result.getResponse());
-            }
-        }
+    private void updateIdleUi(String message) {
+        statusLabel.setText(message);
+        startButton.setEnabled(true);
+        stopButton.setEnabled(false);
+        setAttackControlsEnabled(true);
     }
 
-    private String extractPath(String url) {
+    private void updateFilterStatus() {
+        filterPanel.setFilterStatus(
+            filterController.statusText(resultsPanel.shownResultsCount(), resultsPanel.allResultsCount())
+        );
+    }
+
+    private void setAttackControlsEnabled(boolean enabled) {
+        if (shuttingDown) {
+            return;
+        }
+
+        attackSelectionPanel.setControlsEnabled(enabled);
+        runOptionsPanel.setControlsEnabled(enabled, isCollaboratorAvailable());
+    }
+
+    private boolean isCollaboratorAvailable() {
+        if (shuttingDown) {
+            return false;
+        }
         try {
-            int schemeEnd = url.indexOf("://");
-            if (schemeEnd != -1) {
-                int pathStart = url.indexOf('/', schemeEnd + 3);
-                if (pathStart != -1) {
-                    return url.substring(pathStart);
-                }
-            }
-            return "/";
+            return api.collaborator() != null && api.collaborator().defaultPayloadGenerator() != null;
         } catch (Exception e) {
-            return "/";
+            return false;
         }
     }
 
-    private String truncate(String str, int maxLength) {
-        if (str == null) return "";
-        if (str.length() <= maxLength) return str;
-        return str.substring(0, maxLength - 3) + "...";
-    }
-
-    /**
-     * Format a set of status codes as comma-separated string.
-     */
-    private String formatStatusCodes(java.util.Set<Integer> codes) {
-        if (codes == null || codes.isEmpty()) {
-            return "429,503"; // Default
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value == null ? "" : value;
         }
-        return codes.stream()
-            .map(String::valueOf)
-            .sorted()
-            .collect(java.util.stream.Collectors.joining(","));
+        return value.substring(0, maxLength - 3) + "...";
     }
 
-    /**
-     * Parse comma-separated status codes into a set.
-     */
-    private java.util.Set<Integer> parseStatusCodes(String input) {
-        java.util.Set<Integer> codes = new java.util.HashSet<>();
+    private Set<Integer> parseStatusCodes(String input) {
         if (input == null || input.trim().isEmpty()) {
-            return codes;
+            return Set.of();
         }
 
-        String[] parts = input.split(",");
-        for (String part : parts) {
-            try {
-                int code = Integer.parseInt(part.trim());
-                if (code >= 100 && code < 600) { // Valid HTTP status code range
-                    codes.add(code);
+        return java.util.Arrays.stream(input.split(","))
+            .map(String::trim)
+            .filter(token -> !token.isEmpty())
+            .map(token -> {
+                try {
+                    int code = Integer.parseInt(token);
+                    return code >= 100 && code < 600 ? code : null;
+                } catch (NumberFormatException e) {
+                    return null;
                 }
-            } catch (NumberFormatException e) {
-                // Skip invalid entries
-            }
-        }
-
-        return codes;
+            })
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toSet());
     }
 }

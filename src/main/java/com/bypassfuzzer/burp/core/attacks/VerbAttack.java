@@ -2,10 +2,8 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
-
-import java.nio.charset.StandardCharsets;
+import com.bypassfuzzer.burp.http.RequestParameterSupport;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -16,25 +14,22 @@ import java.util.function.Consumer;
 /**
  * Verb/Method attack strategy.
  * Tests different HTTP methods and method override headers.
- * For POST/PUT/PATCH, also tests parameter location variations (query vs body).
  */
 public class VerbAttack implements AttackStrategy {
     private static final List<String> HTTP_METHODS = Arrays.asList(
-        "GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE",
-        "PATCH"
+        "GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"
     );
-
     private static final List<String> OVERRIDE_HEADERS = Arrays.asList(
         "X-HTTP-Method-Override",
         "X-HTTP-Method",
         "X-Method-Override"
     );
-
-    // Methods that typically support request bodies
     private static final List<String> BODY_METHODS = Arrays.asList("POST", "PUT", "PATCH");
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
+                        Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
+                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         try {
             api.logging().logToOutput("Starting Verb Attack");
         } catch (Exception e) {
@@ -43,7 +38,6 @@ public class VerbAttack implements AttackStrategy {
 
         int count = 0;
 
-        // Test 1: Simple method changes
         for (String method : HTTP_METHODS) {
             if (!shouldContinue.getAsBoolean()) {
                 logStop(api, count);
@@ -63,10 +57,8 @@ public class VerbAttack implements AttackStrategy {
             }
         }
 
-        // Test 2: Case variations of the original method
         String originalMethod = baseRequest.method();
-        List<String> caseVariations = generateMethodCaseVariations(originalMethod);
-        for (String methodVariation : caseVariations) {
+        for (String methodVariation : generateMethodCaseVariations(originalMethod)) {
             if (!shouldContinue.getAsBoolean()) {
                 logStop(api, count);
                 return;
@@ -85,9 +77,7 @@ public class VerbAttack implements AttackStrategy {
             }
         }
 
-        // Test 3: X-prefix and X-suffix variations of the original method (e.g., XGET, GETX)
-        List<String> xVariations = Arrays.asList("X" + originalMethod, originalMethod + "X");
-        for (String xMethod : xVariations) {
+        for (String xMethod : Arrays.asList("X" + originalMethod, originalMethod + "X")) {
             if (!shouldContinue.getAsBoolean()) {
                 logStop(api, count);
                 return;
@@ -106,7 +96,6 @@ public class VerbAttack implements AttackStrategy {
             }
         }
 
-        // Test 4: Method override headers
         for (String header : OVERRIDE_HEADERS) {
             for (String method : HTTP_METHODS) {
                 if (!shouldContinue.getAsBoolean()) {
@@ -116,8 +105,7 @@ public class VerbAttack implements AttackStrategy {
 
                 try {
                     HttpRequest modifiedRequest = baseRequest.withAddedHeader(header, method);
-                    String payload = header + ": " + method;
-                    if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
+                    if (!attackExecutor.execute(getAttackType(), header + ": " + method, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
                         return;
                     }
                     count++;
@@ -129,7 +117,6 @@ public class VerbAttack implements AttackStrategy {
             }
         }
 
-        // Test 5: Method combinations (e.g., POST with override to GET)
         for (String baseMethod : Arrays.asList("POST", "PUT")) {
             for (String header : OVERRIDE_HEADERS) {
                 for (String overrideMethod : Arrays.asList("GET", "DELETE", "PATCH")) {
@@ -139,9 +126,7 @@ public class VerbAttack implements AttackStrategy {
                     }
 
                     try {
-                        HttpRequest modifiedRequest = baseRequest
-                            .withMethod(baseMethod)
-                            .withAddedHeader(header, overrideMethod);
+                        HttpRequest modifiedRequest = baseRequest.withMethod(baseMethod).withAddedHeader(header, overrideMethod);
                         String payload = baseMethod + " + " + header + ": " + overrideMethod;
                         if (!attackExecutor.execute(getAttackType(), payload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
                             return;
@@ -156,71 +141,57 @@ public class VerbAttack implements AttackStrategy {
             }
         }
 
-        // Test 6: Parameter location variations for POST/PUT/PATCH
         count += testParameterVariations(api, baseRequest, resultCallback, shouldContinue, rateLimiter, attackExecutor);
 
         try {
             api.logging().logToOutput("Verb Attack completed: " + count + " results sent");
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
     }
 
-    /**
-     * Create a request with the specified method, handling parameter placement correctly.
-     */
     private HttpRequest createMethodRequest(HttpRequest baseRequest, String method) {
-        // If changing TO a body method (POST/PUT/PATCH), keep parameters where they are
         if (BODY_METHODS.contains(method)) {
             return baseRequest.withMethod(method);
         }
 
-        // If changing FROM a body method TO GET/HEAD/DELETE, move body params to query string
-        if (BODY_METHODS.contains(baseRequest.method()) &&
-            (method.equals("GET") || method.equals("HEAD") || method.equals("DELETE"))) {
-
-            String bodyParams = extractBodyParams(baseRequest);
+        if (BODY_METHODS.contains(baseRequest.method())
+            && ("GET".equals(method) || "HEAD".equals(method) || "DELETE".equals(method))) {
+            String bodyParams = RequestParameterSupport.extractUrlEncodedBody(baseRequest);
             if (bodyParams != null && !bodyParams.isEmpty()) {
-                return moveBodyToQuery(baseRequest, method, bodyParams);
+                return RequestParameterSupport.moveBodyToQuery(baseRequest, method, bodyParams);
             }
         }
 
         return baseRequest.withMethod(method);
     }
 
-    /**
-     * Test parameter location variations for POST/PUT/PATCH methods.
-     * Tests:
-     * 1. Original location (preserve)
-     * 2. If params in query: also send in body, and in both
-     * 3. If params in body: also send in query, and in both
-     */
     private int testParameterVariations(MontoyaApi api, HttpRequest baseRequest,
-                                       Consumer<AttackResult> resultCallback,
-                                       BooleanSupplier shouldContinue,
-                                       RateLimiter rateLimiter,
-                                       AttackExecutor attackExecutor) {
+                                        Consumer<AttackResult> resultCallback,
+                                        BooleanSupplier shouldContinue,
+                                        RateLimiter rateLimiter,
+                                        AttackExecutor attackExecutor) {
         int count = 0;
 
-        // Only test variations for methods that support bodies
-        for (String method : Arrays.asList("POST", "PUT", "PATCH")) {
+        for (String method : BODY_METHODS) {
             if (!shouldContinue.getAsBoolean()) {
                 return count;
             }
 
-            String queryParams = extractQueryParams(baseRequest);
-            String bodyParams = extractBodyParams(baseRequest);
+            String queryParams = baseRequest.query();
+            String bodyParams = RequestParameterSupport.extractUrlEncodedBody(baseRequest);
 
-            // Skip if no parameters to test
-            if ((queryParams == null || queryParams.isEmpty()) &&
-                (bodyParams == null || bodyParams.isEmpty())) {
+            if ((queryParams == null || queryParams.isEmpty()) && (bodyParams == null || bodyParams.isEmpty())) {
                 continue;
             }
 
-            // Variation 1: If params in query, move them to body
             if (queryParams != null && !queryParams.isEmpty()) {
-                if (!shouldContinue.getAsBoolean()) return count;
+                if (!shouldContinue.getAsBoolean()) {
+                    return count;
+                }
 
                 try {
-                    HttpRequest request = moveQueryToBody(baseRequest, method, queryParams);
+                    HttpRequest request = RequestParameterSupport.moveQueryToBody(baseRequest, method);
                     if (!attackExecutor.execute(getAttackType(), method + " (params query→body)", request, resultCallback, shouldContinue, rateLimiter)) {
                         return count;
                     }
@@ -230,12 +201,13 @@ public class VerbAttack implements AttackStrategy {
                 }
             }
 
-            // Variation 2: If params in body, move them to query
             if (bodyParams != null && !bodyParams.isEmpty()) {
-                if (!shouldContinue.getAsBoolean()) return count;
+                if (!shouldContinue.getAsBoolean()) {
+                    return count;
+                }
 
                 try {
-                    HttpRequest request = moveBodyToQuery(baseRequest, method, bodyParams);
+                    HttpRequest request = RequestParameterSupport.moveBodyToQuery(baseRequest, method, bodyParams);
                     if (!attackExecutor.execute(getAttackType(), method + " (params body→query)", request, resultCallback, shouldContinue, rateLimiter)) {
                         return count;
                     }
@@ -245,14 +217,14 @@ public class VerbAttack implements AttackStrategy {
                 }
             }
 
-            // Variation 3: Params in both query and body
-            if ((queryParams != null && !queryParams.isEmpty()) ||
-                (bodyParams != null && !bodyParams.isEmpty())) {
-                if (!shouldContinue.getAsBoolean()) return count;
+            if ((queryParams != null && !queryParams.isEmpty()) || (bodyParams != null && !bodyParams.isEmpty())) {
+                if (!shouldContinue.getAsBoolean()) {
+                    return count;
+                }
 
                 try {
-                    String params = queryParams != null ? queryParams : bodyParams;
-                    HttpRequest request = putParamsInBoth(baseRequest, method, params);
+                    String params = queryParams != null && !queryParams.isEmpty() ? queryParams : bodyParams;
+                    HttpRequest request = RequestParameterSupport.putParamsInBoth(baseRequest, method, params);
                     if (!attackExecutor.execute(getAttackType(), method + " (params in query+body)", request, resultCallback, shouldContinue, rateLimiter)) {
                         return count;
                     }
@@ -266,139 +238,24 @@ public class VerbAttack implements AttackStrategy {
         return count;
     }
 
-    /**
-     * Extract query string parameters from request.
-     */
-    private String extractQueryParams(HttpRequest request) {
-        try {
-            String url = request.url();
-            int queryStart = url.indexOf('?');
-            if (queryStart != -1 && queryStart < url.length() - 1) {
-                return url.substring(queryStart + 1);
-            }
-        } catch (Exception e) {
-            // Ignore
-        }
-        return null;
-    }
-
-    /**
-     * Extract body parameters from request (assumes form-encoded).
-     */
-    private String extractBodyParams(HttpRequest request) {
-        try {
-            if (request.body() != null && request.body().length() > 0) {
-                String contentType = request.headerValue("Content-Type");
-                if (contentType != null && contentType.contains("application/x-www-form-urlencoded")) {
-                    return request.bodyToString();
-                }
-            }
-        } catch (Exception e) {
-            // Ignore
-        }
-        return null;
-    }
-
-    /**
-     * Move query parameters to request body.
-     */
-    private HttpRequest moveQueryToBody(HttpRequest request, String method, String params) {
-        // Remove query string from URL
-        String url = request.url();
-        int queryStart = url.indexOf('?');
-        if (queryStart != -1) {
-            url = url.substring(0, queryStart);
-        }
-
-        return request
-            .withMethod(method)
-            .withUpdatedHeader("Content-Type", "application/x-www-form-urlencoded")
-            .withBody(params)
-            .withPath(extractPathFromUrl(url));
-    }
-
-    /**
-     * Move body parameters to query string.
-     */
-    private HttpRequest moveBodyToQuery(HttpRequest request, String method, String params) {
-        String url = request.url();
-        int queryStart = url.indexOf('?');
-        String baseUrl = queryStart != -1 ? url.substring(0, queryStart) : url;
-
-        String newUrl = baseUrl + "?" + params;
-        String path = extractPathFromUrl(newUrl);
-
-        return request
-            .withMethod(method)
-            .withPath(path)
-            .withBody(""); // Remove body
-    }
-
-    /**
-     * Put parameters in both query string and body.
-     */
-    private HttpRequest putParamsInBoth(HttpRequest request, String method, String params) {
-        String url = request.url();
-        int queryStart = url.indexOf('?');
-        String baseUrl = queryStart != -1 ? url.substring(0, queryStart) : url;
-
-        String newUrl = baseUrl + "?" + params;
-        String path = extractPathFromUrl(newUrl);
-
-        return request
-            .withMethod(method)
-            .withPath(path)
-            .withUpdatedHeader("Content-Type", "application/x-www-form-urlencoded")
-            .withBody(params);
-    }
-
-    /**
-     * Extract path from full URL.
-     */
-    private String extractPathFromUrl(String url) {
-        try {
-            int schemeEnd = url.indexOf("://");
-            if (schemeEnd != -1) {
-                int pathStart = url.indexOf('/', schemeEnd + 3);
-                if (pathStart != -1) {
-                    return url.substring(pathStart);
-                }
-            }
-        } catch (Exception e) {
-            // Ignore
-        }
-        return "/";
-    }
-
-    /**
-     * Generate case variations for an HTTP method.
-     * Includes systematic variations (lowercase, title case) and random variations.
-     * Skips the original uppercase form since it's already tested in Test 1.
-     */
     private List<String> generateMethodCaseVariations(String method) {
         List<String> variations = new ArrayList<>();
-
-        // Skip if method is null or empty
         if (method == null || method.isEmpty()) {
             return variations;
         }
 
-        // Systematic variations (skip original uppercase, it's tested in Test 1)
         String lowercase = method.toLowerCase();
         String titleCase = Character.toUpperCase(method.charAt(0)) + method.substring(1).toLowerCase();
 
-        // Only add if different from original
         if (!lowercase.equals(method)) {
-            variations.add(lowercase);  // GET -> get
+            variations.add(lowercase);
         }
         if (!titleCase.equals(method) && !titleCase.equals(lowercase)) {
-            variations.add(titleCase);  // GET -> Get
+            variations.add(titleCase);
         }
 
-        // Generate 3 random case variations
         for (int i = 0; i < 3; i++) {
             String randomized = randomizeCase(method);
-            // Only add if it's different from original and systematic variations
             if (!randomized.equals(method) && !randomized.equals(lowercase) && !randomized.equals(titleCase)) {
                 variations.add(randomized);
             }
@@ -407,38 +264,33 @@ public class VerbAttack implements AttackStrategy {
         return variations;
     }
 
-    /**
-     * Randomize capitalization of characters in a string.
-     */
     private String randomizeCase(String input) {
         Random random = new Random();
         StringBuilder result = new StringBuilder();
-
         for (char c : input.toCharArray()) {
             if (Character.isLetter(c)) {
-                if (random.nextBoolean()) {
-                    result.append(Character.toUpperCase(c));
-                } else {
-                    result.append(Character.toLowerCase(c));
-                }
+                result.append(random.nextBoolean() ? Character.toUpperCase(c) : Character.toLowerCase(c));
             } else {
                 result.append(c);
             }
         }
-
         return result.toString();
     }
 
     private void logStop(MontoyaApi api, int count) {
         try {
             api.logging().logToOutput("Verb Attack stopped by user (" + count + " completed)");
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
     }
 
     private void logError(MontoyaApi api, String message) {
         try {
             api.logging().logToError(message);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            // Ignore
+        }
     }
 
     @Override

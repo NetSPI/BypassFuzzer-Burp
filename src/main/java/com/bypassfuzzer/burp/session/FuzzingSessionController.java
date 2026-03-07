@@ -32,7 +32,14 @@ public class FuzzingSessionController {
         this.sessionId = UUID.randomUUID().toString();
         this.request = request;
         this.config = new FuzzerConfig();
-        this.engine = new FuzzerEngine(api, config);
+        this.engine = new FuzzerEngine(api, this.config);
+    }
+
+    FuzzingSessionController(HttpRequest request, FuzzerConfig config, FuzzerEngine engine) {
+        this.sessionId = UUID.randomUUID().toString();
+        this.request = request;
+        this.config = config;
+        this.engine = engine;
     }
 
     public String sessionId() {

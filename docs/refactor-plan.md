@@ -10,6 +10,21 @@ Refactor BypassFuzzer into a maintainable Burp Suite Professional extension with
 - testable components with minimal Montoya API coupling
 - staged migration that keeps the extension working throughout the refactor
 
+## Current Refactor Status
+
+The refactor plan is complete.
+
+Delivered:
+
+- session lifecycle is explicit and registry-backed
+- attack execution, request dispatch, and stop behavior are centralized
+- attack registration and enablement are typed and data-driven
+- shared request mutation helpers cover query, cookie, path, and body rewrites
+- payload expansion is centralized through `PayloadRepository`
+- result filtering/highlighting state is isolated from Swing widgets
+- the session UI is decomposed into focused components with one documented size exception
+- regression coverage now includes mutation helpers, filter behavior, payload expansion, and session lifecycle
+
 ## Current-State Assessment
 
 The codebase is functional, but the current structure concentrates too much behavior in a few classes and mixes UI, orchestration, request mutation, and operational concerns.
@@ -119,6 +134,7 @@ Status:
 - attack enablement is typed via `AttackType` instead of raw string ids.
 - `RequestSender` and `AttackExecutor` are implemented and the standard attacks now route through them.
 - timeout-aware protocol dispatch also routes through the shared sender/executor path.
+- `PayloadRepository` now owns reusable parameter payload expansion and resource-backed payload loading.
 
 ### Phase 3: Decompose UI
 
@@ -132,13 +148,22 @@ Status:
 - preflight warning analysis now lives in `SessionPreflightAnalyzer`
 - session state changes already flow through controller events
 - attack selection and run options UI now live in dedicated Swing subcomponents
-- filter panel and result area decomposition are still pending if further UI cleanup is needed
+- filter panel and result area now live in dedicated Swing subcomponents
+- filtering and highlight state live outside Swing components in `ResultFilterController` and `ResultHighlighter`
+- documented exception: `FuzzingSessionTab` remains the session composition root at roughly 367 lines, but no longer owns table rendering, viewer state, manual filter parsing, or highlight bookkeeping
 
 ### Phase 4: Normalize Attack Implementations
 
 - Refactor each attack to use shared request mutation utilities.
 - Remove duplicated parsing logic from parameter, cookie, verb, content-type, and encoding attacks.
 - Make attack enablement data-driven with an `AttackType` enum and registry metadata.
+
+Status:
+
+- typed attack enablement and registry metadata are implemented via `AttackType` and `AttackRegistry`
+- shared execution mechanics are centralized through `AttackExecutor`
+- shared request mutation utilities now live under `com.bypassfuzzer.burp.http`
+- parameter, cookie, verb, content-type, and encoding attacks now use the shared mutation layer instead of ad hoc parsing helpers
 
 ### Phase 5: Add Tests and Regression Harness
 
@@ -150,6 +175,11 @@ Status:
   - payload expansion
 - Add attack-focused tests with mocked request sender behavior.
 - Add smoke tests for session lifecycle and attack registry composition.
+
+Status:
+
+- implemented: regression tests for URL resolution, rate limiting interruption, attack registry ordering, session run options, preflight analysis, request mutation helpers, filter behavior, payload expansion, and session lifecycle
+- deferred by design: request-sender unit tests remain lower priority because `AttackExecutor` is already exercised indirectly through the attack suite and the sender boundary is intentionally thin
 
 ## Immediate Refactor Backlog
 
@@ -184,3 +214,12 @@ Status:
 - UI classes are under 300 lines unless there is a documented exception.
 - Core request mutation logic is covered by automated tests.
 - New attacks can be added through the registry without touching session orchestration.
+
+## Current Completion Against Definition of Done
+
+- met: a closed session cannot continue sending requests
+- met: a stopped run cannot send additional requests after stop is acknowledged
+- met: attack execution uses one shared execution pipeline
+- met: UI classes are under 300 lines unless there is a documented exception
+- met: core request mutation logic is covered by automated tests
+- met: new attacks can be added through the registry without touching session orchestration
