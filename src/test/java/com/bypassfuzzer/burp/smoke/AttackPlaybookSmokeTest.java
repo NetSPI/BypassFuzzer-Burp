@@ -58,7 +58,7 @@ class AttackPlaybookSmokeTest {
         port = findFreePort();
         baseUrl = "http://" + HOST + ":" + port;
 
-        smokeLab = new ProcessBuilder("python3", "src/test/smoke_lab/app.py", "--host", HOST, "--port", Integer.toString(port))
+        smokeLab = new ProcessBuilder("python3", "src/test/vulnerable_lab/app.py", "--host", HOST, "--port", Integer.toString(port))
             .directory(Path.of(".").toFile())
             .redirectErrorStream(true)
             .start();
@@ -87,14 +87,14 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.HEADER,
-                "/admin",
+                "/edge/private/reports/quarterly",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /edge/private/reports/quarterly HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
                     """,
-                "trusted Authorization"
+                "trusted X-Forwarded-For"
             )
         );
     }
@@ -104,9 +104,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.PATH,
-                "/admin",
+                "/api/v1/reports/export",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /api/v1/reports/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -121,9 +121,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.VERB,
-                "/admin",
+                "/rest/admin/users/42",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /rest/admin/users/42 HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -138,9 +138,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.PARAM,
-                "/api/admin/settings?debug=false",
+                "/api/internal/runtime/config?debug=false",
                 """
-                    GET /api/admin/settings?debug=false HTTP/1.1\r
+                    GET /api/internal/runtime/config?debug=false HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -155,9 +155,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.COOKIE,
-                "/api/admin/settings",
+                "/portal/account/export",
                 """
-                    GET /api/admin/settings HTTP/1.1\r
+                    GET /portal/account/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user; debug=false\r
                     \r
@@ -172,9 +172,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.TRAILING_DOT,
-                "/admin",
+                "/edge/admin/console",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /edge/admin/console HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -189,9 +189,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.TRAILING_SLASH,
-                "/admin",
+                "/api/v1/reports/export",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /api/v1/reports/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -206,9 +206,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.EXTENSION,
-                "/admin",
+                "/api/v1/reports/export",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /api/v1/reports/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -223,9 +223,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.CONTENT_TYPE,
-                "/api/admin/settings?debug=false",
+                "/graphql/internal/preferences?debug=false",
                 """
-                    GET /api/admin/settings?debug=false HTTP/1.1\r
+                    GET /graphql/internal/preferences?debug=false HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -240,9 +240,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.ENCODING,
-                "/admin",
+                "/api/v1/reports/export",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /api/v1/reports/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -257,9 +257,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.PROTOCOL,
-                "/protocol/admin",
+                "/legacy/admin/audit",
                 """
-                    GET /protocol/admin HTTP/1.1\r
+                    GET /legacy/admin/audit HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r
@@ -274,9 +274,9 @@ class AttackPlaybookSmokeTest {
         assertAttackSucceeds(
             scenario(
                 AttackType.CASE,
-                "/admin",
+                "/api/v1/reports/export",
                 """
-                    GET /admin HTTP/1.1\r
+                    GET /api/v1/reports/export HTTP/1.1\r
                     Host: %s:%d\r
                     Cookie: session=lab-user\r
                     \r

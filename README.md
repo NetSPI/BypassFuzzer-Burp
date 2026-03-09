@@ -3,8 +3,10 @@
 A Burp Suite extension for testing authorization bypass vulnerabilities (401/403 bypasses). This is a Java port of the Python [BypassFuzzer](https://github.com/intrudir/BypassFuzzer) tool, fully integrated with Burp Suite.
 
 ## Features
+Currently, there are 2 main bypasses we can attempt: Authorization bypasses & URL validation bypasses. When you send a request to bypass fuzzer, they are organized into 2 tabs. 
 
-- **12 AuthZ Bypass Attack Types:**
+
+- **AuthZ Bypass Attack Types:**
   - Header-based attacks (283+ bypass headers)
   - Path manipulation (367+ URL encodings)
   - HTTP verb/method attacks (11 methods + overrides + case variations + X-prefix/suffix)
@@ -36,7 +38,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
   - Graceful shutdown and resource cleanup
 - Colorize interesting requests for future filtering
 - **Smoke Testing:**
-  - Local vulnerable smoke lab under `src/test/smoke_lab`
+  - Local vulnerable lab under `src/test/vulnerable_lab`
   - Attack-driven smoke suite that reuses the real attack classes and payload logic without Burp
 
 ## Requirements
@@ -52,7 +54,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 ./gradlew clean shadowJar
 
 # The compiled JAR will be at:
-# build/libs/bypassfuzzer-burp-1.0.5.jar
+# build/libs/bypassfuzzer-burp-1.0.6.jar
 ```
 
 ## Testing
@@ -72,7 +74,7 @@ The smoke suite starts a local vulnerable app automatically and exercises the re
 1. Open Burp Suite
 2. Go to **Extensions** → **Installed**
 3. Click **Add**
-4. Select **Extension file**: `bypassfuzzer-burp-1.0.5.jar`
+4. Select **Extension file**: `bypassfuzzer-burp-1.0.6.jar`
 5. Click **Next**
 6. The extension will load and a "BypassFuzzer" tab will appear
 
@@ -122,20 +124,20 @@ The smoke suite starts a local vulnerable app automatically and exercises the re
 6. **Scan History:**
    - Export results to CSV/JSON (TODO)
 
-## Smoke Lab
+## Vulnerable Lab
 
-For manual Burp validation and local attack smoke tests, use the vulnerable app in [`src/test/smoke_lab`](src/test/smoke_lab).
+For manual Burp validation and local attack smoke tests, use the vulnerable app in [`src/test/vulnerable_lab`](src/test/vulnerable_lab).
 
 Manual run:
 
 ```bash
-python3 src/test/smoke_lab/app.py
+python3 src/test/vulnerable_lab/app.py
 ```
 
 Then:
 
 1. Request `GET /login` to receive `session=lab-user`
-2. Use `/admin`, `/api/admin/settings`, `/protocol/admin`, `/redirect/next`, `/host/check`, and `/cors/profile` as base targets
+2. Use `/edge/private/reports/quarterly`, `/api/v1/reports/export`, `/tenant/acme/billing/invoices`, `/console/settings/users`, `/rest/admin/users/42`, `/api/internal/runtime/config`, `/portal/account/export`, `/edge/admin/console`, `/graphql/internal/preferences`, `/api/v2/admin/audit`, `/legacy/admin/audit`, `/redirect/next`, `/host/check`, and `/cors/profile` as base targets
 3. Run the extension against those requests or execute `./gradlew smokeTestPlaybooks`
 
 For `URL Validation`, edit the request first and replace the URL-like value with `{INJECT}`. Example:
@@ -165,7 +167,15 @@ Defaults are aligned with the PortSwigger cheat sheet as closely as practical in
 
 Encoding behavior follows the selected dropdown mode, one at a time.
 
-The detailed route matrix and black-box lab checks are documented in [`src/test/smoke_lab/README.md`](src/test/smoke_lab/README.md).
+Real-world-style examples in the lab include:
+
+- reverse-proxy header trust on `/edge/private/reports/quarterly`, where `X-Forwarded-For`, `X-Custom-IP-Authorization`, `X-Original-URL`, or `X-Rewrite-URL` can incorrectly punch through an edge-protected report route
+- nested report and billing routes that return `403` until a path-normalization payload collapses them back to the protected backend path
+- a weak Bearer-token admin route on `/api/v2/admin/audit` that returns `403` for a normal user token and is bypassed because token shape is checked more than token validity
+- separate consultant-demo routes for method confusion, truthy query parameters, truthy cookies, trailing-dot host routing, content-type parser confusion, and HTTP/1.0 downgrade handling
+- the existing URL-validation examples for redirect, host, and CORS trust decisions
+
+The detailed route matrix and black-box lab checks are documented in [`src/test/vulnerable_lab/README.md`](src/test/vulnerable_lab/README.md).
 
 ## Custom Payloads
 
@@ -182,7 +192,7 @@ You can edit the payload files before building. UI config for this will be added
 
    Example: `X-Forwarded-For: {IP PAYLOAD}`
    Example with Collaborator: `X-Forwarded-For: {OOB DOMAIN PAYLOAD}`
-   Example for URL bypass: `X-Original-URL: {PATH SWAP}` (sends `GET /` with header `X-Original-URL: /admin`)
+   Example for URL bypass: `X-Original-URL: {PATH SWAP}` (sends `GET /` with header `X-Original-URL: /edge/private/reports/quarterly`)
 
 2. **IP Payloads:** One IP address per line
 

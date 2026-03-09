@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bypassfuzzer'
-version = '1.0.5'
+version = '1.0.6'
 
 repositories {
     mavenCentral()
@@ -49,7 +49,7 @@ tasks.named('test') {
 
 tasks.register('smokeTestPlaybooks', Test) {
     useJUnitPlatform()
-    description = 'Runs attack-driven smoke tests against the local vulnerable smoke lab.'
+    description = 'Runs attack-driven smoke tests against the local vulnerable lab.'
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath

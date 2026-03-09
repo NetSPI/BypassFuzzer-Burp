@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deliberately vulnerable smoke-test app for BypassFuzzer."""
+"""Deliberately vulnerable local lab app for BypassFuzzer."""
 
 from __future__ import annotations
 
@@ -16,6 +16,21 @@ TRUTHY_VALUES = {"1", "true", "yes", "on", "admin", "root"}
 ADMIN_KEYS = {"debug", "is_admin", "isadmin", "access", "role"}
 TRUSTED_HOST = "trusted.example"
 LOOPBACK_ALIASES = {"127.0.0.1", "127.1", "2130706433", "0x7f000001", "localhost", "::1", "[::1]"}
+PATH_NORMALIZATION_ROUTES = {
+    "/api/v1/reports/export": "reports export",
+    "/tenant/acme/billing/invoices": "billing invoices",
+    "/console/settings/users": "console users",
+}
+HEADER_TRUST_ROUTE = "/edge/private/reports/quarterly"
+VERB_ROUTE = "/rest/admin/users/42"
+PARAM_ROUTE = "/api/internal/runtime/config"
+COOKIE_ROUTE = "/portal/account/export"
+TRAILING_DOT_ROUTE = "/edge/admin/console"
+CONTENT_TYPE_ROUTE = "/graphql/internal/preferences"
+PROTOCOL_ROUTE = "/legacy/admin/audit"
+BEARER_ADMIN_ROUTE = "/api/v2/admin/audit"
+WEAK_BEARER_ADMIN_VALUES = {"Bearer", "Bearer A", "Bearer a a", "Token A"}
+TRUSTED_REWRITE_TARGETS = {HEADER_TRUST_ROUTE, "/internal/reports/export", "/admin/reports/export"}
 
 
 def parse_cookie_pairs(cookie_header: str) -> list[tuple[str, str]]:
@@ -170,8 +185,8 @@ def string_contains_trusted_host(raw_value: str) -> bool:
     return TRUSTED_HOST in (raw_value or "").lower()
 
 
-class SmokeLabHandler(BaseHTTPRequestHandler):
-    server_version = "BypassFuzzerSmokeLab/1.0"
+class VulnerableLabHandler(BaseHTTPRequestHandler):
+    server_version = "BypassFuzzerVulnerableLab/1.0"
 
     def do_GET(self) -> None:
         self.handle_request()
@@ -210,7 +225,14 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
         if exact_path == "/":
             self.respond(
                 HTTPStatus.OK,
-                "BypassFuzzer smoke lab\nVisit /login first, then target /admin, /api/admin/settings, and /protocol/admin\n",
+                (
+                    "BypassFuzzer vulnerable lab\n"
+                    "Visit /login first, then try "
+                    "/edge/private/reports/quarterly, /api/v1/reports/export, /tenant/acme/billing/invoices, "
+                    "/console/settings/users, /rest/admin/users/42, /api/internal/runtime/config, "
+                    "/portal/account/export, /edge/admin/console, /graphql/internal/preferences, "
+                    "/api/v2/admin/audit, /legacy/admin/audit, /redirect/next, /host/check, and /cors/profile\n"
+                ),
                 send_body,
             )
             return
@@ -228,16 +250,46 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
             self.respond(HTTPStatus.OK, "ok\n", send_body)
             return
 
-        if normalized_path == "/admin":
-            self.handle_admin(authenticated, raw_path, exact_path, normalized_path, query_pairs, cookie_pairs, body_pairs, send_body)
+        if normalized_path in PATH_NORMALIZATION_ROUTES:
+            self.handle_path_normalization(
+                authenticated,
+                raw_path,
+                exact_path,
+                normalized_path,
+                send_body,
+            )
             return
 
-        if normalized_path == "/api/admin/settings":
-            self.handle_settings(authenticated, exact_path, query_pairs, cookie_pairs, body_pairs, content_type, send_body)
+        if normalized_path == HEADER_TRUST_ROUTE:
+            self.handle_header_trust(authenticated, send_body)
             return
 
-        if normalized_path == "/protocol/admin":
+        if normalized_path == VERB_ROUTE:
+            self.handle_verb_route(authenticated, send_body)
+            return
+
+        if normalized_path == PARAM_ROUTE:
+            self.handle_param_route(authenticated, query_pairs, send_body)
+            return
+
+        if normalized_path == COOKIE_ROUTE:
+            self.handle_cookie_route(authenticated, cookie_pairs, send_body)
+            return
+
+        if normalized_path == TRAILING_DOT_ROUTE:
+            self.handle_trailing_dot_route(authenticated, send_body)
+            return
+
+        if normalized_path == CONTENT_TYPE_ROUTE:
+            self.handle_content_type_route(authenticated, exact_path, body_pairs, content_type, send_body)
+            return
+
+        if normalized_path == PROTOCOL_ROUTE:
             self.handle_protocol(authenticated, send_body)
+            return
+
+        if normalized_path == BEARER_ADMIN_ROUTE:
+            self.handle_bearer_admin(raw_path, exact_path, normalized_path, send_body)
             return
 
         if normalized_path == "/redirect/next":
@@ -262,69 +314,153 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         return parse_body_pairs(body, content_type), content_type
 
-    def handle_admin(
+    def handle_path_normalization(
         self,
         authenticated: bool,
         raw_path: str,
         exact_path: str,
         normalized_path: str,
-        query_pairs: list[tuple[str, str]],
-        cookie_pairs: list[tuple[str, str]],
-        body_pairs: list[tuple[str, str]],
         send_body: bool,
     ) -> None:
         if not authenticated:
             self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
             return
 
-        reasons: list[str] = []
-        if normalized_path == "/admin" and (raw_path != "/admin" or exact_path != "/admin"):
-            reasons.append("path normalization bypass")
+        resource_name = PATH_NORMALIZATION_ROUTES.get(normalized_path, "resource")
+        if raw_path != normalized_path or exact_path != normalized_path:
+            self.respond(
+                HTTPStatus.OK,
+                f"{resource_name} bypass granted via: path normalization bypass\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "path normalization bypass"},
+            )
+            return
 
+        self.respond(HTTPStatus.FORBIDDEN, f"{resource_name} blocked\n", send_body)
+
+    def handle_header_trust(self, authenticated: bool, send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        reasons: list[str] = []
         if self.headers.get("X-Forwarded-For") in {"127.0.0.1", "127.0.0.1:80", "::1"}:
             reasons.append("trusted X-Forwarded-For")
         if self.headers.get("X-Custom-IP-Authorization") in {"127.0.0.1", "::1"}:
             reasons.append("trusted X-Custom-IP-Authorization")
-        if self.headers.get("X-Original-URL") in {"/", "/admin"}:
-            reasons.append("trusted X-Original-URL")
-        if self.headers.get("X-Rewrite-URL") in {"/", "/admin"}:
-            reasons.append("trusted X-Rewrite-URL")
-        if self.headers.get("X-Forwarded-Host", "").lower() in {"localhost", "internal.local"}:
+        if self.headers.get("X-Forwarded-Host", "").lower() in {"localhost", "internal.local", "localhost:8080"}:
             reasons.append("trusted X-Forwarded-Host")
         if self.headers.get("Host", "").lower() in {"localhost", "internal.local"}:
             reasons.append("trusted Host")
-        if self.headers.get("Host", "").endswith("."):
-            reasons.append("trusted trailing-dot Host")
-        if self.headers.get("Authorization") == "Basic A":
-            reasons.append("trusted Authorization")
-        if self.headers.get("X-HTTP-Method-Override", "").upper() == "GET":
-            reasons.append("method override header")
-        if self.command in {"HEAD", "OPTIONS", "TRACE"}:
-            reasons.append("method confusion")
-        if has_truthy_admin_pair(query_pairs):
-            reasons.append("truthy query parameter")
-        if has_truthy_admin_pair(cookie_pairs):
-            reasons.append("truthy cookie parameter")
-        if has_truthy_admin_pair(body_pairs):
-            reasons.append("truthy body parameter")
+
+        original_url = self.headers.get("X-Original-URL", "")
+        rewrite_url = self.headers.get("X-Rewrite-URL", "")
+        if normalize_backend_path(original_url) in TRUSTED_REWRITE_TARGETS:
+            reasons.append("trusted X-Original-URL")
+        if normalize_backend_path(rewrite_url) in TRUSTED_REWRITE_TARGETS:
+            reasons.append("trusted X-Rewrite-URL")
 
         if reasons:
             self.respond(
                 HTTPStatus.OK,
-                "admin bypass granted via: " + ", ".join(reasons) + "\n",
+                "edge report bypass granted via: " + ", ".join(reasons) + "\n",
                 send_body,
                 extra_headers={"X-Smoke-Bypass": ",".join(reasons)},
             )
             return
 
-        self.respond(HTTPStatus.FORBIDDEN, "admin blocked\n", send_body)
+        self.respond(HTTPStatus.FORBIDDEN, "edge report blocked\n", send_body)
 
-    def handle_settings(
+    def handle_verb_route(self, authenticated: bool, send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        reasons: list[str] = []
+        if self.command in {"HEAD", "OPTIONS", "TRACE"}:
+            reasons.append("method confusion")
+
+        override_headers = (
+            self.headers.get("X-HTTP-Method-Override", ""),
+            self.headers.get("X-HTTP-Method", ""),
+            self.headers.get("X-Method-Override", ""),
+        )
+        if any(value.upper() == "GET" for value in override_headers):
+            reasons.append("method override header")
+
+        if reasons:
+            self.respond(
+                HTTPStatus.OK,
+                "user-management bypass granted via: " + ", ".join(reasons) + "\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": ",".join(reasons)},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "user-management blocked\n", send_body)
+
+    def handle_param_route(
+        self,
+        authenticated: bool,
+        query_pairs: list[tuple[str, str]],
+        send_body: bool,
+    ) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        if has_truthy_admin_pair(query_pairs):
+            self.respond(
+                HTTPStatus.OK,
+                "runtime config bypass granted via: truthy query parameter\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "truthy query parameter"},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "runtime config blocked\n", send_body)
+
+    def handle_cookie_route(
+        self,
+        authenticated: bool,
+        cookie_pairs: list[tuple[str, str]],
+        send_body: bool,
+    ) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        if has_truthy_admin_pair(cookie_pairs):
+            self.respond(
+                HTTPStatus.OK,
+                "account export bypass granted via: truthy cookie parameter\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "truthy cookie parameter"},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "account export blocked\n", send_body)
+
+    def handle_trailing_dot_route(self, authenticated: bool, send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        if self.headers.get("Host", "").endswith("."):
+            self.respond(
+                HTTPStatus.OK,
+                "edge console bypass granted via: trusted trailing-dot Host\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "trusted trailing-dot Host"},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "edge console blocked\n", send_body)
+
+    def handle_content_type_route(
         self,
         authenticated: bool,
         exact_path: str,
-        query_pairs: list[tuple[str, str]],
-        cookie_pairs: list[tuple[str, str]],
         body_pairs: list[tuple[str, str]],
         content_type: str,
         send_body: bool,
@@ -333,31 +469,17 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
             self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
             return
 
-        reasons: list[str] = []
-        if has_truthy_admin_pair(query_pairs):
-            reasons.append("truthy query parameter")
-        if has_truthy_admin_pair(cookie_pairs):
-            reasons.append("truthy cookie parameter")
-        if has_truthy_admin_pair(body_pairs):
-            reasons.append("truthy body parameter")
-
         non_form_content_type = any(token in content_type for token in ("application/json", "application/xml", "text/xml", "multipart/form-data"))
-        if exact_path == "/api/admin/settings" and body_pairs and non_form_content_type and has_admin_key(body_pairs):
-            reasons.append("content-type parser confusion")
-
-        if self.headers.get("X-HTTP-Method-Override", "").upper() == "GET":
-            reasons.append("method override header")
-
-        if reasons:
+        if exact_path == CONTENT_TYPE_ROUTE and body_pairs and non_form_content_type and has_admin_key(body_pairs):
             self.respond(
                 HTTPStatus.OK,
-                "settings bypass granted via: " + ", ".join(reasons) + "\n",
+                "graphql preferences bypass granted via: content-type parser confusion\n",
                 send_body,
-                extra_headers={"X-Smoke-Bypass": ",".join(reasons)},
+                extra_headers={"X-Smoke-Bypass": "content-type parser confusion"},
             )
             return
 
-        self.respond(HTTPStatus.FORBIDDEN, "settings blocked\n", send_body)
+        self.respond(HTTPStatus.FORBIDDEN, "graphql preferences blocked\n", send_body)
 
     def handle_protocol(self, authenticated: bool, send_body: bool) -> None:
         if not authenticated:
@@ -374,6 +496,37 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
             return
 
         self.respond(HTTPStatus.FORBIDDEN, f"protocol blocked for {self.request_version}\n", send_body)
+
+    def handle_bearer_admin(self, raw_path: str, exact_path: str, normalized_path: str, send_body: bool) -> None:
+        authorization = self.headers.get("Authorization", "").strip()
+        if not authorization:
+            self.respond(HTTPStatus.UNAUTHORIZED, "bearer token required\n", send_body)
+            return
+
+        reasons: list[str] = []
+        if raw_path != normalized_path or exact_path != normalized_path:
+            reasons.append("path normalization bypass")
+        if authorization in WEAK_BEARER_ADMIN_VALUES:
+            reasons.append("weak bearer token validation")
+
+        if reasons:
+            self.respond(
+                HTTPStatus.OK,
+                "audit bypass granted via: " + ", ".join(reasons) + "\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": ",".join(reasons)},
+            )
+            return
+
+        if authorization == "Bearer admin-token":
+            self.respond(HTTPStatus.OK, "audit access granted\n", send_body)
+            return
+
+        if authorization.startswith("Bearer "):
+            self.respond(HTTPStatus.FORBIDDEN, "bearer token lacks required scope\n", send_body)
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "invalid bearer token\n", send_body)
 
     def handle_redirect(self, authenticated: bool, query_pairs: list[tuple[str, str]], send_body: bool) -> None:
         if not authenticated:
@@ -459,13 +612,13 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the BypassFuzzer smoke-test lab.")
+    parser = argparse.ArgumentParser(description="Run the BypassFuzzer vulnerable lab.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8008, type=int)
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer((args.host, args.port), SmokeLabHandler)
-    print(f"BypassFuzzer smoke lab listening on http://{args.host}:{args.port}")
+    server = ThreadingHTTPServer((args.host, args.port), VulnerableLabHandler)
+    print(f"BypassFuzzer vulnerable lab listening on http://{args.host}:{args.port}")
     print("Open /login first to receive session=lab-user")
     try:
         server.serve_forever()

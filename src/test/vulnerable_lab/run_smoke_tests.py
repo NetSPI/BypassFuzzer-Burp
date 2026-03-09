@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run representative smoke tests for every BypassFuzzer attack playbook."""
+"""Run representative vulnerable-lab checks for every BypassFuzzer attack playbook."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 
 
-APP_PATH = "src/test/smoke_lab/app.py"
+APP_PATH = "src/test/vulnerable_lab/app.py"
 DEFAULT_HOST = "127.0.0.1"
 
 
@@ -49,7 +49,7 @@ def wait_until_ready(base_url: str, timeout_seconds: float = 5.0) -> None:
         except Exception as exc:  # pragma: no cover - startup race
             last_error = exc
             time.sleep(0.1)
-    raise RuntimeError(f"Smoke lab did not become ready at {base_url}") from last_error
+    raise RuntimeError(f"Vulnerable lab did not become ready at {base_url}") from last_error
 
 
 @contextlib.contextmanager
@@ -119,58 +119,58 @@ def request(
 def build_cases() -> list[SmokeCase]:
     auth_cookie = {"Cookie": "session=lab-user"}
     return [
-        SmokeCase("Baseline", "Unauthenticated admin request is rejected", "GET", "/admin", 401, expected_body="login required"),
-        SmokeCase("Baseline", "Authenticated baseline stays blocked", "GET", "/admin", 403, expected_body="admin blocked", headers=auth_cookie),
+        SmokeCase("Baseline", "Unauthenticated reports export request is rejected", "GET", "/api/v1/reports/export", 401, expected_body="login required"),
+        SmokeCase("Baseline", "Authenticated reports export baseline stays blocked", "GET", "/api/v1/reports/export", 403, expected_body="reports export blocked", headers=auth_cookie),
         SmokeCase(
             "Header",
-            "Trusted routing header bypass",
+            "Reverse-proxy header trust bypass",
             "GET",
-            "/admin",
+            "/edge/private/reports/quarterly",
             200,
             expected_header_value="trusted X-Forwarded-For",
             headers={**auth_cookie, "X-Forwarded-For": "127.0.0.1"},
         ),
         SmokeCase(
             "Path",
-            "Traversal-style path payload normalizes back to admin",
+            "Traversal-style payload normalizes back to reports export",
             "GET",
-            "/..;/admin",
+            "/api/v1/../v1/reports/export",
             200,
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
         ),
         SmokeCase(
             "Verb",
-            "Method confusion via OPTIONS",
+            "Method confusion via OPTIONS on a user-management route",
             "OPTIONS",
-            "/admin",
+            "/rest/admin/users/42",
             200,
             expected_header_value="method confusion",
             headers=auth_cookie,
         ),
         SmokeCase(
             "Param",
-            "Truthy query parameter bypass",
+            "Truthy query parameter bypass on runtime config",
             "GET",
-            "/api/admin/settings?debug=true",
+            "/api/internal/runtime/config?debug=true",
             200,
             expected_header_value="truthy query parameter",
             headers=auth_cookie,
         ),
         SmokeCase(
             "Cookie",
-            "Truthy cookie parameter bypass",
+            "Truthy cookie parameter bypass on account export",
             "GET",
-            "/api/admin/settings",
+            "/portal/account/export",
             200,
             expected_header_value="truthy cookie parameter",
             headers={"Cookie": "session=lab-user; debug=true"},
         ),
         SmokeCase(
             "Trailing Dot",
-            "Trailing-dot Host bypass",
+            "Trailing-dot Host bypass on an edge console route",
             "GET",
-            "/admin",
+            "/edge/admin/console",
             200,
             expected_header_value="trusted trailing-dot Host",
             headers={"Host": "127.0.0.1.", "Cookie": "session=lab-user"},
@@ -179,7 +179,7 @@ def build_cases() -> list[SmokeCase]:
             "Trailing Slash",
             "Trailing slash path normalization bypass",
             "GET",
-            "/admin/",
+            "/api/v1/reports/export/",
             200,
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
@@ -188,16 +188,16 @@ def build_cases() -> list[SmokeCase]:
             "Extension",
             "Extension suffix normalization bypass",
             "GET",
-            "/admin.json",
+            "/api/v1/reports/export.json",
             200,
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
         ),
         SmokeCase(
             "Content-Type",
-            "JSON body parser confusion bypass",
+            "JSON body parser confusion bypass on GraphQL preferences",
             "POST",
-            "/api/admin/settings",
+            "/graphql/internal/preferences",
             200,
             expected_header_value="content-type parser confusion",
             headers={**auth_cookie, "Content-Type": "application/json"},
@@ -207,26 +207,35 @@ def build_cases() -> list[SmokeCase]:
             "Encoding",
             "Encoded path bypass",
             "GET",
-            "/%61dmin",
+            "/api/v1/reports/%65xport",
             200,
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
         ),
         SmokeCase(
             "Protocol",
-            "HTTP/1.0 protocol downgrade bypass",
+            "HTTP/1.0 protocol downgrade bypass on a legacy admin route",
             "GET",
-            "/protocol/admin",
+            "/legacy/admin/audit",
             200,
             expected_header_value="http-1.0",
             headers=auth_cookie,
             http_version=10,
         ),
         SmokeCase(
+            "Bearer",
+            "Weak bearer token validation bypass on audit route",
+            "GET",
+            "/api/v2/admin/audit",
+            200,
+            expected_header_value="weak bearer token validation",
+            headers={"Authorization": "Bearer"},
+        ),
+        SmokeCase(
             "Case",
             "Case-variant path bypass",
             "GET",
-            "/ADMIN",
+            "/API/V1/REPORTS/EXPORT",
             200,
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
@@ -287,7 +296,7 @@ def run_case(base_url: str, case: SmokeCase) -> tuple[bool, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run smoke tests for all BypassFuzzer attack playbooks.")
-    parser.add_argument("--base-url", help="Use an already running smoke lab instead of starting one")
+    parser.add_argument("--base-url", help="Use an already running vulnerable lab instead of starting one")
     args = parser.parse_args()
 
     with running_lab(args.base_url) as base_url:
