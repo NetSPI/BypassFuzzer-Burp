@@ -4,7 +4,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 
 ## Features
 
-- **12 Attack Types:**
+- **12 AuthZ Bypass Attack Types:**
   - Header-based attacks (283+ bypass headers)
   - Path manipulation (367+ URL encodings)
   - HTTP verb/method attacks (11 methods + overrides + case variations + X-prefix/suffix)
@@ -17,6 +17,12 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
   - Encoding attack (URL, double-URL, triple-URL, unicode, unicode-overflow encoding on paths, parameter names, and parameter values in query strings and all body content types)
   - HTTP protocol attacks (e.g. HTTP/1.0, HTTP/0.9)
   - Case variation attack (random capitalizations with smart limits)
+- **Dedicated URL Validation Tab:**
+  - Separate per-session `URL Validation` workflow beside the core bypass playbooks
+  - Uses an editable request workbench with explicit `{INJECT}` marker targeting
+  - Uses PortSwigger cheat-sheet-style payload families, attack settings, and encodings
+  - Uses exact rendered PortSwigger payloads for the default cheat-sheet settings and appends optional advanced payload sets
+  - Includes a `View Payloads` preview for the exact generated list before execution
 
 - **Smart Filtering:** Automatically reduces noise by hiding repeated responses with pattern tracking
 - **Rate Limiting & Auto-Throttling:**
@@ -59,7 +65,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 ./gradlew smokeTestPlaybooks
 ```
 
-The smoke suite starts a local vulnerable app automatically and exercises the real attack strategies, payload expansion, registry wiring, and shared executor flow without requiring Burp.
+The smoke suite starts a local vulnerable app automatically and exercises the real attack strategies, payload expansion, registry wiring, shared executor flow, and URL Validation workflow without requiring Burp.
 
 ## Installation
 
@@ -78,27 +84,42 @@ The smoke suite starts a local vulnerable app automatically and exercises the re
    - Right-click any request in Proxy, Target, or Repeater
    - Select "Send to BypassFuzzer"
 
-2. **Configure Attack:**
-   - Select attack types to enable (or use Check All/Uncheck All)
+2. **Choose Session Mode:**
+   - `Bypass` for the core AuthZ bypass playbooks
+   - `URL Validation` for marker-driven URL validation testing
+
+3. **Configure Attack:**
+   - In `Bypass`, select attack types to enable (or use Check All/Uncheck All)
    - Optionally enable Collaborator payloads (Burp Professional only)
    - Configure rate limiting:
      - Set requests/second (0 = unlimited, default)
      - Configure auto-throttle status codes (default: 429, 503)
+   - In `URL Validation`:
+     - edit the base request directly in the request workbench
+     - place `{INJECT}` where payloads should go
+     - set the allowed host, attacker host, and scheme
+     - choose the payload families to run: `Absolute URL`, `Host header`, and/or `CORS`
+     - default family selection matches the cheat sheet more closely: `Absolute URL` only
+     - choose the attack settings to include:
+       - `Domain allow list bypass`, `Fake relative URLs`, `Loopback`, `IPv6`, `Cloud metadata endpoints`, `URL-splitting Unicode characters`
+     - choose one encoding mode: `Raw`, `Intruder's`, `Everything`, `Special chars`, or `Unicode escape`
+     - use `View Payloads` to inspect the exact generated list before starting
 
-3. **Start Fuzzing:**
-   - Click "Start Fuzzing"
+4. **Start Fuzzing:**
+   - Click the mode-specific start button
    - Results appear in real-time, filtered with your criteria in real-time
-   - Can stop fuzzing at any time with "Stop Fuzzing" button
+   - Can stop fuzzing at any time with the mode-specific `Stop` button
    - Auto-throttle will activate if rate limit errors detected
    - Can right click a request to color it for identification/filtering later
 
-4. **Review Results:**
+5. **Review Results:**
    - Dynamic filtering based on status codes, length, content-type, etc.
    - Use smart filter to see only interesting results automatically
+   - `URL Validation` results show `Target`, `Family`, `Encoding`, and the final injected `Payload`
    - Click any result to view full request/response
    - Send interesting findings to Repeater or Intruder
 
-5. **Scan History:**
+6. **Scan History:**
    - Export results to CSV/JSON (TODO)
 
 ## Smoke Lab
@@ -114,8 +135,35 @@ python3 src/test/smoke_lab/app.py
 Then:
 
 1. Request `GET /login` to receive `session=lab-user`
-2. Use `/admin`, `/api/admin/settings`, and `/protocol/admin` as base targets
+2. Use `/admin`, `/api/admin/settings`, `/protocol/admin`, `/redirect/next`, `/host/check`, and `/cors/profile` as base targets
 3. Run the extension against those requests or execute `./gradlew smokeTestPlaybooks`
+
+For `URL Validation`, edit the request first and replace the URL-like value with `{INJECT}`. Example:
+
+```http
+GET /redirect/next?next={INJECT} HTTP/1.1
+Host: 127.0.0.1:8008
+Cookie: session=lab-user
+```
+
+For CORS-style checks, put the marker directly in the `Origin` header:
+
+```http
+GET /cors/profile HTTP/1.1
+Host: 127.0.0.1:8008
+Origin: {INJECT}
+Cookie: session=lab-user
+```
+
+Then choose the `CORS` payload family in `Configure Attack` before starting the run.
+
+Defaults are aligned with the PortSwigger cheat sheet as closely as practical in this UI:
+
+- payload family: `Absolute URL`
+- attack settings: `Domain allow list bypass`, `Fake relative URLs`, `Loopback`
+- encoding: `Intruder's`
+
+Encoding behavior follows the selected dropdown mode, one at a time.
 
 The detailed route matrix and black-box lab checks are documented in [`src/test/smoke_lab/README.md`](src/test/smoke_lab/README.md).
 

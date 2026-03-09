@@ -38,4 +38,23 @@ class FuzzerResultsTableModelTest {
 
         assertEquals(1, model.getValueAt(0, 0));
     }
+
+    @Test
+    void urlValidationLayoutSeparatesMetadataFromPayloadValue() {
+        FuzzerResultsTableModel model = new FuzzerResultsTableModel(FuzzerResultsTableModel.TableLayout.URL_VALIDATION);
+        model.addResult(new AttackResult(
+            "URL Validation",
+            "http://127.0.0.1/",
+            "{INJECT} (origin header)",
+            "CORS",
+            "Intruder's",
+            null,
+            null
+        ), true);
+
+        assertEquals("{INJECT} (origin header)", model.getValueAt(0, 1));
+        assertEquals("CORS", model.getValueAt(0, 2));
+        assertEquals("Intruder's", model.getValueAt(0, 3));
+        assertEquals("http://127.0.0.1/", model.getValueAt(0, 4));
+    }
 }

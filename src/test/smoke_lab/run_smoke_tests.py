@@ -231,6 +231,33 @@ def build_cases() -> list[SmokeCase]:
             expected_header_value="path normalization bypass",
             headers=auth_cookie,
         ),
+        SmokeCase(
+            "URL Validation",
+            "Absolute URL allowlist confusion bypass",
+            "GET",
+            "/redirect/next?next=http://trusted.example@127.0.0.1/profile",
+            200,
+            expected_header_value="url-allowlist-bypass",
+            headers=auth_cookie,
+        ),
+        SmokeCase(
+            "URL Validation",
+            "Hostname allowlist confusion bypass",
+            "GET",
+            "/host/check?host=127.0.0.1.trusted.example",
+            200,
+            expected_header_value="hostname-allowlist-bypass",
+            headers=auth_cookie,
+        ),
+        SmokeCase(
+            "URL Validation",
+            "CORS origin allowlist confusion bypass",
+            "GET",
+            "/cors/profile",
+            200,
+            expected_header_value="cors-origin-bypass",
+            headers={**auth_cookie, "Origin": "http://127.0.0.1.trusted.example"},
+        ),
     ]
 
 

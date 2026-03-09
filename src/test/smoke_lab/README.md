@@ -18,7 +18,7 @@ Primary attack-driven smoke suite:
 ./gradlew smokeTestPlaybooks
 ```
 
-This suite starts the lab automatically and drives the real attack classes, payload expansion, registry wiring, and shared executor path without Burp.
+This suite starts the lab automatically and drives the real attack classes, payload expansion, registry wiring, shared executor path, and URL Validation playbook without Burp.
 
 Black-box lab self-check:
 
@@ -53,6 +53,9 @@ That issues `session=lab-user`, which keeps the requests authenticated enough fo
 | Encoding | `GET /%61dmin` | `path normalization bypass` |
 | Protocol | `GET /protocol/admin` over `HTTP/1.0` | `http-1.0` |
 | Case | `GET /ADMIN` | `path normalization bypass` |
+| URL Validation (Absolute URL) | `GET /redirect/next?next={INJECT}` | `url-allowlist-bypass` |
+| URL Validation (Hostname) | `GET /host/check?host={INJECT}` | `hostname-allowlist-bypass` |
+| URL Validation (CORS Origin) | `GET /cors/profile` with `Origin: {INJECT}` | `cors-origin-bypass` |
 
 ### Header, Path, Case, Trailing Slash, Extension, Encoding
 
@@ -130,6 +133,59 @@ Expected bypass:
 
 - `HTTP/1.0` returns `200 protocol bypass granted via HTTP/1.0`
 
+### URL Validation
+
+Base requests:
+
+```http
+GET /redirect/next?next={INJECT} HTTP/1.1
+Host: 127.0.0.1:8008
+Cookie: session=lab-user
+```
+
+```http
+GET /host/check?host={INJECT} HTTP/1.1
+Host: 127.0.0.1:8008
+Cookie: session=lab-user
+```
+
+```http
+GET /cors/profile HTTP/1.1
+Host: 127.0.0.1:8008
+Origin: {INJECT}
+Cookie: session=lab-user
+```
+
+Expected baseline:
+
+- `403` on all three routes
+
+Expected bypasses:
+
+- absolute URL allowlist confusion on `/redirect/next`
+- hostname allowlist confusion on `/host/check`
+- weak CORS origin allowlist matching on `/cors/profile`
+
+The attack-driven smoke suite uses the real `UrlValidationAttack` with:
+
+- `allowedHost=trusted.example`
+- `attackerHost=127.0.0.1`
+- explicit `{INJECT}` markers in the request
+- raw payload mode for deterministic smoke coverage
+
+The Burp UI for this tab is marker-driven:
+
+- edit the request directly in the `URL Validation` workbench
+- place `{INJECT}` where the payload should go
+- `Origin: {INJECT}` should usually be paired with the `CORS` payload family
+- choose the payload families you want to run: `Absolute URL`, `Host header`, and/or `CORS`
+- default family selection is `Absolute URL`
+- choose the attack settings you want to include:
+  `Domain allow list bypass`, `Fake relative URLs`, `Loopback`, `IPv6`, `Cloud metadata endpoints`, `URL-splitting Unicode characters`
+- choose one encoding mode: `Raw`, `Intruder's`, `Everything`, `Special chars`, or `Unicode escape`
+- `View Payloads` shows the exact generated list before execution
+- results label the generated `Family`, `Encoding`, and final injected `Payload`
+
 Note:
 
 - this lab is built on Python stdlib `http.server`, so it is useful for `HTTP/1.0` vs `HTTP/1.1` smoke checks
@@ -148,6 +204,6 @@ Blocked responses are `403`, and unauthenticated requests are `401`.
 ## Notes
 
 - `smokeTestPlaybooks` is the main smoke suite. It uses the extension's real attack classes and runs until each playbook finds a representative bypass.
-- `run_smoke_tests.py` is retained as a fast black-box check for the lab itself.
+- `run_smoke_tests.py` is retained as a fast black-box check for the lab itself, including the URL Validation routes.
 - Several playbooks intentionally converge on the same vulnerable behavior in this lab, especially path normalization around `/admin`.
 - The lab uses Python stdlib only, so it is easy to run locally and easy to inspect when a smoke case fails.

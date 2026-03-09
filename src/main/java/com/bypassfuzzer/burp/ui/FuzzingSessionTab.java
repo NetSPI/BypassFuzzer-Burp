@@ -4,6 +4,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
+import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
 import com.bypassfuzzer.burp.core.filter.ResultFilterController;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
@@ -14,6 +15,7 @@ import com.bypassfuzzer.burp.ui.session.AttackSelectionPanel;
 import com.bypassfuzzer.burp.ui.session.FilterPanel;
 import com.bypassfuzzer.burp.ui.session.RunOptionsPanel;
 import com.bypassfuzzer.burp.ui.session.SessionResultsPanel;
+import com.bypassfuzzer.burp.ui.session.UrlValidationPanel;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -22,6 +24,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -51,6 +54,7 @@ public class FuzzingSessionTab extends JPanel {
     private RunOptionsPanel runOptionsPanel;
     private FilterPanel filterPanel;
     private SessionResultsPanel resultsPanel;
+    private UrlValidationPanel urlValidationPanel;
 
     private volatile boolean shuttingDown = false;
 
@@ -86,16 +90,33 @@ public class FuzzingSessionTab extends JPanel {
     public void cleanup() {
         shuttingDown = true;
         sessionController.dispose();
+        if (urlValidationPanel != null) {
+            urlValidationPanel.cleanup();
+        }
     }
 
     private void initializeUi() {
         setLayout(new BorderLayout());
-        add(buildTopPanel(), BorderLayout.NORTH);
-        add(buildCenterPanel(), BorderLayout.CENTER);
+        add(buildSessionTabs(), BorderLayout.CENTER);
 
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         infoPanel.add(new JLabel(String.format("Target: %s %s", request.method(), request.url())));
         add(infoPanel, BorderLayout.SOUTH);
+    }
+
+    private JTabbedPane buildSessionTabs() {
+        JTabbedPane sessionTabs = new JTabbedPane();
+        sessionTabs.addTab("Bypass", buildBypassTab());
+        urlValidationPanel = new UrlValidationPanel(api, request);
+        sessionTabs.addTab("URL Validation", urlValidationPanel);
+        return sessionTabs;
+    }
+
+    private JPanel buildBypassTab() {
+        JPanel bypassPanel = new JPanel(new BorderLayout());
+        bypassPanel.add(buildTopPanel(), BorderLayout.NORTH);
+        bypassPanel.add(buildCenterPanel(), BorderLayout.CENTER);
+        return bypassPanel;
     }
 
     private JPanel buildTopPanel() {
@@ -328,14 +349,7 @@ public class FuzzingSessionTab extends JPanel {
     }
 
     private boolean isCollaboratorAvailable() {
-        if (shuttingDown) {
-            return false;
-        }
-        try {
-            return api.collaborator() != null && api.collaborator().defaultPayloadGenerator() != null;
-        } catch (Exception e) {
-            return false;
-        }
+        return !shuttingDown && CollaboratorSupport.isAvailable(api);
     }
 
     private String truncate(String value, int maxLength) {

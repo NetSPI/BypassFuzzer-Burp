@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.core.payloads;
 
 import burp.api.montoya.MontoyaApi;
+import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -108,19 +109,7 @@ public class HeaderPayloadProcessor {
      * @return Collaborator domain string, or null if unavailable
      */
     private String generateCollaboratorPayload(MontoyaApi api) {
-        if (api == null) {
-            return null;
-        }
-
-        try {
-            if (api.collaborator() != null && api.collaborator().defaultPayloadGenerator() != null) {
-                return api.collaborator().defaultPayloadGenerator().generatePayload().toString();
-            }
-        } catch (Exception e) {
-            // Collaborator not available or error generating payload
-        }
-
-        return null;
+        return CollaboratorSupport.generatePayload(api);
     }
 
     private String extractPath(String url) {

@@ -24,12 +24,20 @@ public class AttackExecutor {
                            Consumer<AttackResult> resultCallback,
                            BooleanSupplier shouldContinue,
                            RateLimiter rateLimiter) {
+        return execute(attackType, payload, null, null, null, request, resultCallback, shouldContinue, rateLimiter);
+    }
+
+    public boolean execute(String attackType, String payload, String targetLabel, String payloadFamily, String payloadEncoding,
+                           HttpRequest request,
+                           Consumer<AttackResult> resultCallback,
+                           BooleanSupplier shouldContinue,
+                           RateLimiter rateLimiter) {
         if (!AttackExecutionSupport.prepareRequest(shouldContinue, rateLimiter)) {
             return false;
         }
 
         HttpResponse response = requestSender.send(request);
-        resultCallback.accept(new AttackResult(attackType, payload, request, response));
+        resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response));
         return true;
     }
 

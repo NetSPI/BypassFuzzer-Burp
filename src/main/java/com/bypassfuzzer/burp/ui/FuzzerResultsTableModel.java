@@ -14,34 +14,56 @@ import java.util.Map;
  */
 public class FuzzerResultsTableModel extends AbstractTableModel {
 
-    private static final String[] COLUMN_NAMES = {"#", "Attack Type", "Payload", "Status", "Length", "Content-Type"};
-    private static final Class<?>[] COLUMN_CLASSES = {Integer.class, String.class, String.class, Integer.class, Integer.class, String.class};
+    public enum TableLayout {
+        DEFAULT(
+            new String[]{"#", "Attack Type", "Payload", "Status", "Length", "Content-Type"},
+            new Class<?>[]{Integer.class, String.class, String.class, Integer.class, Integer.class, String.class}
+        ),
+        URL_VALIDATION(
+            new String[]{"#", "Target", "Family", "Encoding", "Payload", "Status", "Length", "Content-Type"},
+            new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
+        );
+
+        private final String[] columnNames;
+        private final Class<?>[] columnClasses;
+
+        TableLayout(String[] columnNames, Class<?>[] columnClasses) {
+            this.columnNames = columnNames;
+            this.columnClasses = columnClasses;
+        }
+    }
 
     private final List<AttackResult> results;
     private final List<AttackResult> allResults; // Unfiltered results
     private final Map<AttackResult, Integer> resultIds;
+    private final TableLayout tableLayout;
     private int nextResultId;
 
     public FuzzerResultsTableModel() {
+        this(TableLayout.DEFAULT);
+    }
+
+    public FuzzerResultsTableModel(TableLayout tableLayout) {
         this.results = new ArrayList<>();
         this.allResults = new ArrayList<>();
         this.resultIds = new HashMap<>();
+        this.tableLayout = tableLayout == null ? TableLayout.DEFAULT : tableLayout;
         this.nextResultId = 1;
     }
 
     @Override
     public int getColumnCount() {
-        return COLUMN_NAMES.length;
+        return tableLayout.columnNames.length;
     }
 
     @Override
     public String getColumnName(int column) {
-        return COLUMN_NAMES[column];
+        return tableLayout.columnNames[column];
     }
 
     @Override
     public Class<?> getColumnClass(int columnIndex) {
-        return COLUMN_CLASSES[columnIndex];
+        return tableLayout.columnClasses[columnIndex];
     }
 
     @Override
@@ -57,14 +79,27 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
 
         AttackResult result = results.get(rowIndex);
 
-        return switch (columnIndex) {
-            case 0 -> resultIds.getOrDefault(result, 0);
-            case 1 -> result.getAttackType();
-            case 2 -> truncatePayload(result.getPayload(), 100);
-            case 3 -> result.getStatusCode();
-            case 4 -> result.getContentLength();
-            case 5 -> truncatePayload(result.getContentType(), 50);
-            default -> "";
+        return switch (tableLayout) {
+            case DEFAULT -> switch (columnIndex) {
+                case 0 -> resultIds.getOrDefault(result, 0);
+                case 1 -> result.getAttackType();
+                case 2 -> truncatePayload(result.getPayload(), 100);
+                case 3 -> result.getStatusCode();
+                case 4 -> result.getContentLength();
+                case 5 -> truncatePayload(result.getContentType(), 50);
+                default -> "";
+            };
+            case URL_VALIDATION -> switch (columnIndex) {
+                case 0 -> resultIds.getOrDefault(result, 0);
+                case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 28);
+                case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);
+                case 3 -> truncatePayload(emptyToDash(result.getPayloadEncoding()), 18);
+                case 4 -> truncatePayload(result.getPayload(), 64);
+                case 5 -> result.getStatusCode();
+                case 6 -> result.getContentLength();
+                case 7 -> truncatePayload(result.getContentType(), 40);
+                default -> "";
+            };
         };
     }
 
@@ -160,5 +195,9 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
             return payload;
         }
         return payload.substring(0, maxLength - 3) + "...";
+    }
+
+    private String emptyToDash(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 }

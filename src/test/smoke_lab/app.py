@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TRUTHY_VALUES = {"1", "true", "yes", "on", "admin", "root"}
 ADMIN_KEYS = {"debug", "is_admin", "isadmin", "access", "role"}
+TRUSTED_HOST = "trusted.example"
+LOOPBACK_ALIASES = {"127.0.0.1", "127.1", "2130706433", "0x7f000001", "localhost", "::1", "[::1]"}
 
 
 def parse_cookie_pairs(cookie_header: str) -> list[tuple[str, str]]:
@@ -135,6 +137,39 @@ def normalize_dot_segments(path: str) -> str:
     return "/" + "/".join(segments)
 
 
+def parse_target_host(value: str) -> str:
+    if not value:
+        return ""
+
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+
+    if trimmed.startswith("//"):
+        parsed = urllib.parse.urlsplit("http:" + trimmed)
+        return (parsed.hostname or "").lower()
+
+    if "://" in trimmed:
+        parsed = urllib.parse.urlsplit(trimmed)
+        return (parsed.hostname or "").lower()
+
+    host_only = trimmed.split("/", 1)[0]
+    if "@" in host_only:
+        host_only = host_only.split("@", 1)[1]
+    if ":" in host_only and not host_only.startswith("["):
+        host_only = host_only.split(":", 1)[0]
+    return host_only.strip().lower()
+
+
+def is_loopback_alias(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    return normalized in LOOPBACK_ALIASES
+
+
+def string_contains_trusted_host(raw_value: str) -> bool:
+    return TRUSTED_HOST in (raw_value or "").lower()
+
+
 class SmokeLabHandler(BaseHTTPRequestHandler):
     server_version = "BypassFuzzerSmokeLab/1.0"
 
@@ -203,6 +238,18 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
 
         if normalized_path == "/protocol/admin":
             self.handle_protocol(authenticated, send_body)
+            return
+
+        if normalized_path == "/redirect/next":
+            self.handle_redirect(authenticated, query_pairs, send_body)
+            return
+
+        if normalized_path == "/host/check":
+            self.handle_host_validation(authenticated, query_pairs, send_body)
+            return
+
+        if normalized_path == "/cors/profile":
+            self.handle_cors_profile(authenticated, send_body)
             return
 
         self.respond(HTTPStatus.NOT_FOUND, "not found\n", send_body)
@@ -327,6 +374,70 @@ class SmokeLabHandler(BaseHTTPRequestHandler):
             return
 
         self.respond(HTTPStatus.FORBIDDEN, f"protocol blocked for {self.request_version}\n", send_body)
+
+    def handle_redirect(self, authenticated: bool, query_pairs: list[tuple[str, str]], send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        next_value = next((value for name, value in query_pairs if name == "next"), "")
+        target_host = parse_target_host(next_value)
+        bypass = string_contains_trusted_host(next_value) and target_host not in {"", TRUSTED_HOST}
+
+        if bypass:
+            self.respond(
+                HTTPStatus.OK,
+                "redirect bypass granted via URL validation confusion\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "url-allowlist-bypass"},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "redirect blocked by URL validation\n", send_body)
+
+    def handle_host_validation(self, authenticated: bool, query_pairs: list[tuple[str, str]], send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        host_value = next((value for name, value in query_pairs if name == "host"), "")
+        normalized_host = parse_target_host(host_value)
+        bypass = string_contains_trusted_host(host_value) and normalized_host not in {"", TRUSTED_HOST}
+
+        if bypass:
+            self.respond(
+                HTTPStatus.OK,
+                "hostname bypass granted via weak allowlist match\n",
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "hostname-allowlist-bypass"},
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "hostname blocked by validation\n", send_body)
+
+    def handle_cors_profile(self, authenticated: bool, send_body: bool) -> None:
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return
+
+        origin = self.headers.get("Origin", "")
+        origin_host = parse_target_host(origin)
+        bypass = string_contains_trusted_host(origin) and origin_host not in {"", TRUSTED_HOST}
+
+        if bypass:
+            self.respond(
+                HTTPStatus.OK,
+                "cors bypass granted via weak origin validation\n",
+                send_body,
+                extra_headers={
+                    "Access-Control-Allow-Origin": origin,
+                    "Access-Control-Allow-Credentials": "true",
+                    "X-Smoke-Bypass": "cors-origin-bypass",
+                },
+            )
+            return
+
+        self.respond(HTTPStatus.FORBIDDEN, "origin blocked by validation\n", send_body)
 
     def respond(
         self,

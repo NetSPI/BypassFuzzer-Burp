@@ -36,18 +36,45 @@ import java.util.function.Predicate;
  */
 public class SessionResultsPanel extends JPanel {
 
+    public enum ViewerLayout {
+        BELOW_TABLE,
+        RIGHT_OF_TABLE
+    }
+
+    public enum TableLayout {
+        DEFAULT,
+        URL_VALIDATION
+    }
+
     private final ResultHighlighter highlighter;
     private final Runnable filterRefreshListener;
-    private final FuzzerResultsTableModel tableModel = new FuzzerResultsTableModel();
-    private final JTable resultsTable = new JTable(tableModel);
+    private final FuzzerResultsTableModel tableModel;
+    private final JTable resultsTable;
     private final HttpRequestEditor requestViewer;
     private final HttpResponseEditor responseViewer;
     private JPopupMenu tablePopupMenu;
+    private AttackResult displayedResult;
+
+    private final ViewerLayout viewerLayout;
+    private final TableLayout tableLayout;
 
     public SessionResultsPanel(MontoyaApi api, ResultHighlighter highlighter, Runnable filterRefreshListener) {
+        this(api, highlighter, filterRefreshListener, ViewerLayout.BELOW_TABLE, TableLayout.DEFAULT);
+    }
+
+    public SessionResultsPanel(MontoyaApi api, ResultHighlighter highlighter, Runnable filterRefreshListener, ViewerLayout viewerLayout) {
+        this(api, highlighter, filterRefreshListener, viewerLayout, TableLayout.DEFAULT);
+    }
+
+    public SessionResultsPanel(MontoyaApi api, ResultHighlighter highlighter, Runnable filterRefreshListener,
+                               ViewerLayout viewerLayout, TableLayout tableLayout) {
         super(new BorderLayout());
         this.highlighter = highlighter;
         this.filterRefreshListener = filterRefreshListener;
+        this.viewerLayout = viewerLayout == null ? ViewerLayout.BELOW_TABLE : viewerLayout;
+        this.tableLayout = tableLayout == null ? TableLayout.DEFAULT : tableLayout;
+        this.tableModel = new FuzzerResultsTableModel(toModelLayout(this.tableLayout));
+        this.resultsTable = new JTable(tableModel);
         this.requestViewer = api.userInterface().createHttpRequestEditor();
         this.responseViewer = api.userInterface().createHttpResponseEditor();
         initializeUi();
@@ -79,6 +106,7 @@ public class SessionResultsPanel extends JPanel {
 
     public void clear() {
         tableModel.clear();
+        displayedResult = null;
         requestViewer.setRequest(null);
         responseViewer.setResponse(null);
     }
@@ -106,8 +134,16 @@ public class SessionResultsPanel extends JPanel {
         viewerTabs.addTab("Request", requestViewer.uiComponent());
         viewerTabs.addTab("Response", responseViewer.uiComponent());
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tableScrollPane, viewerTabs);
-        splitPane.setResizeWeight(0.4);
+        int splitOrientation = viewerLayout == ViewerLayout.RIGHT_OF_TABLE
+            ? JSplitPane.HORIZONTAL_SPLIT
+            : JSplitPane.VERTICAL_SPLIT;
+        JSplitPane splitPane = new JSplitPane(splitOrientation, tableScrollPane, viewerTabs);
+        splitPane.setResizeWeight(0.5);
+        if (viewerLayout == ViewerLayout.RIGHT_OF_TABLE) {
+            SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(0.5));
+        } else {
+            SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(0.5));
+        }
         add(splitPane, BorderLayout.CENTER);
     }
 
@@ -124,7 +160,7 @@ public class SessionResultsPanel extends JPanel {
                     AttackResult result = tableModel.getResult(table.convertRowIndexToModel(row));
                     Color rowColor = result == null ? null : highlighter.colorFor(result);
                     component.setBackground(rowColor != null ? rowColor : table.getBackground());
-                    component.setForeground(Color.BLACK);
+                    component.setForeground(table.getForeground());
                 }
 
                 return component;
@@ -144,6 +180,22 @@ public class SessionResultsPanel extends JPanel {
     }
 
     private void configureColumns() {
+        if (tableLayout == TableLayout.URL_VALIDATION) {
+            resultsTable.getColumnModel().getColumn(0).setPreferredWidth(30);
+            resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);
+            resultsTable.getColumnModel().getColumn(1).setPreferredWidth(120);
+            resultsTable.getColumnModel().getColumn(2).setPreferredWidth(90);
+            resultsTable.getColumnModel().getColumn(2).setMaxWidth(120);
+            resultsTable.getColumnModel().getColumn(3).setPreferredWidth(90);
+            resultsTable.getColumnModel().getColumn(3).setMaxWidth(120);
+            resultsTable.getColumnModel().getColumn(4).setPreferredWidth(280);
+            resultsTable.getColumnModel().getColumn(5).setPreferredWidth(60);
+            resultsTable.getColumnModel().getColumn(5).setMaxWidth(80);
+            resultsTable.getColumnModel().getColumn(6).setPreferredWidth(80);
+            resultsTable.getColumnModel().getColumn(7).setPreferredWidth(130);
+            return;
+        }
+
         resultsTable.getColumnModel().getColumn(0).setPreferredWidth(30);
         resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);
         resultsTable.getColumnModel().getColumn(1).setPreferredWidth(60);
@@ -168,6 +220,11 @@ public class SessionResultsPanel extends JPanel {
         if (result == null) {
             return;
         }
+
+        if (result == displayedResult) {
+            return;
+        }
+        displayedResult = result;
 
         if (result.getRequest() != null) {
             requestViewer.setRequest(result.getRequest());
@@ -239,5 +296,11 @@ public class SessionResultsPanel extends JPanel {
             resultsTable.repaint();
             filterRefreshListener.run();
         });
+    }
+
+    private FuzzerResultsTableModel.TableLayout toModelLayout(TableLayout tableLayout) {
+        return tableLayout == TableLayout.URL_VALIDATION
+            ? FuzzerResultsTableModel.TableLayout.URL_VALIDATION
+            : FuzzerResultsTableModel.TableLayout.DEFAULT;
     }
 }

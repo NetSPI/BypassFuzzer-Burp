@@ -12,6 +12,13 @@ import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.attacks.AttackStrategy;
 import com.bypassfuzzer.burp.core.attacks.AttackType;
 import com.bypassfuzzer.burp.core.attacks.RegisteredAttack;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationAttack;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationAttackSetting;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationCandidateFinder;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationContext;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationEncoding;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationOptions;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationPayloadGenerator;
 import com.bypassfuzzer.burp.http.RequestSender;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -279,6 +286,71 @@ class AttackPlaybookSmokeTest {
         );
     }
 
+    @Test
+    void urlValidationFindsAbsoluteUrlBypass() {
+        assertUrlValidationSucceeds(
+            baseRequest(
+                """
+                    GET /redirect/next?next={INJECT} HTTP/1.1\r
+                    Host: %s:%d\r
+                    Cookie: session=lab-user\r
+                    \r
+                    """.formatted(HOST, port)
+            ),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            "url-allowlist-bypass"
+        );
+    }
+
+    @Test
+    void urlValidationFindsHostnameBypass() {
+        assertUrlValidationSucceeds(
+            baseRequest(
+                """
+                    GET /host/check?host={INJECT} HTTP/1.1\r
+                    Host: %s:%d\r
+                    Cookie: session=lab-user\r
+                    \r
+                    """.formatted(HOST, port)
+            ),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            "hostname-allowlist-bypass"
+        );
+    }
+
+    @Test
+    void urlValidationFindsCorsOriginBypass() {
+        assertUrlValidationSucceeds(
+            baseRequest(
+                """
+                    GET /cors/profile HTTP/1.1\r
+                    Host: %s:%d\r
+                    Origin: {INJECT}\r
+                    Cookie: session=lab-user\r
+                    \r
+                    """.formatted(HOST, port)
+            ),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.CORS_ORIGIN), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            "cors-origin-bypass"
+        );
+    }
+
+    @Test
+    void urlValidationMarkerModeFindsAbsoluteUrlBypass() {
+        assertUrlValidationSucceeds(
+            baseRequest(
+                """
+                    GET /redirect/next?next={INJECT} HTTP/1.1\r
+                    Host: %s:%d\r
+                    Cookie: session=lab-user\r
+                    \r
+                    """.formatted(HOST, port)
+            ),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            "url-allowlist-bypass"
+        );
+    }
+
     private static Scenario scenario(AttackType type, String pathAndQuery, String rawTemplate, String expectedMarker) {
         String rawRequest = rawTemplate.formatted(HOST, port);
         return new Scenario(type, baseUrl + pathAndQuery, rawRequest, expectedMarker);
@@ -332,6 +404,54 @@ class AttackPlaybookSmokeTest {
         ));
     }
 
+    private void assertUrlValidationSucceeds(HttpRequest request, UrlValidationOptions options, String expectedMarker) {
+        MontoyaApi api = montoyaApi();
+        RateLimiter rateLimiter = new RateLimiter(api, 0, Set.of(), false);
+        AtomicBoolean running = new AtomicBoolean(true);
+        List<AttackResult> results = new ArrayList<>();
+        UrlValidationAttack attack = new UrlValidationAttack(
+            options,
+            new UrlValidationCandidateFinder(MontoyaStubs::request),
+            new UrlValidationPayloadGenerator()
+        );
+        AttackExecutor executor = new AttackExecutor(new RawSocketRequestSender());
+
+        attack.execute(
+            api,
+            request,
+            buildUrl(request.httpService(), request.path()),
+            result -> {
+                results.add(result);
+                HttpResponse response = result.getResponse();
+                if (response != null && response.statusCode() == 200) {
+                    String marker = response.headerValue("X-Smoke-Bypass");
+                    if (marker != null && marker.contains(expectedMarker)) {
+                        running.set(false);
+                    }
+                }
+            },
+            running::get,
+            rateLimiter,
+            executor
+        );
+
+        assertFalse(results.isEmpty(), "No URL Validation requests were executed");
+        boolean matched = results.stream().anyMatch(result -> {
+            HttpResponse response = result.getResponse();
+            return response != null
+                && response.statusCode() == 200
+                && response.headerValue("X-Smoke-Bypass") != null
+                && response.headerValue("X-Smoke-Bypass").contains(expectedMarker);
+        });
+
+        String summary = results.stream()
+            .limit(8)
+            .map(result -> result.getAttackType() + " :: " + result.getPayload() + " -> " + result.getStatusCode())
+            .reduce((left, right) -> left + "\n" + right)
+            .orElse("<no results>");
+        assertTrue(matched, "Expected URL Validation marker '%s'. First results:%n%s".formatted(expectedMarker, summary));
+    }
+
     private static AttackStrategy attackStrategy(AttackType type, String targetUrl) {
         if (type == AttackType.PROTOCOL) {
             return new com.bypassfuzzer.burp.core.attacks.ProtocolAttack(MontoyaStubs::request);
@@ -381,6 +501,10 @@ class AttackPlaybookSmokeTest {
 
     private static HttpRequest baseRequest(String rawRequest) {
         return MontoyaStubs.request(MontoyaStubs.httpService(HOST, port, false), rawRequest);
+    }
+
+    private static String buildUrl(burp.api.montoya.http.HttpService service, String path) {
+        return "http://" + service.host() + ":" + service.port() + path;
     }
 
     private static MontoyaApi montoyaApi() {

@@ -9,6 +9,9 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 public class AttackResult {
     private final String attackType;
     private final String payload;
+    private final String targetLabel;
+    private final String payloadFamily;
+    private final String payloadEncoding;
     private final HttpRequest request;
     private final HttpResponse response;
     private final int statusCode;
@@ -17,8 +20,16 @@ public class AttackResult {
     private final long timestamp;
 
     public AttackResult(String attackType, String payload, HttpRequest request, HttpResponse response) {
+        this(attackType, payload, null, null, null, request, response);
+    }
+
+    public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
+                        String payloadEncoding, HttpRequest request, HttpResponse response) {
         this.attackType = attackType;
         this.payload = payload;
+        this.targetLabel = targetLabel == null ? "" : targetLabel;
+        this.payloadFamily = payloadFamily == null ? "" : payloadFamily;
+        this.payloadEncoding = payloadEncoding == null ? "" : payloadEncoding;
         this.request = request;
         this.response = response;
         this.statusCode = response != null ? response.statusCode() : 0;
@@ -41,6 +52,18 @@ public class AttackResult {
 
     public String getPayload() {
         return payload;
+    }
+
+    public String getTargetLabel() {
+        return targetLabel;
+    }
+
+    public String getPayloadFamily() {
+        return payloadFamily;
+    }
+
+    public String getPayloadEncoding() {
+        return payloadEncoding;
     }
 
     public HttpRequest getRequest() {

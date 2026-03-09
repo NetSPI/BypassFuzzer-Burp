@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.http;
 
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -133,6 +134,16 @@ public final class QueryStringUtils {
         return RequestPathUtils.appendQueryParameter(pathWithQuery, parameter);
     }
 
+    public static String upsertDecodedParameter(String pathWithQuery, String parameterName, String parameterValue) {
+        if (parameterName == null || parameterName.isBlank()) {
+            return pathWithQuery;
+        }
+
+        String encodedName = encode(parameterName);
+        String encodedValue = encode(parameterValue == null ? "" : parameterValue);
+        return upsertParameter(pathWithQuery, encodedName + "=" + encodedValue);
+    }
+
     public static String toQueryString(List<QueryParameter> parameters) {
         StringBuilder query = new StringBuilder();
         for (QueryParameter parameter : parameters) {
@@ -185,6 +196,14 @@ public final class QueryStringUtils {
     private static String decode(String value) {
         try {
             return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return value;
+        }
+    }
+
+    private static String encode(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return value;
         }
