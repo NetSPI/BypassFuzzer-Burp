@@ -75,7 +75,7 @@ public class UrlValidationPayloadGenerator {
                     if (family == UrlValidationContext.CORS_ORIGIN && CORS_EXCLUDED_SOURCE_IDS.contains(sourcePayload.id())) {
                         continue;
                     }
-                    String value = renderPayload(sourcePayload, family, scheme, allowedHost, attackerHost);
+                    String value = renderPayload(attackSetting, sourcePayload, family, scheme, allowedHost, attackerHost);
                     payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
                 }
             }
@@ -106,7 +106,8 @@ public class UrlValidationPayloadGenerator {
         }
     }
 
-    private String renderPayload(SourcePayload sourcePayload,
+    private String renderPayload(UrlValidationAttackSetting attackSetting,
+                                 SourcePayload sourcePayload,
                                  UrlValidationContext family,
                                  String scheme,
                                  String allowedHost,
@@ -118,6 +119,11 @@ public class UrlValidationPayloadGenerator {
             .replace("<allowed>", allowedHost);
 
         String port = sourcePayload.port() == null ? "" : ":" + sourcePayload.port();
+        if (attackSetting == UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS
+            && family == UrlValidationContext.HOSTNAME) {
+            return payload + port;
+        }
+
         if (prefix.isEmpty() && family != UrlValidationContext.HOSTNAME && !"null".equals(payload)) {
             prefix = scheme + "://";
         }

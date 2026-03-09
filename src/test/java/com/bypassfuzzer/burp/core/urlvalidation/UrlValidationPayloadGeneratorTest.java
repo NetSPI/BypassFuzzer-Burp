@@ -141,4 +141,46 @@ class UrlValidationPayloadGeneratorTest {
             payload.value().equals("https://%5B::%5D/")
         ));
     }
+
+    @Test
+    void cloudMetadataPayloadsAreShapedPerFamily() {
+        UrlValidationPayloadGenerator generator = new UrlValidationPayloadGenerator();
+        UrlValidationCandidate candidate = new UrlValidationCandidate(
+            "{INJECT}",
+            "{INJECT}",
+            "marker",
+            (request, newValue) -> request
+        );
+        UrlValidationOptions options = new UrlValidationOptions(
+            "{INJECT}",
+            "trusted.example",
+            "127.0.0.1",
+            "https",
+            Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
+            Set.of(UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS),
+            UrlValidationEncoding.INTRUDERS,
+            0,
+            Set.of()
+        );
+
+        List<UrlValidationPayload> payloads = generator.generate(candidate, options);
+
+        assertEquals(34, payloads.size());
+        assertTrue(payloads.stream().anyMatch(payload ->
+            payload.family() == UrlValidationContext.ABSOLUTE_URL
+                && payload.value().equals("http://169.254.169.254/latest/meta-data/")
+        ));
+        assertTrue(payloads.stream().anyMatch(payload ->
+            payload.family() == UrlValidationContext.HOSTNAME
+                && payload.value().equals("169.254.169.254")
+        ));
+        assertFalse(payloads.stream().anyMatch(payload ->
+            payload.family() == UrlValidationContext.HOSTNAME
+                && payload.value().contains("/latest/meta-data/")
+        ));
+        assertFalse(payloads.stream().anyMatch(payload ->
+            payload.family() == UrlValidationContext.HOSTNAME
+                && payload.value().startsWith("http://")
+        ));
+    }
 }
