@@ -242,7 +242,7 @@ public class UrlValidationPanel extends JPanel {
         if (options == null) {
             return;
         }
-        if (options.normalizedAttackerHost().isBlank()) {
+        if (!options.useCollaboratorPayloads() && options.normalizedAttackerHost().isBlank()) {
             showWarning("Enter an attacker host before starting.");
             return;
         }
@@ -351,19 +351,11 @@ public class UrlValidationPanel extends JPanel {
             requestsPerSecond = 0;
         }
 
-        String attackerHost = optionsPanel.attackerHostText();
-        if (optionsPanel.useCollaboratorPayloads()) {
-            attackerHost = generateCollaboratorPayload();
-            if (attackerHost == null || attackerHost.isBlank()) {
-                showWarning("Unable to generate a Burp Collaborator payload.");
-                return null;
-            }
-        }
-
         return new UrlValidationOptions(
             optionsPanel.markerText(),
             optionsPanel.allowedHostText(),
-            attackerHost,
+            optionsPanel.attackerHostText(),
+            optionsPanel.useCollaboratorPayloads(),
             optionsPanel.attackerScheme(),
             optionsPanel.payloadFamilies(),
             optionsPanel.attackSettings(),
@@ -434,7 +426,7 @@ public class UrlValidationPanel extends JPanel {
         if (options == null) {
             return;
         }
-        if (options.normalizedAttackerHost().isBlank()) {
+        if (!options.useCollaboratorPayloads() && options.normalizedAttackerHost().isBlank()) {
             showWarning("Enter an attacker host before viewing payloads.");
             return;
         }
@@ -519,11 +511,6 @@ public class UrlValidationPanel extends JPanel {
     private boolean isCollaboratorAvailable() {
         return CollaboratorSupport.isAvailable(api);
     }
-
-    private String generateCollaboratorPayload() {
-        return CollaboratorSupport.generatePayload(api);
-    }
-
     private JLabel createWarningLabel() {
         JLabel label = new JLabel("");
         label.setForeground(new java.awt.Color(204, 102, 0));

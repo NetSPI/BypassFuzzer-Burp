@@ -6,6 +6,7 @@ public record UrlValidationOptions(
     String markerText,
     String allowedHost,
     String attackerHost,
+    boolean collaboratorPayloads,
     String attackerScheme,
     Set<UrlValidationContext> payloadFamilies,
     Set<UrlValidationAttackSetting> attackSettings,
@@ -30,6 +31,10 @@ public record UrlValidationOptions(
 
     public String normalizedAttackerHost() {
         return normalizeHost(attackerHost);
+    }
+
+    public boolean useCollaboratorPayloads() {
+        return collaboratorPayloads;
     }
 
     public String normalizedAttackerScheme() {

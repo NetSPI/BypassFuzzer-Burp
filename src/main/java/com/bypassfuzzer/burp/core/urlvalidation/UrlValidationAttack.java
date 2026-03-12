@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
@@ -10,6 +11,7 @@ import com.bypassfuzzer.burp.core.attacks.AttackStrategy;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Dedicated URL validation bypass attack strategy.
@@ -53,7 +55,16 @@ public class UrlValidationAttack implements AttackStrategy {
                 return;
             }
 
-            for (UrlValidationPayload payload : payloadGenerator.generate(candidate, options)) {
+            Supplier<String> attackerHostSupplier = () -> resolveAttackerHost(api);
+            List<UrlValidationPayload> payloads;
+            try {
+                payloads = payloadGenerator.generate(candidate, options, attackerHostSupplier);
+            } catch (Exception e) {
+                logError(api, "URL Validation error on " + candidate.displayName() + ": " + e.getMessage());
+                return;
+            }
+
+            for (UrlValidationPayload payload : payloads) {
                 if (!shouldContinue.getAsBoolean()) {
                     logOutput(api, "URL Validation stopped by user (" + count + " completed)");
                     return;
@@ -82,6 +93,18 @@ public class UrlValidationAttack implements AttackStrategy {
         }
 
         logOutput(api, "URL Validation completed: " + count + " results sent");
+    }
+
+    private String resolveAttackerHost(MontoyaApi api) {
+        if (!options.useCollaboratorPayloads()) {
+            return options.normalizedAttackerHost();
+        }
+
+        String collaboratorPayload = CollaboratorSupport.generatePayload(api);
+        if (collaboratorPayload == null || collaboratorPayload.isBlank()) {
+            throw new IllegalStateException("Unable to generate a Burp Collaborator payload");
+        }
+        return collaboratorPayload;
     }
 
     @Override

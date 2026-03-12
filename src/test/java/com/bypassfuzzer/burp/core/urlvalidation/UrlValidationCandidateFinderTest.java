@@ -45,6 +45,7 @@ class UrlValidationCandidateFinderTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "http",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(
@@ -98,6 +99,7 @@ class UrlValidationCandidateFinderTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "http",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME, UrlValidationContext.CORS_ORIGIN),
             Set.of(
@@ -153,6 +155,7 @@ class UrlValidationCandidateFinderTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS),

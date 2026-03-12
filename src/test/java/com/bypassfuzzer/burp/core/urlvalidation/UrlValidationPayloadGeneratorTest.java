@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -24,6 +26,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "http",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME, UrlValidationContext.CORS_ORIGIN),
             Set.of(
@@ -82,6 +85,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "http",
             Set.of(UrlValidationContext.CORS_ORIGIN),
             Set.of(
@@ -118,6 +122,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(
@@ -155,6 +160,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}",
             "trusted.example",
             "127.0.0.1",
+            false,
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS),
@@ -182,5 +188,45 @@ class UrlValidationPayloadGeneratorTest {
             payload.family() == UrlValidationContext.HOSTNAME
                 && payload.value().startsWith("http://")
         ));
+    }
+
+    @Test
+    void attackerHostSupplierGeneratesDistinctHostsPerPayload() {
+        UrlValidationPayloadGenerator generator = new UrlValidationPayloadGenerator();
+        UrlValidationCandidate candidate = new UrlValidationCandidate(
+            "{INJECT}",
+            "{INJECT}",
+            "marker",
+            (request, newValue) -> request
+        );
+        UrlValidationOptions options = new UrlValidationOptions(
+            "{INJECT}",
+            "trusted.example",
+            "fallback.example",
+            true,
+            "https",
+            Set.of(UrlValidationContext.ABSOLUTE_URL),
+            Set.of(UrlValidationAttackSetting.FAKE_RELATIVE_URLS),
+            UrlValidationEncoding.RAW,
+            0,
+            Set.of()
+        );
+        AtomicInteger counter = new AtomicInteger();
+
+        List<UrlValidationPayload> payloads = generator.generate(
+            candidate,
+            options,
+            () -> "collab-" + counter.incrementAndGet() + ".oastify.com"
+        );
+
+        List<String> userInfoPayloads = payloads.stream()
+            .map(UrlValidationPayload::value)
+            .filter(value -> value.contains("@collab-"))
+            .collect(Collectors.toList());
+
+        assertEquals(3, userInfoPayloads.size());
+        assertTrue(userInfoPayloads.contains("https://@collab-5.oastify.com"));
+        assertTrue(userInfoPayloads.contains("http:@collab-6.oastify.com"));
+        assertTrue(userInfoPayloads.contains("https:@collab-7.oastify.com"));
     }
 }

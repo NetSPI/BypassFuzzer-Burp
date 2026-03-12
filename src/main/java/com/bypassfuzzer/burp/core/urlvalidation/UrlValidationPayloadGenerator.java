@@ -14,6 +14,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Generates URL validation payloads from bundled PortSwigger source wordlists.
@@ -51,15 +52,20 @@ public class UrlValidationPayloadGenerator {
     );
 
     public List<UrlValidationPayload> generate(UrlValidationCandidate candidate, UrlValidationOptions options) {
+        return generate(candidate, options, options::normalizedAttackerHost);
+    }
+
+    public List<UrlValidationPayload> generate(UrlValidationCandidate candidate,
+                                               UrlValidationOptions options,
+                                               Supplier<String> attackerHostSupplier) {
         String allowedHost = preferredAllowedHost(candidate, options);
-        String attackerHost = options.normalizedAttackerHost();
         UrlValidationEncoding encoding = options.effectiveEncoding();
         String scheme = options.normalizedAttackerScheme();
         List<UrlValidationPayload> payloads = new ArrayList<>();
         Set<UrlValidationAttackSetting> selectedSettings = options.normalizedAttackSettings();
 
         if (selectedSettings.containsAll(DEFAULT_RENDERED_ATTACK_SETTINGS)) {
-            addRenderedDefaultPayloads(payloads, options, allowedHost, attackerHost);
+            addRenderedDefaultPayloads(payloads, options, allowedHost, attackerHostSupplier);
             selectedSettings = selectedSettings.stream()
                 .filter(setting -> !DEFAULT_RENDERED_ATTACK_SETTINGS.contains(setting))
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
@@ -75,6 +81,7 @@ public class UrlValidationPayloadGenerator {
                     if (family == UrlValidationContext.CORS_ORIGIN && CORS_EXCLUDED_SOURCE_IDS.contains(sourcePayload.id())) {
                         continue;
                     }
+                    String attackerHost = attackerHostSupplier.get();
                     String value = renderPayload(attackSetting, sourcePayload, family, scheme, allowedHost, attackerHost);
                     payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
                 }
@@ -87,13 +94,14 @@ public class UrlValidationPayloadGenerator {
     private void addRenderedDefaultPayloads(List<UrlValidationPayload> payloads,
                                             UrlValidationOptions options,
                                             String allowedHost,
-                                            String attackerHost) {
+                                            Supplier<String> attackerHostSupplier) {
         String encodingKey = renderedEncodingKey(options.effectiveEncoding());
         for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
             List<String> renderedValues = RENDERED_PAYLOADS
                 .getOrDefault(renderedFamilyKey(family), Map.of())
                 .getOrDefault(encodingKey, List.of());
             for (String renderedValue : renderedValues) {
+                String attackerHost = attackerHostSupplier.get();
                 payloads.add(new UrlValidationPayload(
                     family,
                     CATEGORY,

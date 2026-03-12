@@ -297,7 +297,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
             "url-allowlist-bypass"
         );
     }
@@ -313,7 +313,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
             "hostname-allowlist-bypass"
         );
     }
@@ -330,7 +330,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.CORS_ORIGIN), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.CORS_ORIGIN), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
             "cors-origin-bypass"
         );
     }
@@ -346,7 +346,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), UrlValidationEncoding.RAW, 0, Set.of()),
             "url-allowlist-bypass"
         );
     }
