@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.HttpService;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -73,7 +74,60 @@ public class UrlValidationCandidateFinder {
     }
 
     private HttpRequest replaceMarkers(HttpRequest request, String marker, String newValue) {
-        return requestRebuilder.rebuild(request.httpService(), request.toString().replace(marker, newValue));
+        String mutatedRequest = request.toString().replace(marker, newValue);
+        return requestRebuilder.rebuild(request.httpService(), syncContentLength(mutatedRequest));
+    }
+
+    private String syncContentLength(String rawRequest) {
+        if (rawRequest == null || rawRequest.isEmpty()) {
+            return rawRequest;
+        }
+
+        String lineSeparator = rawRequest.contains("\r\n") ? "\r\n" : "\n";
+        String headerSeparator = lineSeparator + lineSeparator;
+        int separatorIndex = rawRequest.indexOf(headerSeparator);
+        if (separatorIndex < 0) {
+            return rawRequest;
+        }
+
+        String headersSection = rawRequest.substring(0, separatorIndex);
+        String body = rawRequest.substring(separatorIndex + headerSeparator.length());
+        String[] headerLines = headersSection.split(java.util.regex.Pattern.quote(lineSeparator), -1);
+        if (headerLines.length == 0 || hasTransferEncoding(headerLines)) {
+            return rawRequest;
+        }
+
+        int bodyLength = body.getBytes(StandardCharsets.UTF_8).length;
+        List<String> updatedHeaderLines = new ArrayList<>(headerLines.length + 1);
+        updatedHeaderLines.add(headerLines[0]);
+
+        boolean replacedContentLength = false;
+        for (int i = 1; i < headerLines.length; i++) {
+            String headerLine = headerLines[i];
+            if (headerLine.regionMatches(true, 0, "Content-Length:", 0, "Content-Length:".length())) {
+                if (!replacedContentLength) {
+                    updatedHeaderLines.add("Content-Length: " + bodyLength);
+                    replacedContentLength = true;
+                }
+                continue;
+            }
+            updatedHeaderLines.add(headerLine);
+        }
+
+        if (!replacedContentLength && bodyLength > 0) {
+            updatedHeaderLines.add("Content-Length: " + bodyLength);
+        }
+
+        return String.join(lineSeparator, updatedHeaderLines) + headerSeparator + body;
+    }
+
+    private boolean hasTransferEncoding(String[] headerLines) {
+        for (int i = 1; i < headerLines.length; i++) {
+            if (headerLines[i].regionMatches(true, 0, "Transfer-Encoding:", 0, "Transfer-Encoding:".length())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @FunctionalInterface

@@ -3,10 +3,12 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -114,6 +116,60 @@ class UrlValidationCandidateFinderTest {
         HttpRequest mutated = candidates.get(0).mutator().mutate(request, "null");
         assertTrue(mutated.toString().contains("next=null"));
         assertTrue(mutated.toString().contains("Origin: null"));
+    }
+
+    @Test
+    void markerCandidateResyncsContentLengthAfterBodyReplacement() {
+        var service = (burp.api.montoya.http.HttpService) Proxy.newProxyInstance(
+            getClass().getClassLoader(),
+            new Class<?>[]{burp.api.montoya.http.HttpService.class},
+            (proxy, method, args) -> switch (method.getName()) {
+                case "host", "ipAddress" -> "example.com";
+                case "port" -> 443;
+                case "secure" -> true;
+                case "toString" -> "https://example.com:443";
+                case "hashCode" -> Objects.hash("example.com", 443, true);
+                case "equals" -> proxy == args[0];
+                default -> null;
+            }
+        );
+        AtomicReference<String> rebuiltRaw = new AtomicReference<>();
+        UrlValidationCandidateFinder finder = new UrlValidationCandidateFinder((httpService, rawRequest) -> {
+            rebuiltRaw.set(rawRequest);
+            return requestProxy(httpService, rawRequest);
+        });
+        HttpRequest request = requestProxy(
+            service,
+            """
+                POST /redirect HTTP/1.1\r
+                Host: example.com\r
+                Content-Type: application/x-www-form-urlencoded\r
+                Content-Length: 13\r
+                \r
+                next={INJECT}"""
+        );
+
+        UrlValidationOptions options = new UrlValidationOptions(
+            "{INJECT}",
+            "trusted.example",
+            "127.0.0.1",
+            "https",
+            Set.of(UrlValidationContext.ABSOLUTE_URL),
+            Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS),
+            UrlValidationEncoding.RAW,
+            0,
+            Set.of()
+        );
+
+        List<UrlValidationCandidate> candidates = finder.find(request, options);
+        String payload = "https://trusted.example@127.0.0.1/";
+        String expectedBody = "next=" + payload;
+        int expectedLength = expectedBody.getBytes(StandardCharsets.UTF_8).length;
+
+        candidates.get(0).mutator().mutate(request, payload);
+
+        assertTrue(rebuiltRaw.get().contains("Content-Length: " + expectedLength + "\r\n"));
+        assertTrue(rebuiltRaw.get().endsWith("\r\n\r\n" + expectedBody));
     }
 
     private HttpRequest requestProxy(burp.api.montoya.http.HttpService service, String rawRequest) {
