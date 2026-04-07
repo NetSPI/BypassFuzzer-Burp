@@ -46,7 +46,9 @@ public class CookieParamAttack implements AttackStrategy {
                         RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         if (fuzzExistingCookies) {
-            fuzzExistingCookies(api, originalRequest, resultCallback, isRunning, rateLimiter, attackExecutor);
+            if (!fuzzExistingCookies(api, originalRequest, resultCallback, isRunning, rateLimiter, attackExecutor)) {
+                return;
+            }
         }
 
         executeNewCookieAttacks(
@@ -60,24 +62,24 @@ public class CookieParamAttack implements AttackStrategy {
         );
     }
 
-    private void fuzzExistingCookies(MontoyaApi api, HttpRequest originalRequest,
-                                     Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                     RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+    private boolean fuzzExistingCookies(MontoyaApi api, HttpRequest originalRequest,
+                                        Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
+                                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         String existingCookie = originalRequest.headerValue("Cookie");
         if (existingCookie == null || existingCookie.isEmpty()) {
-            return;
+            return true;
         }
 
         Map<String, String> cookies = CookieHeaderUtils.parse(existingCookie);
         if (cookies.isEmpty()) {
-            return;
+            return true;
         }
 
         for (String cookieName : cookies.keySet()) {
             for (String fuzzValue : FUZZ_VALUES) {
-                if (!isRunning.getAsBoolean()) {
-                    return;
+                if (!AttackExecutionSupport.canContinue(isRunning)) {
+                    return false;
                 }
 
                 try {
@@ -93,13 +95,22 @@ public class CookieParamAttack implements AttackStrategy {
                         isRunning,
                         rateLimiter
                     )) {
-                        return;
+                        return false;
                     }
                 } catch (Exception e) {
-                    api.logging().logToError("Error fuzzing existing cookie '" + cookieName + "': " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(
+                        api,
+                        isRunning,
+                        "Error fuzzing existing cookie '" + cookieName + "': ",
+                        e
+                    )) {
+                        return false;
+                    }
                 }
             }
         }
+
+        return true;
     }
 
     private void executeNewCookieAttacks(MontoyaApi api, HttpRequest originalRequest,
@@ -110,8 +121,8 @@ public class CookieParamAttack implements AttackStrategy {
         String existingCookie = originalRequest.headerValue("Cookie");
 
         for (String param : paramPayloads) {
-            if (!isRunning.getAsBoolean()) {
-                break;
+            if (!AttackExecutionSupport.canContinue(isRunning)) {
+                return;
             }
 
             try {
@@ -120,10 +131,17 @@ public class CookieParamAttack implements AttackStrategy {
                     : originalRequest.withAddedHeader("Cookie", param);
 
                 if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
-                    break;
+                    return;
                 }
             } catch (Exception e) {
-                api.logging().logToError("Error in cookie param attack with payload '" + param + "': " + e.getMessage());
+                if (!AttackExecutionSupport.handleExecutionException(
+                    api,
+                    isRunning,
+                    "Error in cookie param attack with payload '" + param + "': ",
+                    e
+                )) {
+                    return;
+                }
             }
         }
     }

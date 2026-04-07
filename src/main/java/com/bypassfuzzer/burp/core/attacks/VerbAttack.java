@@ -31,17 +31,14 @@ public class VerbAttack implements AttackStrategy {
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
                         RateLimiter rateLimiter, AttackExecutor attackExecutor) {
-        try {
-            api.logging().logToOutput("Starting Verb Attack");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Verb Attack")) {
             return;
         }
 
         int count = 0;
 
         for (String method : HTTP_METHODS) {
-            if (!shouldContinue.getAsBoolean()) {
-                logStop(api, count);
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Verb Attack stopped by user (" + count + " completed)")) {
                 return;
             }
 
@@ -51,17 +48,16 @@ public class VerbAttack implements AttackStrategy {
                     return;
                 }
                 count++;
-            } catch (NullPointerException e) {
-                return;
             } catch (Exception e) {
-                logError(api, "Verb attack error with method " + method + ": " + e.getMessage());
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Verb attack error with method " + method + ": ", e)) {
+                    return;
+                }
             }
         }
 
         String originalMethod = baseRequest.method();
         for (String methodVariation : generateMethodCaseVariations(originalMethod)) {
-            if (!shouldContinue.getAsBoolean()) {
-                logStop(api, count);
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Verb Attack stopped by user (" + count + " completed)")) {
                 return;
             }
 
@@ -71,16 +67,15 @@ public class VerbAttack implements AttackStrategy {
                     return;
                 }
                 count++;
-            } catch (NullPointerException e) {
-                return;
             } catch (Exception e) {
-                logError(api, "Verb attack error with method case variation " + methodVariation + ": " + e.getMessage());
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Verb attack error with method case variation " + methodVariation + ": ", e)) {
+                    return;
+                }
             }
         }
 
         for (String xMethod : Arrays.asList("X" + originalMethod, originalMethod + "X")) {
-            if (!shouldContinue.getAsBoolean()) {
-                logStop(api, count);
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Verb Attack stopped by user (" + count + " completed)")) {
                 return;
             }
 
@@ -90,17 +85,16 @@ public class VerbAttack implements AttackStrategy {
                     return;
                 }
                 count++;
-            } catch (NullPointerException e) {
-                return;
             } catch (Exception e) {
-                logError(api, "Verb attack error with X-variation " + xMethod + ": " + e.getMessage());
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Verb attack error with X-variation " + xMethod + ": ", e)) {
+                    return;
+                }
             }
         }
 
         for (String header : OVERRIDE_HEADERS) {
             for (String method : HTTP_METHODS) {
-                if (!shouldContinue.getAsBoolean()) {
-                    logStop(api, count);
+                if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Verb Attack stopped by user (" + count + " completed)")) {
                     return;
                 }
 
@@ -110,10 +104,10 @@ public class VerbAttack implements AttackStrategy {
                         return;
                     }
                     count++;
-                } catch (NullPointerException e) {
-                    return;
                 } catch (Exception e) {
-                    logError(api, "Verb attack error with override " + header + "/" + method + ": " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Verb attack error with override " + header + "/" + method + ": ", e)) {
+                        return;
+                    }
                 }
             }
         }
@@ -121,8 +115,7 @@ public class VerbAttack implements AttackStrategy {
         for (String baseMethod : Arrays.asList("POST", "PUT")) {
             for (String header : OVERRIDE_HEADERS) {
                 for (String overrideMethod : Arrays.asList("GET", "DELETE", "PATCH")) {
-                    if (!shouldContinue.getAsBoolean()) {
-                        logStop(api, count);
+                    if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Verb Attack stopped by user (" + count + " completed)")) {
                         return;
                     }
 
@@ -133,10 +126,10 @@ public class VerbAttack implements AttackStrategy {
                             return;
                         }
                         count++;
-                    } catch (NullPointerException e) {
-                        return;
                     } catch (Exception e) {
-                        logError(api, "Verb attack error: " + e.getMessage());
+                        if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Verb attack error: ", e)) {
+                            return;
+                        }
                     }
                 }
             }
@@ -144,11 +137,7 @@ public class VerbAttack implements AttackStrategy {
 
         count += testParameterVariations(api, baseRequest, resultCallback, shouldContinue, rateLimiter, attackExecutor);
 
-        try {
-            api.logging().logToOutput("Verb Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Verb Attack completed: " + count + " results sent");
     }
 
     private HttpRequest createMethodRequest(HttpRequest baseRequest, String method) {
@@ -175,7 +164,7 @@ public class VerbAttack implements AttackStrategy {
         int count = 0;
 
         for (String method : BODY_METHODS) {
-            if (!shouldContinue.getAsBoolean()) {
+            if (!AttackExecutionSupport.canContinue(shouldContinue)) {
                 return count;
             }
 
@@ -187,7 +176,7 @@ public class VerbAttack implements AttackStrategy {
             }
 
             if (queryParams != null && !queryParams.isEmpty()) {
-                if (!shouldContinue.getAsBoolean()) {
+                if (!AttackExecutionSupport.canContinue(shouldContinue)) {
                     return count;
                 }
 
@@ -198,12 +187,14 @@ public class VerbAttack implements AttackStrategy {
                     }
                     count++;
                 } catch (Exception e) {
-                    logError(api, "Error testing query→body: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error testing query→body: ", e)) {
+                        return count;
+                    }
                 }
             }
 
             if (bodyParams != null && !bodyParams.isEmpty()) {
-                if (!shouldContinue.getAsBoolean()) {
+                if (!AttackExecutionSupport.canContinue(shouldContinue)) {
                     return count;
                 }
 
@@ -214,12 +205,14 @@ public class VerbAttack implements AttackStrategy {
                     }
                     count++;
                 } catch (Exception e) {
-                    logError(api, "Error testing body→query: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error testing body→query: ", e)) {
+                        return count;
+                    }
                 }
             }
 
             if ((queryParams != null && !queryParams.isEmpty()) || (bodyParams != null && !bodyParams.isEmpty())) {
-                if (!shouldContinue.getAsBoolean()) {
+                if (!AttackExecutionSupport.canContinue(shouldContinue)) {
                     return count;
                 }
 
@@ -231,7 +224,9 @@ public class VerbAttack implements AttackStrategy {
                     }
                     count++;
                 } catch (Exception e) {
-                    logError(api, "Error testing params in both: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error testing params in both: ", e)) {
+                        return count;
+                    }
                 }
             }
         }
@@ -276,22 +271,6 @@ public class VerbAttack implements AttackStrategy {
             }
         }
         return result.toString();
-    }
-
-    private void logStop(MontoyaApi api, int count) {
-        try {
-            api.logging().logToOutput("Verb Attack stopped by user (" + count + " completed)");
-        } catch (Exception e) {
-            // Ignore
-        }
-    }
-
-    private void logError(MontoyaApi api, String message) {
-        try {
-            api.logging().logToError(message);
-        } catch (Exception e) {
-            // Ignore
-        }
     }
 
     @Override

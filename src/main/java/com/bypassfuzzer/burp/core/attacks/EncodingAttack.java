@@ -37,9 +37,7 @@ public class EncodingAttack implements AttackStrategy {
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
                         RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
-        try {
-            api.logging().logToOutput("Starting Encoding Attack");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Encoding Attack")) {
             return;
         }
 
@@ -48,30 +46,24 @@ public class EncodingAttack implements AttackStrategy {
         String path = RequestPathUtils.extractPath(targetUrl);
 
         if ("/".equals(path)) {
-            logError(api, "Encoding Attack: Skipped - original path is root '/' (encoding attacks are less effective on root paths)");
+            AttackExecutionSupport.logError(api, "Encoding Attack: Skipped - original path is root '/' (encoding attacks are less effective on root paths)");
             return;
         }
 
         if (path.length() > MAX_PATH_LENGTH) {
-            logError(api, "Encoding Attack: Skipped - path too long (" + path.length() + " chars, max " + MAX_PATH_LENGTH + ")");
+            AttackExecutionSupport.logError(api, "Encoding Attack: Skipped - path too long (" + path.length() + " chars, max " + MAX_PATH_LENGTH + ")");
             return;
         }
 
-        try {
-            api.logging().logToOutput("Encoding Attack: Testing " + ENCODING_TYPES.length + " encoding types on path and parameters");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Encoding Attack: Testing " + ENCODING_TYPES.length + " encoding types on path and parameters");
 
         for (String encodingType : ENCODING_TYPES) {
-            if (!shouldContinue.getAsBoolean()) {
-                logStop(api, count);
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Encoding Attack stopped by user (" + count + " completed)")) {
                 return;
             }
 
             for (int variation = 0; variation < MAX_VARIATIONS_PER_STRING; variation++) {
-                if (!shouldContinue.getAsBoolean()) {
-                    logStop(api, count);
+                if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Encoding Attack stopped by user (" + count + " completed)")) {
                     return;
                 }
 
@@ -84,10 +76,10 @@ public class EncodingAttack implements AttackStrategy {
                         return;
                     }
                     count++;
-                } catch (NullPointerException e) {
-                    return;
                 } catch (Exception e) {
-                    logError(api, "Encoding attack error: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Encoding attack error: ", e)) {
+                        return;
+                    }
                 }
             }
         }
@@ -97,15 +89,14 @@ public class EncodingAttack implements AttackStrategy {
         try {
             long queryCount = params.stream().filter(param -> !param.isBody()).count();
             long bodyCount = params.stream().filter(LocatedParameter::isBody).count();
-            api.logging().logToOutput("Encoding Attack: Extracted " + params.size() + " parameters");
-            api.logging().logToOutput("  Query params: " + queryCount + ", Body params: " + bodyCount);
+            AttackExecutionSupport.logOutput(api, "Encoding Attack: Extracted " + params.size() + " parameters");
+            AttackExecutionSupport.logOutput(api, "  Query params: " + queryCount + ", Body params: " + bodyCount);
         } catch (Exception e) {
             // Ignore
         }
 
         for (String encodingType : ENCODING_TYPES) {
-            if (!shouldContinue.getAsBoolean()) {
-                logStop(api, count);
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Encoding Attack stopped by user (" + count + " completed)")) {
                 return;
             }
 
@@ -114,19 +105,14 @@ public class EncodingAttack implements AttackStrategy {
                 String paramValue = param.value();
 
                 if (paramName.length() > MAX_PARAM_LENGTH || paramValue.length() > MAX_PARAM_LENGTH) {
-                    try {
-                        String skipReason = paramName.length() > MAX_PARAM_LENGTH
-                            ? "name too long (" + paramName.length() + " chars)"
-                            : "value too long (" + paramValue.length() + " chars)";
-                        api.logging().logToOutput("  Skipping param '" + paramName + "': " + skipReason);
-                    } catch (Exception e) {
-                        // Ignore
-                    }
+                    String skipReason = paramName.length() > MAX_PARAM_LENGTH
+                        ? "name too long (" + paramName.length() + " chars)"
+                        : "value too long (" + paramValue.length() + " chars)";
+                    AttackExecutionSupport.logOutput(api, "  Skipping param '" + paramName + "': " + skipReason);
                     continue;
                 }
 
-                if (!shouldContinue.getAsBoolean()) {
-                    logStop(api, count);
+                if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Encoding Attack stopped by user (" + count + " completed)")) {
                     return;
                 }
 
@@ -139,14 +125,13 @@ public class EncodingAttack implements AttackStrategy {
                         return;
                     }
                     count++;
-                } catch (NullPointerException e) {
-                    return;
                 } catch (Exception e) {
-                    logError(api, "Encoding attack error on param name: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Encoding attack error on param name: ", e)) {
+                        return;
+                    }
                 }
 
-                if (!shouldContinue.getAsBoolean()) {
-                    logStop(api, count);
+                if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Encoding Attack stopped by user (" + count + " completed)")) {
                     return;
                 }
 
@@ -159,19 +144,15 @@ public class EncodingAttack implements AttackStrategy {
                         return;
                     }
                     count++;
-                } catch (NullPointerException e) {
-                    return;
                 } catch (Exception e) {
-                    logError(api, "Encoding attack error on param value: " + e.getMessage());
+                    if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Encoding attack error on param value: ", e)) {
+                        return;
+                    }
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Encoding Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Encoding Attack completed: " + count + " results sent");
     }
 
     private String encodeRandomChars(String input, String encodingType, Random random) {
@@ -217,22 +198,6 @@ public class EncodingAttack implements AttackStrategy {
             case "unicode-overflow" -> String.format("%%u%04x", (int) c + (0x4e * 0x100));
             default -> String.valueOf(c);
         };
-    }
-
-    private void logStop(MontoyaApi api, int count) {
-        try {
-            api.logging().logToOutput("Encoding Attack stopped by user (" + count + " completed)");
-        } catch (Exception e) {
-            // Ignore
-        }
-    }
-
-    private void logError(MontoyaApi api, String message) {
-        try {
-            api.logging().logToError(message);
-        } catch (Exception e) {
-            // Ignore
-        }
     }
 
     @Override

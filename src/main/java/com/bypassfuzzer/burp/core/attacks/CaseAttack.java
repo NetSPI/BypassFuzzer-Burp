@@ -2,7 +2,6 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 
 import java.net.URI;
@@ -34,45 +33,36 @@ public class CaseAttack implements AttackStrategy {
 
         List<String> urlVariations = buildUrlVariations(targetUrl);
 
-        try {
-            api.logging().logToOutput("Starting Case Attack: " + urlVariations.size() + " variations");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Case Attack: " + urlVariations.size() + " variations")) {
             return;
         }
 
         int count = 0;
         for (String urlVariation : urlVariations) {
-            if (!isRunning.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Case Attack stopped by user (" + count + " of " + urlVariations.size() + " completed)");
-                } catch (Exception e) {
-                    // Ignore
-                }
-                break;
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                isRunning,
+                "Case Attack stopped by user (" + count + " of " + urlVariations.size() + " completed)"
+            )) {
+                return;
             }
 
             try {
                 // Create new request with modified URL
                 HttpRequest modifiedRequest = originalRequest.withPath(urlVariation);
                 if (!attackExecutor.execute(ATTACK_TYPE, urlVariation, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
-                    break;
+                    return;
                 }
                 count++;
 
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Error in case attack with URL '" + urlVariation + "': " + e.getMessage());
-                } catch (Exception logError) {
-                    // Ignore
+                if (!AttackExecutionSupport.handleExecutionException(api, isRunning, "Error in case attack with URL '" + urlVariation + "': ", e)) {
+                    return;
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Case Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Case Attack completed: " + count + " results sent");
     }
 
     /**

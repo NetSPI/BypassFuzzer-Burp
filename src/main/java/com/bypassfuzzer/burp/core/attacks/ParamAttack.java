@@ -44,7 +44,10 @@ public class ParamAttack implements AttackStrategy {
                         RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         String basePath = RequestPathUtils.extractPathAndQuery(targetUrl);
-        fuzzExistingUrlParams(originalRequest, basePath, resultCallback, isRunning, rateLimiter, attackExecutor);
+        if (!fuzzExistingUrlParams(api, originalRequest, basePath, resultCallback, isRunning, rateLimiter, attackExecutor)) {
+            return;
+        }
+
         executeUrlParamAttacks(
             api,
             originalRequest,
@@ -57,22 +60,22 @@ public class ParamAttack implements AttackStrategy {
         );
     }
 
-    private void fuzzExistingUrlParams(HttpRequest originalRequest, String basePath,
-                                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                       RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+    private boolean fuzzExistingUrlParams(MontoyaApi api, HttpRequest originalRequest, String basePath,
+                                          Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
+                                          RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> existingParamNames = QueryStringUtils.parseDecodedParameters(RequestPathUtils.queryFromPath(basePath)).stream()
             .map(QueryStringUtils.QueryParameter::name)
             .distinct()
             .toList();
         if (existingParamNames.isEmpty()) {
-            return;
+            return true;
         }
 
         for (String paramName : existingParamNames) {
             for (String fuzzValue : FUZZ_VALUES) {
-                if (!isRunning.getAsBoolean()) {
-                    return;
+                if (!AttackExecutionSupport.canContinue(isRunning)) {
+                    return false;
                 }
 
                 try {
@@ -86,13 +89,22 @@ public class ParamAttack implements AttackStrategy {
                         isRunning,
                         rateLimiter
                     )) {
-                        return;
+                        return false;
                     }
                 } catch (Exception e) {
-                    // caller logs with API when available
+                    if (!AttackExecutionSupport.handleExecutionException(
+                        api,
+                        isRunning,
+                        "Error fuzzing existing URL param '" + paramName + "' with value '" + fuzzValue + "': ",
+                        e
+                    )) {
+                        return false;
+                    }
                 }
             }
         }
+
+        return true;
     }
 
     private void executeUrlParamAttacks(MontoyaApi api, HttpRequest originalRequest, String basePath,
@@ -101,18 +113,25 @@ public class ParamAttack implements AttackStrategy {
                                         AttackExecutor attackExecutor) {
 
         for (String param : paramPayloads) {
-            if (!isRunning.getAsBoolean()) {
-                break;
+            if (!AttackExecutionSupport.canContinue(isRunning)) {
+                return;
             }
 
             try {
                 String modifiedPath = QueryStringUtils.upsertParameter(basePath, param);
                 HttpRequest modifiedRequest = originalRequest.withPath(modifiedPath);
                 if (!attackExecutor.execute(ATTACK_TYPE, param, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
-                    break;
+                    return;
                 }
             } catch (Exception e) {
-                api.logging().logToError("Error in param attack with payload '" + param + "': " + e.getMessage());
+                if (!AttackExecutionSupport.handleExecutionException(
+                    api,
+                    isRunning,
+                    "Error in param attack with payload '" + param + "': ",
+                    e
+                )) {
+                    return;
+                }
             }
         }
     }

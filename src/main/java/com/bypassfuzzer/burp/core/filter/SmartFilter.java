@@ -16,11 +16,9 @@ public class SmartFilter implements ResponseFilter {
     private final FilterConfig config;
     private final Map<String, Integer> patternDatabase = new HashMap<>();
     private final Map<String, List<AttackResult>> patternResults = new HashMap<>();
-    private final int maxRepeats;
 
     public SmartFilter(FilterConfig config) {
         this.config = config;
-        this.maxRepeats = 10; // Show first 10 of each pattern, then mute
     }
 
     /**
@@ -33,7 +31,7 @@ public class SmartFilter implements ResponseFilter {
 
         // Store this result in the pattern's list (for the first maxRepeats occurrences)
         List<AttackResult> results = patternResults.computeIfAbsent(key, k -> new ArrayList<>());
-        if (results.size() < maxRepeats) {
+        if (results.size() < maxRepeats()) {
             results.add(result);
         }
     }
@@ -82,6 +80,10 @@ public class SmartFilter implements ResponseFilter {
             return "No patterns tracked";
         }
         return String.format("%d unique patterns tracked (showing first %d of each)",
-            uniquePatterns, maxRepeats);
+            uniquePatterns, maxRepeats());
+    }
+
+    private int maxRepeats() {
+        return Math.max(1, config.getSmartFilterRepeats());
     }
 }

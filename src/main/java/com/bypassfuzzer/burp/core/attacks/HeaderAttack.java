@@ -2,7 +2,6 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.payloads.HeaderPayloadProcessor;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
@@ -34,31 +33,24 @@ public class HeaderAttack implements AttackStrategy {
             collaboratorEnabled ? api : null
         );
 
-        try {
-            api.logging().logToOutput("Starting Header Attack: " + headerPayloads.size() + " total payloads");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Header Attack: " + headerPayloads.size() + " total payloads")) {
             return;
         }
 
         int count = 0;
 
         for (String payload : headerPayloads) {
-            if (!shouldContinue.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Header Attack stopped by user (" + count + " of " + headerPayloads.size() + " completed)");
-                } catch (Exception e) {
-                    // Ignore
-                }
-                break;
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                shouldContinue,
+                "Header Attack stopped by user (" + count + " of " + headerPayloads.size() + " completed)"
+            )) {
+                return;
             }
 
             // Log progress every 100 requests
             if (count % 100 == 0 && count > 0) {
-                try {
-                    api.logging().logToOutput("Header Attack progress: " + count + " of " + headerPayloads.size() + " requests sent");
-                } catch (Exception e) {
-                    // Ignore
-                }
+                AttackExecutionSupport.logOutput(api, "Header Attack progress: " + count + " of " + headerPayloads.size() + " requests sent");
             }
 
             try {
@@ -84,25 +76,17 @@ public class HeaderAttack implements AttackStrategy {
                 }
 
                 if (!attackExecutor.execute(getAttackType(), displayPayload, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
-                    break;
+                    return;
                 }
                 count++;
-            } catch (NullPointerException e) {
-                break;
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Header attack error with payload: " + payload + " - " + e.getMessage());
-                } catch (Exception logError) {
-                    // Ignore
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Header attack error with payload: " + payload + " - ", e)) {
+                    return;
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Header Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Header Attack completed: " + count + " results sent");
     }
 
     @Override

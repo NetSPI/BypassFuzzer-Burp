@@ -49,6 +49,25 @@ class ResultFilterControllerTest {
         assertFalse(controller.shouldShow(last));
     }
 
+    @Test
+    void smartFilterUsesConfiguredRepeatLimit() {
+        ResultFilterController controller = new ResultFilterController();
+        controller.filterConfig().setSmartFilterEnabled(true);
+        controller.filterConfig().setSmartFilterRepeats(2);
+
+        AttackResult first = result("payload-1", 200, "text/html", "<html>same</html>");
+        AttackResult second = result("payload-2", 200, "text/html", "<html>same</html>");
+        AttackResult third = result("payload-3", 200, "text/html", "<html>same</html>");
+
+        controller.track(first);
+        controller.track(second);
+        controller.track(third);
+
+        assertTrue(controller.shouldShow(first));
+        assertTrue(controller.shouldShow(second));
+        assertFalse(controller.shouldShow(third));
+    }
+
     private AttackResult result(String payload, int statusCode, String contentType, String body) {
         HttpRequest request = mock(HttpRequest.class);
         HttpResponse response = mock(HttpResponse.class);

@@ -2,7 +2,6 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 
 import java.net.URI;
@@ -33,69 +32,48 @@ public class TrailingSlashAttack implements AttackStrategy {
 
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
-        try {
-            api.logging().logToOutput("Trailing Slash Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Trailing Slash Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
         if ("/".equals(originalPath)) {
-            try {
-                api.logging().logToOutput("Trailing Slash Attack: Skipped - original path is already root '/' (no variations possible)");
-            } catch (Exception e) {
-                // Ignore
-            }
+            AttackExecutionSupport.logOutput(api, "Trailing Slash Attack: Skipped - original path is already root '/' (no variations possible)");
             return;
         }
 
         List<String> urlVariations = buildUrlVariations(targetUrl);
 
-        try {
-            api.logging().logToOutput("Starting Trailing Slash Attack: " + urlVariations.size() + " variations");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Trailing Slash Attack: " + urlVariations.size() + " variations")) {
             return;
         }
 
         int count = 0;
         for (String urlVariation : urlVariations) {
-            if (!isRunning.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Trailing Slash Attack stopped by user (" + count + " of " + urlVariations.size() + " completed)");
-                } catch (Exception e) {
-                    // Ignore
-                }
-                break;
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                isRunning,
+                "Trailing Slash Attack stopped by user (" + count + " of " + urlVariations.size() + " completed)"
+            )) {
+                return;
             }
 
             try {
                 // Log progress every request (since there's only 1 variation typically)
                 if (urlVariations.size() > 0) {
-                    try {
-                        api.logging().logToOutput("Trailing Slash Attack: Testing variation " + (count + 1) + " of " + urlVariations.size());
-                    } catch (Exception e) {
-                        // Ignore
-                    }
+                    AttackExecutionSupport.logOutput(api, "Trailing Slash Attack: Testing variation " + (count + 1) + " of " + urlVariations.size());
                 }
 
                 HttpRequest modifiedRequest = originalRequest.withPath(urlVariation);
                 if (!attackExecutor.execute(ATTACK_TYPE, urlVariation, modifiedRequest, resultCallback, isRunning, rateLimiter)) {
-                    break;
+                    return;
                 }
                 count++;
 
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Error in trailing slash attack with URL '" + urlVariation + "': " + e.getMessage());
-                } catch (Exception logError) {
-                    // Ignore
+                if (!AttackExecutionSupport.handleExecutionException(api, isRunning, "Error in trailing slash attack with URL '" + urlVariation + "': ", e)) {
+                    return;
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Trailing Slash Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Trailing Slash Attack completed: " + count + " results sent");
     }
 
     /**

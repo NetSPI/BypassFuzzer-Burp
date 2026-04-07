@@ -2,7 +2,6 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 import com.bypassfuzzer.burp.core.payloads.UrlPayloadProcessor;
@@ -31,70 +30,45 @@ public class PathAttack implements AttackStrategy {
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
-        try {
-            api.logging().logToOutput("Path Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Path Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
         if ("/".equals(originalPath)) {
-            try {
-                api.logging().logToOutput("Path Attack: Skipped - original path is root '/' (path manipulation attacks are less effective on root paths - consider testing a deeper endpoint)");
-            } catch (Exception e) {
-                // Ignore
-            }
+            AttackExecutionSupport.logOutput(api, "Path Attack: Skipped - original path is root '/' (path manipulation attacks are less effective on root paths - consider testing a deeper endpoint)");
             return;
         }
 
-        try {
-            api.logging().logToOutput("Starting Path Attack: " + pathPayloads.size() + " payloads");
-        } catch (Exception e) {
-            // API may be null, abort
+        if (!AttackExecutionSupport.logStart(api, "Starting Path Attack: " + pathPayloads.size() + " payloads")) {
             return;
         }
 
         int count = 0;
         for (String modifiedUrl : pathPayloads) {
-            if (!shouldContinue.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Path Attack stopped by user (" + count + " of " + pathPayloads.size() + " completed)");
-                } catch (Exception e) {
-                    // Ignore
-                }
-                break;
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                shouldContinue,
+                "Path Attack stopped by user (" + count + " of " + pathPayloads.size() + " completed)"
+            )) {
+                return;
             }
 
             try {
                 // Log progress every 50 requests to avoid spam
                 if (count % 50 == 0 && pathPayloads.size() > 50) {
-                    try {
-                        api.logging().logToOutput("Path Attack progress: " + count + " of " + pathPayloads.size() + " requests sent");
-                    } catch (Exception e) {
-                        // Ignore
-                    }
+                    AttackExecutionSupport.logOutput(api, "Path Attack progress: " + count + " of " + pathPayloads.size() + " requests sent");
                 }
 
                 HttpRequest modifiedRequest = baseRequest.withPath(extractPath(modifiedUrl));
                 if (!attackExecutor.execute(getAttackType(), modifiedUrl, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
-                    break;
+                    return;
                 }
                 count++;
-            } catch (NullPointerException e) {
-                // API became null (extension unloaded), stop immediately
-                break;
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Path attack error with URL: " + modifiedUrl + " - " + e.getMessage());
-                } catch (Exception logError) {
-                    // Ignore logging errors
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Path attack error with URL: " + modifiedUrl + " - ", e)) {
+                    return;
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Path Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Path Attack completed: " + count + " results sent");
     }
 
     private String extractPath(String url) {

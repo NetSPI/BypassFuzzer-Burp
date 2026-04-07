@@ -73,14 +73,25 @@ public final class QueryStringUtils {
     }
 
     public static String replaceValue(String pathWithQuery, String parameterName, String value) {
+        return replaceValue(pathWithQuery, parameterName, value, -1);
+    }
+
+    public static String replaceValue(String pathWithQuery, String parameterName, String value, int occurrence) {
         List<QueryParameter> parameters = parseRawParameters(RequestPathUtils.queryFromPath(pathWithQuery));
         boolean replaced = false;
+        int matched = 0;
 
         for (int i = 0; i < parameters.size(); i++) {
             QueryParameter parameter = parameters.get(i);
             if (parameter.name().equals(parameterName)) {
-                parameters.set(i, parameter.withValue(value));
-                replaced = true;
+                if (occurrence < 0 || matched == occurrence) {
+                    parameters.set(i, parameter.withValue(value));
+                    replaced = true;
+                    if (occurrence >= 0) {
+                        break;
+                    }
+                }
+                matched++;
             }
         }
 
@@ -92,14 +103,25 @@ public final class QueryStringUtils {
     }
 
     public static String replaceName(String pathWithQuery, String oldName, String newName) {
+        return replaceName(pathWithQuery, oldName, newName, -1);
+    }
+
+    public static String replaceName(String pathWithQuery, String oldName, String newName, int occurrence) {
         List<QueryParameter> parameters = parseRawParameters(RequestPathUtils.queryFromPath(pathWithQuery));
         boolean replaced = false;
+        int matched = 0;
 
         for (int i = 0; i < parameters.size(); i++) {
             QueryParameter parameter = parameters.get(i);
             if (parameter.name().equals(oldName)) {
-                parameters.set(i, parameter.withName(newName));
-                replaced = true;
+                if (occurrence < 0 || matched == occurrence) {
+                    parameters.set(i, parameter.withName(newName));
+                    replaced = true;
+                    if (occurrence >= 0) {
+                        break;
+                    }
+                }
+                matched++;
             }
         }
 

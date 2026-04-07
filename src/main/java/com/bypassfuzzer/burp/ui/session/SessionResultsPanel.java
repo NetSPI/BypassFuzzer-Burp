@@ -209,8 +209,13 @@ public class SessionResultsPanel extends JPanel {
     private void initializeRowSorter() {
         TableRowSorter<FuzzerResultsTableModel> sorter = new TableRowSorter<>(tableModel);
         sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));
-        sorter.setComparator(3, Comparator.comparingInt(o -> (Integer) o));
-        sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
+        if (tableLayout == TableLayout.URL_VALIDATION) {
+            sorter.setComparator(5, Comparator.comparingInt(o -> (Integer) o));
+            sorter.setComparator(6, Comparator.comparingInt(o -> (Integer) o));
+        } else {
+            sorter.setComparator(3, Comparator.comparingInt(o -> (Integer) o));
+            sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
+        }
         sorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.DESCENDING)));
         resultsTable.setRowSorter(sorter);
     }

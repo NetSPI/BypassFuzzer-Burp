@@ -4,9 +4,10 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.http.RequestBodyFormat;
+import com.bypassfuzzer.burp.http.LocatedParameter;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 
-import java.util.Map;
+import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -21,29 +22,24 @@ public class ContentTypeAttack implements AttackStrategy {
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
                         RateLimiter rateLimiter, AttackExecutor attackExecutor) {
 
-        try {
-            api.logging().logToOutput("Starting Content-Type Attack");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Content-Type Attack")) {
             return;
         }
 
         int count = 0;
-        Map<String, String> params = RequestParameterSupport.extractCombinedParameters(baseRequest);
+        List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(baseRequest);
 
         if (params.isEmpty()) {
-            logError(api, "Content-Type Attack: Skipped - No parameters found to convert");
+            AttackExecutionSupport.logError(api, "Content-Type Attack: Skipped - No parameters found to convert");
             return;
         }
 
         HttpRequest requestToModify = baseRequest;
         if (!RequestParameterSupport.supportsBody(baseRequest.method())) {
-            try {
-                api.logging().logToOutput(
-                    "Content-Type Attack: Converting " + baseRequest.method() + " to POST to test content-type variations"
-                );
-            } catch (Exception e) {
-                // Ignore
-            }
+            AttackExecutionSupport.logOutput(
+                api,
+                "Content-Type Attack: Converting " + baseRequest.method() + " to POST to test content-type variations"
+            );
             requestToModify = RequestParameterSupport.prepareForBodyFormat(baseRequest, "POST");
         }
 
@@ -52,13 +48,10 @@ public class ContentTypeAttack implements AttackStrategy {
             currentContentType = "unknown";
         }
 
-        try {
-            api.logging().logToOutput(
-                "Content-Type Attack: Found " + params.size() + " parameters, current type: " + currentContentType
-            );
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(
+            api,
+            "Content-Type Attack: Found " + params.size() + " parameters, current type: " + currentContentType
+        );
 
         count = maybeExecute(api, "application/x-www-form-urlencoded", "Content-Type: URL-encoded",
             requestToModify, params, RequestBodyFormat.URL_ENCODED, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
@@ -85,15 +78,11 @@ public class ContentTypeAttack implements AttackStrategy {
             return;
         }
 
-        try {
-            api.logging().logToOutput("Content-Type Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Content-Type Attack completed: " + count + " results sent");
     }
 
     private int maybeExecute(MontoyaApi api, String skipIfContains, String payload,
-                             HttpRequest requestToModify, Map<String, String> params, RequestBodyFormat format, int count,
+                             HttpRequest requestToModify, List<LocatedParameter> params, RequestBodyFormat format, int count,
                              Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
                              RateLimiter rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
 
@@ -108,8 +97,11 @@ public class ContentTypeAttack implements AttackStrategy {
             }
         }
 
-        if (!shouldContinue.getAsBoolean()) {
-            logStop(api, count);
+        if (AttackExecutionSupport.stopIfRequested(
+            api,
+            shouldContinue,
+            "Content-Type Attack stopped by user (" + count + " completed)"
+        )) {
             return -1;
         }
 
@@ -120,24 +112,10 @@ public class ContentTypeAttack implements AttackStrategy {
             }
             return count + 1;
         } catch (Exception e) {
-            logError(api, "Error converting payload '" + payload + "': " + e.getMessage());
+            if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error converting payload '" + payload + "': ", e)) {
+                return -1;
+            }
             return count;
-        }
-    }
-
-    private void logStop(MontoyaApi api, int count) {
-        try {
-            api.logging().logToOutput("Content-Type Attack stopped by user (" + count + " completed)");
-        } catch (Exception e) {
-            // Ignore
-        }
-    }
-
-    private void logError(MontoyaApi api, String message) {
-        try {
-            api.logging().logToError(message);
-        } catch (Exception e) {
-            // Ignore
         }
     }
 

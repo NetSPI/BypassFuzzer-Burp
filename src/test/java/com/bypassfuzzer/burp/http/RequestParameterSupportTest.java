@@ -1,24 +1,32 @@
 package com.bypassfuzzer.burp.http;
 
-import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Proxy;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RequestParameterSupportTest {
 
     @Test
-    void extractsCombinedParametersFromUrlEncodedBodyBeforeQuery() {
-        HttpRequest request = request("/admin?debug=query", "debug=query", "POST", "application/x-www-form-urlencoded", "debug=body&role=admin");
+    void extractsCombinedParametersMergesQueryAndBodyWithBodyTakingPrecedence() {
+        HttpRequest request = request(
+            "/admin?debug=query&source=query",
+            "debug=query&source=query",
+            "POST",
+            "application/x-www-form-urlencoded",
+            "debug=body&role=admin"
+        );
 
-        assertEquals(Map.of("debug", "body", "role", "admin"), RequestParameterSupport.extractCombinedParameters(request));
+        assertEquals(
+            Map.of("debug", "body", "source", "query", "role", "admin"),
+            RequestParameterSupport.extractCombinedParameters(request)
+        );
     }
 
     @Test
@@ -29,6 +37,28 @@ class RequestParameterSupportTest {
 
         assertTrue(params.contains(new LocatedParameter("debug", "1", ParameterLocation.QUERY)));
         assertTrue(params.contains(new LocatedParameter("role", "admin", ParameterLocation.BODY)));
+    }
+
+    @Test
+    void extractsCombinedParametersFromComplexJsonBody() {
+        HttpRequest request = request(
+            "/admin?source=query",
+            "source=query",
+            "POST",
+            "application/json",
+            "{\"role\":\"admin\",\"enabled\":true,\"meta\":{\"team\":\"red\"},\"tags\":[\"a\",\"b\"]}"
+        );
+
+        assertEquals(
+            Map.of(
+                "source", "query",
+                "role", "admin",
+                "enabled", "true",
+                "meta", "{\"team\":\"red\"}",
+                "tags", "[\"a\",\"b\"]"
+            ),
+            RequestParameterSupport.extractCombinedParameters(request)
+        );
     }
 
     @Test
@@ -44,6 +74,43 @@ class RequestParameterSupportTest {
         assertEquals("application/json", updated.headerValue("Content-Type"));
         assertTrue(updated.bodyToString().contains("\"debug\":\"true\""));
         assertTrue(updated.bodyToString().contains("\"role\":\"admin\""));
+    }
+
+    @Test
+    void appliesBodyFormatPreservingDuplicateParameters() {
+        HttpRequest request = request("/admin", "", "POST", "application/json", "{\"debug\":\"true\"}");
+
+        HttpRequest updated = RequestParameterSupport.applyBodyFormat(
+            request,
+            List.of(
+                new LocatedParameter("debug", "one", ParameterLocation.BODY, "debug", 0),
+                new LocatedParameter("debug", "two", ParameterLocation.BODY, "debug", 1)
+            ),
+            RequestBodyFormat.JSON
+        );
+
+        assertEquals("application/json", updated.headerValue("Content-Type"));
+        assertEquals("{\"debug\":\"one\",\"debug\":\"two\"}", updated.bodyToString());
+    }
+
+    @Test
+    void appliesBodyFormatFlattensNestedPathsForConversion() {
+        HttpRequest request = request("/admin", "", "POST", "application/xml", "<root/>");
+
+        HttpRequest updated = RequestParameterSupport.applyBodyFormat(
+            request,
+            List.of(
+                new LocatedParameter("role", "user", ParameterLocation.BODY, "/meta/role", -1),
+                new LocatedParameter("role", "admin", ParameterLocation.BODY, "/users/0/role", -1),
+                new LocatedParameter("role", "auditor", ParameterLocation.BODY, "/root[0]/users[0]/user[1]/role[0]", -1)
+            ),
+            RequestBodyFormat.MULTIPART
+        );
+
+        assertTrue(updated.bodyToString().contains("name=\"meta.role\""));
+        assertTrue(updated.bodyToString().contains("name=\"users[0].role\""));
+        assertTrue(updated.bodyToString().contains("name=\"users.user[1].role\""));
+        assertTrue(!updated.bodyToString().contains("name=\"root[0].users[0].user[1].role[0]\""));
     }
 
     @Test
@@ -76,6 +143,169 @@ class RequestParameterSupportTest {
         );
 
         assertEquals("trace=true&role=user", updatedBody.bodyToString());
+    }
+
+    @Test
+    void replacesJsonParametersWithoutCorruptingStructuredBodyContent() {
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "application/json",
+            "{\"message\":\"say \\\"hi\\\"\",\"role\":\"user\",\"tags\":[\"a\",\"b\"]}"
+        );
+
+        HttpRequest renamedBody = RequestParameterSupport.replaceParameterName(
+            bodyRequest,
+            new LocatedParameter("role", "user", ParameterLocation.BODY),
+            "trace"
+        );
+        HttpRequest updatedBody = RequestParameterSupport.replaceParameterValue(
+            renamedBody,
+            new LocatedParameter("trace", "user", ParameterLocation.BODY),
+            "true"
+        );
+
+        assertEquals(
+            "{\"message\":\"say \\\"hi\\\"\",\"trace\":\"true\",\"tags\":[\"a\",\"b\"]}",
+            updatedBody.bodyToString()
+        );
+    }
+
+    @Test
+    void extractsNestedJsonParametersAndTargetsSpecificPath() {
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "application/json",
+            "{\"meta\":{\"role\":\"user\"},\"users\":[{\"role\":\"admin\"}]}"
+        );
+
+        List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(bodyRequest);
+
+        assertEquals(
+            List.of("/meta/role", "/users/0/role"),
+            params.stream().filter(LocatedParameter::isBody).map(LocatedParameter::path).collect(Collectors.toList())
+        );
+
+        HttpRequest renamedBody = RequestParameterSupport.replaceParameterName(
+            bodyRequest,
+            new LocatedParameter("role", "user", ParameterLocation.BODY, "/meta/role", -1),
+            "trace"
+        );
+        HttpRequest updatedBody = RequestParameterSupport.replaceParameterValue(
+            renamedBody,
+            new LocatedParameter("trace", "user", ParameterLocation.BODY, "/meta/trace", -1),
+            "true"
+        );
+
+        assertEquals("{\"meta\":{\"trace\":\"true\"},\"users\":[{\"role\":\"admin\"}]}", updatedBody.bodyToString());
+    }
+
+    @Test
+    void extractsAndReplacesXmlParameters() {
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "application/xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root><debug>false</debug><role>user</role></root>"
+        );
+
+        assertEquals(
+            Map.of("debug", "false", "role", "user"),
+            RequestParameterSupport.extractCombinedParameters(bodyRequest)
+        );
+
+        HttpRequest renamedBody = RequestParameterSupport.replaceParameterName(
+            bodyRequest,
+            new LocatedParameter("debug", "false", ParameterLocation.BODY),
+            "trace"
+        );
+        HttpRequest updatedBody = RequestParameterSupport.replaceParameterValue(
+            renamedBody,
+            new LocatedParameter("trace", "false", ParameterLocation.BODY),
+            "true"
+        );
+
+        assertTrue(updatedBody.bodyToString().contains("<trace>true</trace>"));
+        assertTrue(updatedBody.bodyToString().contains("<role>user</role>"));
+    }
+
+    @Test
+    void extractsAndReplacesMultipartParameters() {
+        String boundary = "----Boundary123";
+        String body =
+            "--" + boundary + "\r\n" +
+            "Content-Disposition: form-data; name=\"debug\"\r\n\r\n" +
+            "false\r\n" +
+            "--" + boundary + "\r\n" +
+            "Content-Disposition: form-data; name=\"role\"\r\n\r\n" +
+            "user\r\n" +
+            "--" + boundary + "--\r\n";
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "multipart/form-data; boundary=\"" + boundary + "\"",
+            body
+        );
+
+        assertEquals(
+            Map.of("debug", "false", "role", "user"),
+            RequestParameterSupport.extractCombinedParameters(bodyRequest)
+        );
+
+        HttpRequest renamedBody = RequestParameterSupport.replaceParameterName(
+            bodyRequest,
+            new LocatedParameter("debug", "false", ParameterLocation.BODY),
+            "trace"
+        );
+        HttpRequest updatedBody = RequestParameterSupport.replaceParameterValue(
+            renamedBody,
+            new LocatedParameter("trace", "false", ParameterLocation.BODY),
+            "true"
+        );
+
+        assertTrue(updatedBody.bodyToString().contains("name=\"trace\""));
+        assertTrue(updatedBody.bodyToString().contains("\r\n\r\ntrue\r\n"));
+        assertTrue(updatedBody.bodyToString().contains("name=\"role\""));
+    }
+
+    @Test
+    void preservesDuplicateBodyParametersWhenExtractingAndReplacingSpecificOccurrence() {
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "application/x-www-form-urlencoded",
+            "debug=one&debug=two&role=user"
+        );
+
+        List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(bodyRequest);
+
+        assertEquals(
+            List.of(
+                new LocatedParameter("debug", "one", ParameterLocation.BODY, "debug", 0),
+                new LocatedParameter("debug", "two", ParameterLocation.BODY, "debug", 1),
+                new LocatedParameter("role", "user", ParameterLocation.BODY, "role", 0)
+            ),
+            params
+        );
+
+        HttpRequest renamedBody = RequestParameterSupport.replaceParameterName(
+            bodyRequest,
+            new LocatedParameter("debug", "two", ParameterLocation.BODY, "debug", 1),
+            "trace"
+        );
+        HttpRequest updatedBody = RequestParameterSupport.replaceParameterValue(
+            renamedBody,
+            new LocatedParameter("trace", "two", ParameterLocation.BODY, "trace", 0),
+            "changed"
+        );
+
+        assertEquals("debug=one&trace=changed&role=user", updatedBody.bodyToString());
     }
 
     @Test
@@ -119,62 +349,4 @@ class RequestParameterSupportTest {
         );
     }
 
-    private HttpRequest request(String path, String query, String method, String contentType, String body) {
-        ByteArray byteArray = byteArray(body.length());
-
-        return (HttpRequest) Proxy.newProxyInstance(
-            HttpRequest.class.getClassLoader(),
-            new Class<?>[]{HttpRequest.class},
-            (proxy, invokedMethod, args) -> switch (invokedMethod.getName()) {
-                case "path" -> path;
-                case "pathWithoutQuery" -> RequestPathUtils.pathWithoutQuery(path);
-                case "query" -> query;
-                case "method" -> method;
-                case "headerValue" -> "Content-Type".equals(args[0]) ? contentType : null;
-                case "bodyToString" -> body;
-                case "body" -> byteArray;
-                case "url" -> "https://example.com" + path;
-                case "withMethod" -> request(path, query, (String) args[0], contentType, body);
-                case "withUpdatedHeader" -> request(path, query, method, (String) args[1], body);
-                case "withBody" -> request(path, query, method, contentType, (String) args[0]);
-                case "withPath" -> {
-                    String updatedPath = (String) args[0];
-                    yield request(updatedPath, RequestPathUtils.queryFromPath(updatedPath), method, contentType, body);
-                }
-                case "toString" -> method + " " + path;
-                case "hashCode" -> System.identityHashCode(proxy);
-                case "equals" -> proxy == args[0];
-                default -> defaultValue(invokedMethod.getReturnType());
-            }
-        );
-    }
-
-    private ByteArray byteArray(int length) {
-        return (ByteArray) Proxy.newProxyInstance(
-            ByteArray.class.getClassLoader(),
-            new Class<?>[]{ByteArray.class},
-            (proxy, invokedMethod, args) -> switch (invokedMethod.getName()) {
-                case "length" -> length;
-                case "iterator" -> Collections.<Byte>emptyIterator();
-                case "toString" -> "";
-                default -> defaultValue(invokedMethod.getReturnType());
-            }
-        );
-    }
-
-    private Object defaultValue(Class<?> returnType) {
-        if (returnType == boolean.class) {
-            return false;
-        }
-        if (returnType == int.class) {
-            return 0;
-        }
-        if (returnType == long.class) {
-            return 0L;
-        }
-        if (returnType == short.class) {
-            return (short) 0;
-        }
-        return null;
-    }
 }

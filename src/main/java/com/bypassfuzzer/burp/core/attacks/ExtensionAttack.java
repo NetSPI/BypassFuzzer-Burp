@@ -2,11 +2,9 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -19,10 +17,7 @@ import java.util.function.Consumer;
 public class ExtensionAttack implements AttackStrategy {
 
     private final List<String> extensions;
-    private final String targetUrl;
-
     public ExtensionAttack(String targetUrl) {
-        this.targetUrl = targetUrl;
         this.extensions = PayloadLoader.loadPayloads("extension_payloads.txt");
     }
 
@@ -33,46 +28,31 @@ public class ExtensionAttack implements AttackStrategy {
 
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
-        try {
-            api.logging().logToOutput("Extension Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Extension Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
 
         if ("/".equals(originalPath)) {
-            try {
-                api.logging().logToOutput("Extension Attack: Skipped - original path is root '/' (extension attacks are less effective on root paths - consider testing a deeper endpoint)");
-            } catch (Exception e) {
-                // Ignore
-            }
+            AttackExecutionSupport.logOutput(api, "Extension Attack: Skipped - original path is root '/' (extension attacks are less effective on root paths - consider testing a deeper endpoint)");
             return;
         }
 
-        try {
-            api.logging().logToOutput("Starting Extension Attack: " + extensions.size() + " extensions");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Extension Attack: " + extensions.size() + " extensions")) {
             return;
         }
 
         int count = 0;
         for (String extension : extensions) {
-            if (!shouldContinue.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Extension Attack stopped by user (" + count + " of " + extensions.size() + " completed)");
-                } catch (Exception e) {
-                    // Ignore
-                }
-                break;
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                shouldContinue,
+                "Extension Attack stopped by user (" + count + " of " + extensions.size() + " completed)"
+            )) {
+                return;
             }
 
             try {
                 // Log progress every 20 requests
                 if (count % 20 == 0 && count > 0) {
-                    try {
-                        api.logging().logToOutput("Extension Attack progress: " + count + " of " + extensions.size() + " requests sent");
-                    } catch (Exception e) {
-                        // Ignore
-                    }
+                    AttackExecutionSupport.logOutput(api, "Extension Attack progress: " + count + " of " + extensions.size() + " requests sent");
                 }
 
                 // Build modified path with extension
@@ -81,27 +61,18 @@ public class ExtensionAttack implements AttackStrategy {
 
                 HttpRequest modifiedRequest = baseRequest.withPath(modifiedPath);
                 if (!attackExecutor.execute(getAttackType(), payloadDescription, modifiedRequest, resultCallback, shouldContinue, rateLimiter)) {
-                    break;
+                    return;
                 }
                 count++;
 
-            } catch (NullPointerException e) {
-                // API became null (extension unloaded), stop immediately
-                break;
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Extension attack error with extension: " + extension + " - " + e.getMessage());
-                } catch (Exception logError) {
-                    // Ignore
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Extension attack error with extension: " + extension + " - ", e)) {
+                    return;
                 }
             }
         }
 
-        try {
-            api.logging().logToOutput("Extension Attack completed: " + count + " results sent");
-        } catch (Exception e) {
-            // Ignore
-        }
+        AttackExecutionSupport.logOutput(api, "Extension Attack completed: " + count + " results sent");
     }
 
     /**

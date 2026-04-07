@@ -9,6 +9,7 @@ import java.util.Set;
 public class FilterConfig {
     // Smart filter settings
     private boolean smartFilterEnabled = false;
+    private int smartFilterRepeats = 10;
 
     // Manual filter settings
     private boolean manualFilterEnabled = false;
@@ -27,6 +28,14 @@ public class FilterConfig {
 
     public void setSmartFilterEnabled(boolean enabled) {
         this.smartFilterEnabled = enabled;
+    }
+
+    public int getSmartFilterRepeats() {
+        return smartFilterRepeats;
+    }
+
+    public void setSmartFilterRepeats(int smartFilterRepeats) {
+        this.smartFilterRepeats = smartFilterRepeats;
     }
 
     public boolean isManualFilterEnabled() {

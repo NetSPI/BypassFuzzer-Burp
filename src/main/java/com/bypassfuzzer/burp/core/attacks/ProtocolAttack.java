@@ -27,22 +27,17 @@ public class ProtocolAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
-        try {
-            api.logging().logToOutput("Starting Protocol Attack");
-        } catch (Exception e) {
+        if (!AttackExecutionSupport.logStart(api, "Starting Protocol Attack")) {
             return;
         }
 
         for (String version : HTTP_VERSIONS) {
-            if (!shouldContinue.getAsBoolean()) {
-                try {
-                    api.logging().logToOutput("Protocol Attack stopped by user");
-                } catch (Exception e) {}
+            if (AttackExecutionSupport.stopIfRequested(api, shouldContinue, "Protocol Attack stopped by user")) {
                 return;
             }
 
             try {
-                api.logging().logToOutput("Testing protocol: " + version);
+                AttackExecutionSupport.logOutput(api, "Testing protocol: " + version);
                 HttpRequest modifiedRequest = buildRequestWithVersion(api, baseRequest, version);
                 AttackExecutionResult result = attackExecutor.executeWithTimeout(
                     getAttackType(),
@@ -56,24 +51,20 @@ public class ProtocolAttack implements AttackStrategy {
                 );
 
                 if (result.outcome() == AttackExecutionOutcome.EXECUTED) {
-                    api.logging().logToOutput("Protocol " + version + " completed with status: " + result.response().statusCode());
+                    AttackExecutionSupport.logOutput(api, "Protocol " + version + " completed with status: " + result.response().statusCode());
                 } else if (result.outcome() == AttackExecutionOutcome.STOPPED) {
                     return;
                 } else {
-                    api.logging().logToOutput("Protocol " + version + " timed out after " + REQUEST_TIMEOUT_SECONDS + " seconds");
+                    AttackExecutionSupport.logOutput(api, "Protocol " + version + " timed out after " + REQUEST_TIMEOUT_SECONDS + " seconds");
                 }
-            } catch (NullPointerException e) {
-                return;
             } catch (Exception e) {
-                try {
-                    api.logging().logToError("Protocol attack error: " + version + " - " + e.getMessage());
-                } catch (Exception logError) {}
+                if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Protocol attack error: " + version + " - ", e)) {
+                    return;
+                }
             }
         }
 
-        try {
-            api.logging().logToOutput("Protocol Attack completed");
-        } catch (Exception e) {}
+        AttackExecutionSupport.logOutput(api, "Protocol Attack completed");
     }
 
     private HttpRequest buildRequestWithVersion(MontoyaApi api, HttpRequest baseRequest, String newVersion) {
@@ -117,15 +108,11 @@ public class ProtocolAttack implements AttackStrategy {
                     }
                 }
 
-                try {
-                    api.logging().logToOutput("Built " + newVersion + " request: " + newRequestLine);
-                } catch (Exception e) {}
+                AttackExecutionSupport.logOutput(api, "Built " + newVersion + " request: " + newRequestLine);
                 return rawRequestFactory.create(baseRequest.httpService(), newRawRequest);
             }
         } catch (Exception e) {
-            try {
-                api.logging().logToError("Failed to build " + newVersion + " request: " + e.getMessage());
-            } catch (Exception logError) {}
+            AttackExecutionSupport.logError(api, "Failed to build " + newVersion + " request: " + e.getMessage());
         }
 
         return baseRequest;

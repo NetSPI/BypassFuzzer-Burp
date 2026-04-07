@@ -4,7 +4,6 @@ import com.bypassfuzzer.burp.core.attacks.AttackType;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -29,15 +28,9 @@ public class FuzzerConfig {
     private boolean enableCookieParamAttack = true; // Debug params via Cookie header
     private boolean enableFuzzExistingCookies = true; // Fuzz existing cookies in request
 
-    // Filtering options
-    private boolean enableSmartFilter = true;
-    private int smartFilterRepeats = 8;
-    private Set<Integer> hiddenStatusCodes = new HashSet<>();
-    private Set<Integer> hiddenLengths = new HashSet<>();
-
     // Rate limiting
     private int requestsPerSecond = 0; // 0 = unlimited (default)
-    private Set<Integer> throttleStatusCodes = new HashSet<>();
+    private Set<Integer> throttleStatusCodes = new java.util.HashSet<>();
     private boolean enableAutoThrottle = true;
 
     // OOB payload
@@ -47,11 +40,6 @@ public class FuzzerConfig {
     private boolean enableCollaboratorPayloads = false;
 
     public FuzzerConfig() {
-        // Default: hide common error codes
-        hiddenStatusCodes.add(401);
-        hiddenStatusCodes.add(403);
-        hiddenStatusCodes.add(404);
-
         // Default: auto-throttle on rate limit and service unavailable
         throttleStatusCodes.add(429);
         throttleStatusCodes.add(503);
@@ -161,38 +149,6 @@ public class FuzzerConfig {
 
     public void setEnableFuzzExistingCookies(boolean enableFuzzExistingCookies) {
         this.enableFuzzExistingCookies = enableFuzzExistingCookies;
-    }
-
-    public boolean isEnableSmartFilter() {
-        return enableSmartFilter;
-    }
-
-    public void setEnableSmartFilter(boolean enableSmartFilter) {
-        this.enableSmartFilter = enableSmartFilter;
-    }
-
-    public int getSmartFilterRepeats() {
-        return smartFilterRepeats;
-    }
-
-    public void setSmartFilterRepeats(int smartFilterRepeats) {
-        this.smartFilterRepeats = smartFilterRepeats;
-    }
-
-    public Set<Integer> getHiddenStatusCodes() {
-        return hiddenStatusCodes;
-    }
-
-    public void setHiddenStatusCodes(Set<Integer> hiddenStatusCodes) {
-        this.hiddenStatusCodes = hiddenStatusCodes;
-    }
-
-    public Set<Integer> getHiddenLengths() {
-        return hiddenLengths;
-    }
-
-    public void setHiddenLengths(Set<Integer> hiddenLengths) {
-        this.hiddenLengths = hiddenLengths;
     }
 
     public int getRequestsPerSecond() {

@@ -5,7 +5,6 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
-import com.bypassfuzzer.burp.core.filter.ResultFilterController;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationCandidateFinder;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationEngine;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationOptions;
@@ -44,7 +43,6 @@ public class UrlValidationPanel extends JPanel {
     private final UrlValidationEngine engine;
     private final UrlValidationCandidateFinder candidateFinder = new UrlValidationCandidateFinder();
     private final UrlValidationPayloadGenerator payloadGenerator = new UrlValidationPayloadGenerator();
-    private final ResultFilterController filterController = new ResultFilterController();
 
     private JButton startButton;
     private JButton stopButton;
@@ -55,8 +53,7 @@ public class UrlValidationPanel extends JPanel {
     private JLabel warningLabel;
     private JLabel configWarningLabel;
     private UrlValidationOptionsPanel optionsPanel;
-    private FilterPanel filterPanel;
-    private SessionResultsPanel resultsPanel;
+    private SessionResultsWorkspace resultsWorkspace;
     private HttpRequestEditor requestEditor;
     private JDialog configDialog;
     private volatile boolean shuttingDown = false;
@@ -122,26 +119,15 @@ public class UrlValidationPanel extends JPanel {
     }
 
     private JSplitPane buildCenterPanel() {
-        filterPanel = new FilterPanel(filterController.filterConfig(), message -> api.logging().logToError(message));
-        filterPanel.setFilterChangeListener(this::applyFilters);
-        resultsPanel = new SessionResultsPanel(
+        resultsWorkspace = new SessionResultsWorkspace(
             api,
-            filterController.highlighter(),
-            this::applyFilters,
+            message -> api.logging().logToError(message),
+            workspace -> { },
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
-            SessionResultsPanel.TableLayout.URL_VALIDATION
+            SessionResultsPanel.TableLayout.URL_VALIDATION,
+            true
         );
-
-        JScrollPane filterScrollPane = wrapSidebarTab(filterPanel);
-        filterScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        filterScrollPane.setMinimumSize(new Dimension(250, 100));
-
-        JSplitPane horizontalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, filterScrollPane, resultsPanel);
-        horizontalSplit.setDividerSize(6);
-        horizontalSplit.setResizeWeight(0.0);
-        horizontalSplit.setBorder(null);
-        SwingUtilities.invokeLater(() -> horizontalSplit.setDividerLocation(500));
-        return horizontalSplit;
+        return resultsWorkspace.component();
     }
 
     private JScrollPane wrapSidebarTab(JPanel panel) {
@@ -279,22 +265,18 @@ public class UrlValidationPanel extends JPanel {
     }
 
     private void clearResults() {
-        resultsPanel.clear();
-        filterController.reset();
+        resultsWorkspace.clear();
         statusLabel.setText("Results cleared");
-        updateFilterStatus();
     }
 
     private void addResult(AttackResult result) {
         SwingUtilities.invokeLater(() -> {
-            filterController.track(result);
-            resultsPanel.addResult(result, filterController.shouldShow(result));
-            int totalSent = resultsPanel.allResultsCount();
-            int showing = resultsPanel.shownResultsCount();
+            resultsWorkspace.addResult(result);
+            int totalSent = resultsWorkspace.allResultsCount();
+            int showing = resultsWorkspace.shownResultsCount();
             statusLabel.setText(engine.isRunning()
                 ? "URL Validation... (" + totalSent + " requests sent, showing " + showing + ")"
                 : "Completed: " + totalSent + " requests sent, showing " + showing);
-            updateFilterStatus();
         });
     }
 
@@ -306,22 +288,14 @@ public class UrlValidationPanel extends JPanel {
                 return;
             }
 
-            int totalSent = resultsPanel.allResultsCount();
-            int showing = resultsPanel.shownResultsCount();
+            int totalSent = resultsWorkspace.allResultsCount();
+            int showing = resultsWorkspace.shownResultsCount();
             updateIdleUi((stopRequested ? "Stopped: " : "Completed: ") + totalSent + " requests sent, showing " + showing);
         });
     }
 
     private void applyFilters() {
-        filterController.setHighlightColorFilter(filterPanel.selectedHighlightColor());
-        resultsPanel.applyFilter(filterController::shouldShow);
-        updateFilterStatus();
-    }
-
-    private void updateFilterStatus() {
-        filterPanel.setFilterStatus(
-            filterController.statusText(resultsPanel.shownResultsCount(), resultsPanel.allResultsCount())
-        );
+        resultsWorkspace.applyFilters();
     }
 
     private void updateIdleUi(String message) {
@@ -361,28 +335,8 @@ public class UrlValidationPanel extends JPanel {
             optionsPanel.attackSettings(),
             optionsPanel.encoding(),
             requestsPerSecond,
-            parseStatusCodes(optionsPanel.throttleStatusCodesText())
+            SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText())
         );
-    }
-
-    private Set<Integer> parseStatusCodes(String input) {
-        if (input == null || input.trim().isEmpty()) {
-            return Set.of();
-        }
-
-        return java.util.Arrays.stream(input.split(","))
-            .map(String::trim)
-            .filter(token -> !token.isEmpty())
-            .map(token -> {
-                try {
-                    int code = Integer.parseInt(token);
-                    return code >= 100 && code < 600 ? code : null;
-                } catch (NumberFormatException e) {
-                    return null;
-                }
-            })
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toSet());
     }
 
     private void showWarning(String text) {

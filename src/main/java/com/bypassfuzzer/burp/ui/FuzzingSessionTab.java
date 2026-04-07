@@ -5,16 +5,16 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
-import com.bypassfuzzer.burp.core.filter.ResultFilterController;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import com.bypassfuzzer.burp.session.SessionPreflightAnalyzer;
 import com.bypassfuzzer.burp.session.SessionRunOptions;
 import com.bypassfuzzer.burp.session.SessionState;
 import com.bypassfuzzer.burp.ui.session.AttackSelectionPanel;
-import com.bypassfuzzer.burp.ui.session.FilterPanel;
 import com.bypassfuzzer.burp.ui.session.RunOptionsPanel;
 import com.bypassfuzzer.burp.ui.session.SessionResultsPanel;
+import com.bypassfuzzer.burp.ui.session.SessionResultsWorkspace;
+import com.bypassfuzzer.burp.ui.session.SessionInputParsers;
 import com.bypassfuzzer.burp.ui.session.UrlValidationPanel;
 
 import javax.swing.BoxLayout;
@@ -30,8 +30,6 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Individual fuzzing session tab.
@@ -44,7 +42,6 @@ public class FuzzingSessionTab extends JPanel {
     private final HttpRequest request;
     private final String tabTitle;
     private final SessionPreflightAnalyzer preflightAnalyzer = new SessionPreflightAnalyzer();
-    private final ResultFilterController filterController = new ResultFilterController();
 
     private JButton startButton;
     private JButton stopButton;
@@ -52,8 +49,7 @@ public class FuzzingSessionTab extends JPanel {
     private JLabel warningLabel;
     private AttackSelectionPanel attackSelectionPanel;
     private RunOptionsPanel runOptionsPanel;
-    private FilterPanel filterPanel;
-    private SessionResultsPanel resultsPanel;
+    private SessionResultsWorkspace resultsWorkspace;
     private UrlValidationPanel urlValidationPanel;
 
     private volatile boolean shuttingDown = false;
@@ -164,21 +160,17 @@ public class FuzzingSessionTab extends JPanel {
     }
 
     private JSplitPane buildCenterPanel() {
-        filterPanel = new FilterPanel(filterController.filterConfig(), message -> api.logging().logToError(message));
-        filterPanel.setFilterChangeListener(this::applyFilters);
-
-        JScrollPane filterScrollPane = new JScrollPane(filterPanel);
-        filterScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        filterScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        filterScrollPane.setMinimumSize(new Dimension(250, 100));
-
-        resultsPanel = new SessionResultsPanel(api, filterController.highlighter(), this::applyFilters);
-
-        JSplitPane horizontalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, filterScrollPane, resultsPanel);
-        horizontalSplit.setDividerSize(6);
-        horizontalSplit.setResizeWeight(0.0);
-        SwingUtilities.invokeLater(() -> horizontalSplit.setDividerLocation(500));
-        return horizontalSplit;
+        resultsWorkspace = new SessionResultsWorkspace(
+            api,
+            message -> api.logging().logToError(message),
+            workspace -> api.logging().logToOutput(
+                "Filters applied: showing " + workspace.shownResultsCount() + " of " + workspace.allResultsCount() + " results"
+            ),
+            SessionResultsPanel.ViewerLayout.BELOW_TABLE,
+            SessionResultsPanel.TableLayout.DEFAULT,
+            false
+        );
+        return resultsWorkspace.component();
     }
 
     private void startFuzzing() {
@@ -251,34 +243,26 @@ public class FuzzingSessionTab extends JPanel {
             attackSelectionPanel.isCookieParamAttackEnabled(),
             runOptionsPanel.isFuzzExistingCookiesEnabled(),
             requestsPerSecond,
-            parseStatusCodes(runOptionsPanel.throttleStatusCodesText())
+            SessionInputParsers.parseStatusCodes(runOptionsPanel.throttleStatusCodesText())
         );
     }
 
     private void clearResults() {
-        resultsPanel.clear();
-        filterController.reset();
+        resultsWorkspace.clear();
         statusLabel.setText("Results cleared");
-        updateFilterStatus();
     }
 
     private void applyFilters() {
-        filterController.setHighlightColorFilter(filterPanel.selectedHighlightColor());
-        resultsPanel.applyFilter(filterController::shouldShow);
-        updateFilterStatus();
-        api.logging().logToOutput(
-            "Filters applied: showing " + resultsPanel.shownResultsCount() + " of " + resultsPanel.allResultsCount() + " results"
-        );
+        resultsWorkspace.applyFilters();
     }
 
     private void addResult(AttackResult result) {
         SwingUtilities.invokeLater(() -> {
             try {
-                filterController.track(result);
-                resultsPanel.addResult(result, filterController.shouldShow(result));
+                resultsWorkspace.addResult(result);
 
-                int totalSent = resultsPanel.allResultsCount();
-                int showing = resultsPanel.shownResultsCount();
+                int totalSent = resultsWorkspace.allResultsCount();
+                int showing = resultsWorkspace.shownResultsCount();
                 statusLabel.setText(sessionController.isRunning()
                     ? "Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")"
                     : "Completed: " + totalSent + " requests sent, showing " + showing);
@@ -289,7 +273,6 @@ public class FuzzingSessionTab extends JPanel {
                     setAttackControlsEnabled(true);
                 }
 
-                updateFilterStatus();
             } catch (Exception e) {
                 api.logging().logToError("Error in addResult: " + e.getMessage());
             }
@@ -310,8 +293,8 @@ public class FuzzingSessionTab extends JPanel {
                 return;
             }
 
-            int totalSent = resultsPanel.allResultsCount();
-            int showing = resultsPanel.shownResultsCount();
+            int totalSent = resultsWorkspace.allResultsCount();
+            int showing = resultsWorkspace.shownResultsCount();
 
             switch (state) {
                 case STOPPED -> updateIdleUi("Stopped: " + totalSent + " requests sent, showing " + showing);
@@ -333,12 +316,6 @@ public class FuzzingSessionTab extends JPanel {
         setAttackControlsEnabled(true);
     }
 
-    private void updateFilterStatus() {
-        filterPanel.setFilterStatus(
-            filterController.statusText(resultsPanel.shownResultsCount(), resultsPanel.allResultsCount())
-        );
-    }
-
     private void setAttackControlsEnabled(boolean enabled) {
         if (shuttingDown) {
             return;
@@ -357,25 +334,5 @@ public class FuzzingSessionTab extends JPanel {
             return value == null ? "" : value;
         }
         return value.substring(0, maxLength - 3) + "...";
-    }
-
-    private Set<Integer> parseStatusCodes(String input) {
-        if (input == null || input.trim().isEmpty()) {
-            return Set.of();
-        }
-
-        return java.util.Arrays.stream(input.split(","))
-            .map(String::trim)
-            .filter(token -> !token.isEmpty())
-            .map(token -> {
-                try {
-                    int code = Integer.parseInt(token);
-                    return code >= 100 && code < 600 ? code : null;
-                } catch (NumberFormatException e) {
-                    return null;
-                }
-            })
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toSet());
     }
 }
