@@ -14,6 +14,7 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
   - [URL Validation tab](#url-validation-tab)
    - [Smoke Testing](#smoke-testing)
 - [Vulnerable Lab](#vulnerable-lab)
+- [Documentation](#documentation)
 - [Custom Payloads](#custom-payloads)
 - [License](#license)
 - [Credits](#credits)
@@ -170,6 +171,17 @@ Real-world-style examples in the lab include:
 - the existing URL-validation examples for redirect, host, and CORS trust decisions
 
 The detailed route matrix and black-box lab checks are documented in [`src/test/vulnerable_lab/README.md`](src/test/vulnerable_lab/README.md).
+
+## Documentation
+
+Wiki-style project documentation lives under [`wiki/`](wiki/), including:
+
+- [`wiki/Home.md`](wiki/Home.md)
+- [`wiki/Playbooks-Overview.md`](wiki/Playbooks-Overview.md)
+- [`wiki/AuthZ-Bypass-Playbooks.md`](wiki/AuthZ-Bypass-Playbooks.md)
+- [`wiki/URL-Validation-Playbooks.md`](wiki/URL-Validation-Playbooks.md)
+- [`wiki/IDOR-BOLA-Playbooks.md`](wiki/IDOR-BOLA-Playbooks.md)
+- [`wiki/Adding-New-Playbooks.md`](wiki/Adding-New-Playbooks.md)
 
 ## Custom Payloads
 
