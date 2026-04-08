@@ -13,6 +13,8 @@ import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybookRegistry;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -25,8 +27,11 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,7 @@ public class IdorPanel extends JPanel {
 
     private static final IdorRunOptions DEFAULT_RUN_OPTIONS = new IdorRunOptions(0, java.util.Set.of(429, 503));
     private static final Dimension PLAYBOOK_DIALOG_SIZE = new Dimension(820, 420);
+    private static final Dimension DEBUG_DIALOG_SIZE = new Dimension(980, 720);
 
     private final MontoyaApi api;
     private final HttpRequest originalRequest;
@@ -90,15 +96,15 @@ public class IdorPanel extends JPanel {
         clearButton.addActionListener(e -> clearResults());
         JButton playbooksButton = new JButton("Playbooks");
         playbooksButton.setToolTipText("Open the current IDOR playbook reference.");
-        JButton debugButton = new JButton("Copy Debug Info");
-        debugButton.setToolTipText("Copy IDOR diagnostics, discovered context, and emitted variants to the clipboard.");
+        JButton debugButton = new JButton("Debug Info");
+        debugButton.setToolTipText("Open IDOR diagnostics and choose whether to copy or save them.");
         controlPanel.add(startButton);
         controlPanel.add(stopButton);
         controlPanel.add(clearButton);
         controlPanel.add(playbooksButton);
         controlPanel.add(debugButton);
         playbooksButton.addActionListener(e -> showPlaybookReference());
-        debugButton.addActionListener(e -> copyDebugInfo());
+        debugButton.addActionListener(e -> showDebugInfoDialog());
 
         statusLabel = new JLabel("Enter identifier 1 and identifier 2 to compare the authorized control against the unauthorized baseline.");
         warningLabel = new JLabel("");
@@ -162,18 +168,102 @@ public class IdorPanel extends JPanel {
         );
     }
 
-    private void copyDebugInfo() {
+    private void showDebugInfoDialog() {
         try {
             String authorizedIdentifier = authorizedIdentifierField.getText() == null ? "" : authorizedIdentifierField.getText().trim();
             String targetIdentifier = targetIdentifierField.getText() == null ? "" : targetIdentifierField.getText().trim();
             IdorOptions options = new IdorOptions(authorizedIdentifier, targetIdentifier, runOptionsPanel.collect());
             String debugInfo = debugInfoBuilder.build(originalRequest, options);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(debugInfo), null);
-            statusLabel.setText("Copied IDOR debug info (" + debugInfo.length() + " chars) to clipboard.");
+            openDebugInfoDialog(debugInfo, authorizedIdentifier, targetIdentifier);
             hideWarning();
         } catch (Exception e) {
-            showWarning("Unable to copy debug info: " + e.getMessage());
+            showWarning("Unable to build debug info: " + e.getMessage());
         }
+    }
+
+    private void openDebugInfoDialog(String debugInfo, String authorizedIdentifier, String targetIdentifier) {
+        JTextArea debugArea = new JTextArea(debugInfo);
+        debugArea.setEditable(false);
+        debugArea.setFocusable(true);
+        debugArea.setCaretPosition(0);
+        debugArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        debugArea.setLineWrap(false);
+        debugArea.setWrapStyleWord(false);
+
+        JScrollPane scrollPane = new JScrollPane(debugArea);
+        scrollPane.setPreferredSize(DEBUG_DIALOG_SIZE);
+
+        JDialog dialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), "IDOR Debug Info", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton copyButton = new JButton("Copy to Clipboard");
+        JButton saveButton = new JButton("Save to File");
+        JButton closeButton = new JButton("Close");
+        buttonPanel.add(copyButton);
+        buttonPanel.add(saveButton);
+        buttonPanel.add(closeButton);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+
+        copyButton.addActionListener(e -> {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(debugInfo), null);
+            statusLabel.setText("Copied IDOR debug info (" + debugInfo.length() + " chars) to clipboard.");
+        });
+        saveButton.addActionListener(e -> saveDebugInfoToFile(dialog, debugInfo, authorizedIdentifier, targetIdentifier));
+        closeButton.addActionListener(e -> dialog.dispose());
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
+        dialog.setVisible(true);
+    }
+
+    private void saveDebugInfoToFile(JDialog parentDialog,
+                                     String debugInfo,
+                                     String authorizedIdentifier,
+                                     String targetIdentifier) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Save IDOR Debug Info");
+        chooser.setSelectedFile(new java.io.File(defaultDebugFilename(authorizedIdentifier, targetIdentifier)));
+
+        int result = chooser.showSaveDialog(parentDialog);
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+
+        java.io.File file = chooser.getSelectedFile();
+        if (file.exists()) {
+            int overwrite = JOptionPane.showConfirmDialog(
+                parentDialog,
+                "Overwrite existing file?\n" + file.getAbsolutePath(),
+                "Confirm Save",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+            );
+            if (overwrite != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
+
+        try {
+            Files.writeString(file.toPath(), debugInfo, StandardCharsets.UTF_8);
+            statusLabel.setText("Saved IDOR debug info to " + file.getAbsolutePath());
+        } catch (Exception e) {
+            showWarning("Unable to save debug info: " + e.getMessage());
+        }
+    }
+
+    private String defaultDebugFilename(String authorizedIdentifier, String targetIdentifier) {
+        String authorized = sanitizeFilenamePart(authorizedIdentifier);
+        String target = sanitizeFilenamePart(targetIdentifier);
+        return "idor-debug-" + authorized + "-to-" + target + ".txt";
+    }
+
+    private String sanitizeFilenamePart(String value) {
+        if (value == null || value.isBlank()) {
+            return "blank";
+        }
+        return value.replaceAll("[^A-Za-z0-9._-]+", "_");
     }
 
     private String formatPlaybookSummary() {
