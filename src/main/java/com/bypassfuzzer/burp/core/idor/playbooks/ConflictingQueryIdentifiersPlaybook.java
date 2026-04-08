@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.QueryStringUtils;
-import com.bypassfuzzer.burp.http.RequestPathUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,39 +35,28 @@ public class ConflictingQueryIdentifiersPlaybook implements IdorPlaybook {
             return List.of();
         }
 
-        List<String> parameterNames = parameterNames(context);
+        List<String> parameterNames = QueryPlaybookSupport.parameterNames(context, List.of("accountId", "id"));
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : parameterNames) {
-            variants.add(variant(
+            QueryPlaybookSupport.addUpsertVariant(
+                variants,
                 targetRequest,
-                QueryStringUtils.upsertDecodedParameter(targetRequest.path(), parameterName, authorized),
+                parameterName,
+                authorized,
                 parameterName + "=" + authorized
-            ));
+            );
         }
         if (parameterNames.size() >= 2) {
             String first = parameterNames.get(0);
             String second = parameterNames.get(1);
-            variants.add(variant(
-                targetRequest,
-                QueryStringUtils.upsertDecodedParameter(
-                    QueryStringUtils.upsertDecodedParameter(targetRequest.path(), first, authorized),
-                    second,
-                    target
-                ),
+            String firstUpdated = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(targetRequest.path(), first, authorized);
+            String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(firstUpdated, second, target);
+            variants.add(new IdorRequestVariant(
                 first + "=" + authorized + " & " + second + "=" + target
+                    + " -> " + com.bypassfuzzer.burp.http.RequestPathUtils.pathWithoutQuery(updatedPath),
+                targetRequest.withPath(updatedPath)
             ));
         }
         return variants;
-    }
-
-    private static List<String> parameterNames(IdorRequestContext context) {
-        if (context.hasQueryIdentifier()) {
-            return context.queryParameterNamesOrDefaults("accountId", "id");
-        }
-        return context.discoveredParameterNamesOrDefaults("accountId", "id");
-    }
-
-    private static IdorRequestVariant variant(HttpRequest request, String updatedPath, String label) {
-        return new IdorRequestVariant(label + " -> " + RequestPathUtils.pathWithoutQuery(updatedPath), request.withPath(updatedPath));
     }
 }

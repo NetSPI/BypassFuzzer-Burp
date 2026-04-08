@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.QueryStringUtils;
-import com.bypassfuzzer.burp.http.RequestPathUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,7 +38,7 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
         }
 
         List<IdorRequestVariant> variants = new ArrayList<>();
-        for (String parameterName : parameterNames(context)) {
+        for (String parameterName : QueryPlaybookSupport.parameterNames(context, PARAMETER_NAMES)) {
             addVariant(variants, targetRequest, parameterName, target, target);
             addVariant(variants, targetRequest, parameterName, authorized, target);
             addVariant(variants, targetRequest, parameterName, target, authorized);
@@ -49,24 +46,18 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
         return variants;
     }
 
-    private static List<String> parameterNames(IdorRequestContext context) {
-        if (context.hasQueryIdentifier()) {
-            return context.queryParameterNamesOrDefaults(PARAMETER_NAMES.toArray(String[]::new));
-        }
-        return context.discoveredParameterNamesOrDefaults(PARAMETER_NAMES.toArray(String[]::new));
-    }
-
     private static void addVariant(List<IdorRequestVariant> variants,
                                    HttpRequest request,
                                    String parameterName,
                                    String firstValue,
                                    String secondValue) {
-        String updatedPath = QueryStringUtils.appendDecodedParameter(request.path(), parameterName, firstValue);
-        updatedPath = QueryStringUtils.appendDecodedParameter(updatedPath, parameterName, secondValue);
+        String label = parameterName + "=" + firstValue + " & " + parameterName + "=" + secondValue;
+        String updatedPathRequest = request.path();
+        updatedPathRequest = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(updatedPathRequest, parameterName, firstValue);
+        updatedPathRequest = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(updatedPathRequest, parameterName, secondValue);
         variants.add(new IdorRequestVariant(
-            parameterName + "=" + firstValue + " & " + parameterName + "=" + secondValue
-                + " -> " + RequestPathUtils.pathWithoutQuery(updatedPath),
-            request.withPath(updatedPath)
+            label + " -> " + com.bypassfuzzer.burp.http.RequestPathUtils.pathWithoutQuery(updatedPathRequest),
+            request.withPath(updatedPathRequest)
         ));
     }
 }

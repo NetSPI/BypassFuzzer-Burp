@@ -8,6 +8,7 @@ import com.bypassfuzzer.burp.http.RequestBodyFormat;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -90,6 +91,43 @@ public final class IdorPlaybookSupport {
                     continue;
                 }
                 variants.add(new IdorRequestVariant(labelBuilder.apply(parameter.path() + " -> " + candidate), updated));
+            }
+        }
+    }
+
+    public static void addQueryAndBodyIdentifierValueVariants(IdorRequestContext context,
+                                                              List<IdorRequestVariant> variants,
+                                                              HttpRequest targetRequest,
+                                                              List<String> candidates,
+                                                              boolean jsonBodyOnly,
+                                                              BiFunction<LocatedParameter, String, String> labelBuilder) {
+        if (jsonBodyOnly && !context.hasJsonBodyIdentifier()) {
+            return;
+        }
+
+        for (LocatedParameter parameter : context.identifierParameters()) {
+            if (jsonBodyOnly) {
+                if (!parameter.isBody()) {
+                    continue;
+                }
+            } else if (parameter.location() != ParameterLocation.QUERY && !parameter.isBody()) {
+                continue;
+            }
+
+            for (String candidate : candidates) {
+                HttpRequest updated = parameter.isBody() && jsonBodyOnly
+                    ? RequestParameterSupport.replaceJsonParameterValueWithJson(
+                        targetRequest,
+                        parameter,
+                        toJsonScalar(candidate)
+                    )
+                    : RequestParameterSupport.replaceParameterValue(targetRequest, parameter, candidate);
+                String before = parameter.isBody() ? targetRequest.bodyToString() : targetRequest.path();
+                String after = parameter.isBody() ? updated.bodyToString() : updated.path();
+                if (before.equals(after)) {
+                    continue;
+                }
+                variants.add(new IdorRequestVariant(labelBuilder.apply(parameter, candidate), updated));
             }
         }
     }

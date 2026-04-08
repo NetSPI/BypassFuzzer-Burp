@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.LocatedParameter;
-import com.bypassfuzzer.burp.http.ParameterLocation;
-import com.bypassfuzzer.burp.http.RequestParameterSupport;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -52,24 +49,14 @@ public class CaseVariantsPlaybook implements IdorPlaybook {
             candidates,
             candidate -> "path " + candidate
         );
-
-        for (LocatedParameter parameter : context.identifierParameters()) {
-            if (parameter.location() != ParameterLocation.QUERY && !parameter.isBody()) {
-                continue;
-            }
-            for (String candidate : candidates) {
-                HttpRequest updated = RequestParameterSupport.replaceParameterValue(targetRequest, parameter, candidate);
-                String before = parameter.isBody() ? targetRequest.bodyToString() : targetRequest.path();
-                String after = parameter.isBody() ? updated.bodyToString() : updated.path();
-                if (before.equals(after)) {
-                    continue;
-                }
-                variants.add(new IdorRequestVariant(
-                    parameter.location().name().toLowerCase() + " " + parameter.path() + " -> " + candidate,
-                    updated
-                ));
-            }
-        }
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
+            context,
+            variants,
+            targetRequest,
+            candidates,
+            false,
+            (parameter, candidate) -> parameter.location().name().toLowerCase() + " " + parameter.path() + " -> " + candidate
+        );
         return variants;
     }
 

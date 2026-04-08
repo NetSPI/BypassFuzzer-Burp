@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.QueryStringUtils;
-import com.bypassfuzzer.burp.http.RequestPathUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,22 +33,17 @@ public class NumericPivotsPlaybook implements IdorPlaybook {
     public List<IdorRequestVariant> buildVariants(IdorRequestContext context) {
         HttpRequest targetRequest = context.targetRequest();
         List<IdorRequestVariant> variants = new ArrayList<>();
-        for (String parameterName : parameterNames(context)) {
+        for (String parameterName : QueryPlaybookSupport.parameterNames(context, PARAMETER_NAMES)) {
             for (String candidate : CANDIDATES) {
-                String updatedPath = QueryStringUtils.upsertDecodedParameter(targetRequest.path(), parameterName, candidate);
-                variants.add(new IdorRequestVariant(
-                    parameterName + "=" + candidate + " -> " + RequestPathUtils.pathWithoutQuery(updatedPath),
-                    targetRequest.withPath(updatedPath)
-                ));
+                QueryPlaybookSupport.addUpsertVariant(
+                    variants,
+                    targetRequest,
+                    parameterName,
+                    candidate,
+                    parameterName + "=" + candidate
+                );
             }
         }
         return variants;
-    }
-
-    private static List<String> parameterNames(IdorRequestContext context) {
-        if (context.hasQueryIdentifier()) {
-            return context.queryParameterNamesOrDefaults(PARAMETER_NAMES.toArray(String[]::new));
-        }
-        return context.discoveredParameterNamesOrDefaults(PARAMETER_NAMES.toArray(String[]::new));
     }
 }

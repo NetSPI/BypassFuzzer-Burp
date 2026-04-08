@@ -7,24 +7,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * PLAYBOOK: idor.body.json_parameter_pollution
- * Duplicate JSON identifier keys in different orders to catch first-wins and last-wins parser behavior.
+ * PLAYBOOK: idor.body.json_batch_identifiers
+ * Turn a discovered JSON identifier into an array or batch-style list.
  */
-public class JsonParameterPollutionPlaybook implements IdorPlaybook {
+public class JsonBatchIdentifiersPlaybook implements IdorPlaybook {
 
     @Override
     public String id() {
-        return "idor.body.json_parameter_pollution";
+        return "idor.body.json_batch_identifiers";
     }
 
     @Override
     public String displayName() {
-        return "JSON Parameter Pollution";
+        return "JSON Batch Identifiers";
     }
 
     @Override
     public String description() {
-        return "Repeat JSON identifier keys in authorized/target and target/authorized order.";
+        return "Try JSON array-wrapped and mixed authorized/target identifier batches in discovered JSON fields.";
     }
 
     @Override
@@ -33,30 +33,35 @@ public class JsonParameterPollutionPlaybook implements IdorPlaybook {
             return List.of();
         }
 
-        HttpRequest targetRequest = context.targetRequest();
         String authorized = context.authorizedIdentifier();
         String target = context.targetIdentifier();
         if (authorized.isEmpty() || target.isEmpty()) {
             return List.of();
         }
 
+        HttpRequest targetRequest = context.targetRequest();
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (LocatedParameter parameter : context.bodyIdentifiers()) {
-            JsonBodyPlaybookSupport.addDuplicateKeyVariant(
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(
                 variants,
                 targetRequest,
                 parameter,
-                IdorPlaybookSupport.toJsonScalar(authorized),
-                IdorPlaybookSupport.toJsonScalar(target),
-                "duplicate keys authorized,target"
+                "[" + IdorPlaybookSupport.toJsonScalar(target) + "]",
+                "target array"
             );
-            JsonBodyPlaybookSupport.addDuplicateKeyVariant(
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(
                 variants,
                 targetRequest,
                 parameter,
-                IdorPlaybookSupport.toJsonScalar(target),
-                IdorPlaybookSupport.toJsonScalar(authorized),
-                "duplicate keys target,authorized"
+                "[" + IdorPlaybookSupport.toJsonScalar(authorized) + "," + IdorPlaybookSupport.toJsonScalar(target) + "]",
+                "authorized,target batch"
+            );
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(
+                variants,
+                targetRequest,
+                parameter,
+                "[" + IdorPlaybookSupport.toJsonScalar(target) + "," + IdorPlaybookSupport.toJsonScalar(authorized) + "]",
+                "target,authorized batch"
             );
         }
         return variants;

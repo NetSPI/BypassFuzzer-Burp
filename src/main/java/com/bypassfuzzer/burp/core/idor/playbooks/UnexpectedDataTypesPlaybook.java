@@ -3,8 +3,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
 import com.bypassfuzzer.burp.http.LocatedParameter;
-import com.bypassfuzzer.burp.http.RequestParameterSupport;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,18 +37,18 @@ public class UnexpectedDataTypesPlaybook implements IdorPlaybook {
         String target = context.targetIdentifier();
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (LocatedParameter parameter : context.bodyIdentifiers()) {
-            addVariant(variants, targetRequest, parameter, "true", "boolean=true");
-            addVariant(variants, targetRequest, parameter, "null", "null");
-            addVariant(variants, targetRequest, parameter, "1", "number=1");
-            addVariant(variants, targetRequest, parameter, "[true]", "array=[true]");
-            addVariant(
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter, "true", "boolean=true");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter, "null", "null");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter, "1", "number=1");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter, "[true]", "array=[true]");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(
                 variants,
                 targetRequest,
                 parameter,
                 "[" + IdorPlaybookSupport.toJsonScalar(target) + ",true]",
                 "array=[target,true]"
             );
-            addVariant(
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(
                 variants,
                 targetRequest,
                 parameter,
@@ -61,19 +59,4 @@ public class UnexpectedDataTypesPlaybook implements IdorPlaybook {
         return variants;
     }
 
-    private static void addVariant(List<IdorRequestVariant> variants,
-                                   HttpRequest targetRequest,
-                                   LocatedParameter parameter,
-                                   String rawJsonValue,
-                                   String label) {
-        HttpRequest updated = RequestParameterSupport.replaceJsonParameterValueWithJson(
-            targetRequest,
-            parameter,
-            rawJsonValue
-        );
-        if (targetRequest.bodyToString().equals(updated.bodyToString())) {
-            return;
-        }
-        variants.add(new IdorRequestVariant(parameter.path() + " " + label, updated));
-    }
 }

@@ -36,6 +36,19 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
         "%0d"
     );
 
+    private static final List<String> INFIX_SEPARATOR_TOKENS = List.of(
+        "%0d%0a",
+        "%0a",
+        "%0d",
+        "%00",
+        ";",
+        ",",
+        "|",
+        "&",
+        "#",
+        "%0a%0dcc:"
+    );
+
     @Override
     public String id() {
         return "idor.hybrid.trailing_control_characters";
@@ -64,7 +77,7 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
             context,
             variants,
             targetRequest,
-            allPathCandidates(targetIdentifier),
+            allPathCandidates(targetIdentifier, context.authorizedIdentifier()),
             candidate -> "path " + candidate
         );
 
@@ -72,7 +85,7 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
             if (parameter.location() != ParameterLocation.QUERY && !parameter.isBody()) {
                 continue;
             }
-            for (String candidate : allValueCandidates(parameter.value())) {
+            for (String candidate : allValueCandidates(targetIdentifier, context.authorizedIdentifier())) {
                 HttpRequest updated = RequestParameterSupport.replaceParameterValue(targetRequest, parameter, candidate);
                 String before = parameter.isBody() ? targetRequest.bodyToString() : targetRequest.path();
                 String after = parameter.isBody() ? updated.bodyToString() : updated.path();
@@ -88,11 +101,11 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
         return variants;
     }
 
-    private static List<String> allPathCandidates(String targetIdentifier) {
-        return allValueCandidates(targetIdentifier);
+    private static List<String> allPathCandidates(String targetIdentifier, String authorizedIdentifier) {
+        return allValueCandidates(targetIdentifier, authorizedIdentifier);
     }
 
-    private static List<String> allValueCandidates(String value) {
+    private static List<String> allValueCandidates(String value, String authorizedIdentifier) {
         List<String> candidates = new ArrayList<>();
         for (String suffix : TRAILING_CONTROL_SUFFIXES) {
             candidates.add(value + suffix);
@@ -100,6 +113,11 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
         for (String token : TRIMMING_WHITESPACE_TOKENS) {
             candidates.add(token + value);
             candidates.add(token + value + token);
+        }
+        if (authorizedIdentifier != null && !authorizedIdentifier.isBlank()) {
+            for (String token : INFIX_SEPARATOR_TOKENS) {
+                candidates.add(value + token + authorizedIdentifier);
+            }
         }
         return candidates;
     }

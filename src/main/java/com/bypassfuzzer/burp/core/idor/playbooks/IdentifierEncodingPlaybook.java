@@ -3,7 +3,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
 import com.bypassfuzzer.burp.http.LocatedParameter;
-import com.bypassfuzzer.burp.http.ParameterLocation;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 
 import java.util.ArrayList;
@@ -30,7 +29,7 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
 
     @Override
     public String description() {
-        return "Apply targeted URL and double-URL encodings to the identifier segment only.";
+        return "Apply targeted URL, delimiter, and JSON-escape encodings to discovered identifier locations.";
     }
 
     @Override
@@ -54,24 +53,20 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
             candidates,
             candidate -> "path encoding " + candidate
         );
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
+            context,
+            variants,
+            targetRequest,
+            candidates,
+            false,
+            (parameter, candidate) ->
+                parameter.location().name().toLowerCase() + " encoding " + parameter.path() + " -> " + candidate
+        );
 
-        for (LocatedParameter parameter : context.identifierParameters()) {
-            if (parameter.location() != ParameterLocation.QUERY && !parameter.isBody()) {
-                continue;
-            }
-            for (String candidate : candidates) {
-                HttpRequest updated = RequestParameterSupport.replaceParameterValue(targetRequest, parameter, candidate);
-                String before = parameter.isBody() ? targetRequest.bodyToString() : targetRequest.path();
-                String after = parameter.isBody() ? updated.bodyToString() : updated.path();
-                if (before.equals(after)) {
-                    continue;
-                }
-                variants.add(new IdorRequestVariant(
-                    parameter.location().name().toLowerCase() + " encoding " + parameter.path() + " -> " + candidate,
-                    updated
-                ));
-            }
+        if (context.hasJsonBodyIdentifier()) {
+            addJsonUnicodeEscapeVariants(context, variants, targetRequest);
         }
+
         return variants;
     }
 
@@ -81,6 +76,7 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
         addCandidate(candidates, value, encodeDoubleUrl(value));
         addCandidate(candidates, value, partialEncodeLeadingChar(value));
         addCandidate(candidates, value, partialEncodeMiddleChar(value));
+        addCandidate(candidates, value, encodeDelimitersOnly(value));
         addCandidate(candidates, value, encodeUrl("{" + value + "}"));
         addCandidate(candidates, value, Base64.getEncoder().encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         return new ArrayList<>(candidates);
@@ -91,6 +87,31 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
             return;
         }
         candidates.add(candidate);
+    }
+
+    private static void addJsonUnicodeEscapeVariants(IdorRequestContext context,
+                                                     List<IdorRequestVariant> variants,
+                                                     HttpRequest targetRequest) {
+        String unicodeEscaped = jsonUnicodeEscapeDelimiters(context.targetIdentifier());
+        if (unicodeEscaped == null || unicodeEscaped.equals(context.targetIdentifier())) {
+            return;
+        }
+
+        String rawJsonString = "\"" + unicodeEscaped + "\"";
+        for (LocatedParameter parameter : context.bodyIdentifiers()) {
+            HttpRequest updated = RequestParameterSupport.replaceJsonParameterValuePreservingRawJson(
+                targetRequest,
+                parameter,
+                rawJsonString
+            );
+            if (targetRequest.bodyToString().equals(updated.bodyToString())) {
+                continue;
+            }
+            variants.add(new IdorRequestVariant(
+                "body json-unicode " + parameter.path() + " -> " + unicodeEscaped,
+                updated
+            ));
+        }
     }
 
     private static String encodeUrl(String value) {
@@ -107,6 +128,20 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
             encoded.append(String.format("%%25%02X", (int) c));
         }
         return encoded.toString();
+    }
+
+    private static String encodeDelimitersOnly(String value) {
+        StringBuilder encoded = new StringBuilder();
+        boolean changed = false;
+        for (char c : value.toCharArray()) {
+            if (Character.isLetterOrDigit(c)) {
+                encoded.append(c);
+            } else {
+                encoded.append(String.format("%%%02X", (int) c));
+                changed = true;
+            }
+        }
+        return changed ? encoded.toString() : value;
     }
 
     private static String partialEncodeLeadingChar(String value) {
@@ -126,4 +161,19 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
             + String.format("%%%02X", (int) value.charAt(middle))
             + value.substring(middle + 1);
     }
+
+    private static String jsonUnicodeEscapeDelimiters(String value) {
+        StringBuilder escaped = new StringBuilder();
+        boolean changed = false;
+        for (char c : value.toCharArray()) {
+            if (Character.isLetterOrDigit(c)) {
+                escaped.append(c);
+            } else {
+                escaped.append(String.format("\\u%04x", (int) c));
+                changed = true;
+            }
+        }
+        return changed ? escaped.toString() : null;
+    }
+
 }

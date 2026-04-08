@@ -197,10 +197,14 @@ public class IdorPanel extends JPanel {
             case "idor.path.dot_segments" -> "authorized-id/../target-id style dot-segment tricks";
             case "idor.query.conflicting_identifiers" -> "mix target path IDs with conflicting query IDs";
             case "idor.query.parameter_pollution" -> "duplicate identifier params in different orders";
+            case "idor.query.comma_separated_identifiers" -> "comma-separated lists like target,authorized";
+            case "idor.query.json_wrap" -> "query values wrapped as small JSON objects";
             case "idor.query.identifier_aliases" -> "common alternate param names like id, userId, accountId";
             case "idor.query.numeric_pivots" -> "numeric pivots such as 0, 1, 2, 3, and -1";
             case "idor.body.content_type_tampering" -> "move the ID across urlencoded, JSON, XML, and multipart bodies";
             case "idor.body.json_wrap" -> "wrap JSON IDs as nested objects";
+            case "idor.body.deserialization_hints" -> "type-hinted and prototype-like JSON object wrappers";
+            case "idor.body.json_batch_identifiers" -> "JSON arrays mixing target and authorized IDs";
             case "idor.body.json_parameter_pollution" -> "repeat JSON identifier keys in both orders";
             case "idor.body.wildcard_identifiers" -> "wildcards such as *, %, _, and .";
             case "idor.body.unexpected_data_types" -> "booleans, nulls, numbers, arrays, and operator-like objects";

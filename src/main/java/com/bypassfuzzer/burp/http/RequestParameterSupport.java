@@ -188,6 +188,19 @@ public final class RequestParameterSupport {
         return request.withBody(newBody);
     }
 
+    public static HttpRequest replaceJsonParameterValuePreservingRawJson(HttpRequest request,
+                                                                         LocatedParameter parameter,
+                                                                         String rawJsonValue) {
+        String contentType = request.headerValue("Content-Type");
+        if (contentType == null || !contentType.contains("application/json")) {
+            return request;
+        }
+
+        String body = request.bodyToString();
+        String newBody = replaceJsonParameterValuePreservingRawJson(body, parameter, rawJsonValue);
+        return request.withBody(newBody);
+    }
+
     public static HttpRequest replaceJsonParameterWithDuplicateKeys(HttpRequest request,
                                                                     LocatedParameter parameter,
                                                                     String firstRawJsonValue,
@@ -477,6 +490,41 @@ public final class RequestParameterSupport {
                 return body;
             }
             return GSON.toJson(root);
+        } catch (Exception e) {
+            return body;
+        }
+    }
+
+    private static String replaceJsonParameterValuePreservingRawJson(String body, LocatedParameter target, String rawJsonValue) {
+        try {
+            List<String> tokens = jsonTokens(target);
+            if (tokens.isEmpty()) {
+                return body;
+            }
+
+            String leaf = tokens.get(tokens.size() - 1);
+            if (isArrayIndex(leaf)) {
+                return replaceJsonParameterValueWithJson(body, target, rawJsonValue);
+            }
+
+            JsonElement root = JsonParser.parseString(body);
+            JsonElement currentValue = findJsonElement(root, tokens);
+            if (currentValue == null) {
+                return body;
+            }
+
+            String currentRawJsonValue = GSON.toJson(currentValue);
+            String propertyPattern = "\""
+                + Pattern.quote(leaf)
+                + "\"\\s*:\\s*"
+                + Pattern.quote(currentRawJsonValue);
+            String replacement = "\"" + leaf + "\":" + rawJsonValue;
+            String updated = body.replaceFirst(propertyPattern, Matcher.quoteReplacement(replacement));
+            if (!updated.equals(body)) {
+                return updated;
+            }
+
+            return replaceJsonParameterValueWithJson(body, target, rawJsonValue);
         } catch (Exception e) {
             return body;
         }

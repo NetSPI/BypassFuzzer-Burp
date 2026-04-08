@@ -204,6 +204,28 @@ class RequestParameterSupportTest {
     }
 
     @Test
+    void replacesJsonParametersPreservingRawJsonEscapesWhenRequested() {
+        HttpRequest bodyRequest = request(
+            "/admin",
+            "",
+            "POST",
+            "application/json",
+            "{\"id\":\"550e8400-e29b-41d4-a716-446655440000\"}"
+        );
+
+        HttpRequest updatedBody = RequestParameterSupport.replaceJsonParameterValuePreservingRawJson(
+            bodyRequest,
+            new LocatedParameter("id", "550e8400-e29b-41d4-a716-446655440000", ParameterLocation.BODY, "/id", -1),
+            "\"550e8400\\u002de29b\\u002d41d4\\u002da716\\u002d446655440000\""
+        );
+
+        assertEquals(
+            "{\"id\":\"550e8400\\u002de29b\\u002d41d4\\u002da716\\u002d446655440000\"}",
+            updatedBody.bodyToString()
+        );
+    }
+
+    @Test
     void extractsAndReplacesXmlParameters() {
         HttpRequest bodyRequest = request(
             "/admin",

@@ -2,9 +2,6 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
-import com.bypassfuzzer.burp.http.QueryStringUtils;
-import com.bypassfuzzer.burp.http.RequestPathUtils;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -50,14 +47,14 @@ public class IdentifierAliasesPlaybook implements IdorPlaybook {
         }
 
         List<IdorRequestVariant> variants = new ArrayList<>();
-        java.util.LinkedHashSet<String> parameterNames = new java.util.LinkedHashSet<>(context.discoveredParameterNamesOrDefaults());
-        parameterNames.addAll(PARAMETER_NAMES);
-        for (String parameterName : parameterNames) {
-            String updatedPath = QueryStringUtils.upsertDecodedParameter(targetRequest.path(), parameterName, target);
-            variants.add(new IdorRequestVariant(
-                parameterName + "=" + target + " -> " + RequestPathUtils.pathWithoutQuery(updatedPath),
-                targetRequest.withPath(updatedPath)
-            ));
+        for (String parameterName : QueryPlaybookSupport.mergedParameterNames(context, PARAMETER_NAMES)) {
+            QueryPlaybookSupport.addUpsertVariant(
+                variants,
+                targetRequest,
+                parameterName,
+                target,
+                parameterName + "=" + target
+            );
         }
         return variants;
     }
