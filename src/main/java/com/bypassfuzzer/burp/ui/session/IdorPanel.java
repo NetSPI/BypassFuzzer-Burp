@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.ui.session;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
+import com.bypassfuzzer.burp.core.idor.IdorDebugInfoBuilder;
 import com.bypassfuzzer.burp.core.idor.IdorEngine;
 import com.bypassfuzzer.burp.core.idor.IdorOptions;
 import com.bypassfuzzer.burp.core.idor.IdorRequestMutator;
@@ -24,6 +25,8 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +44,7 @@ public class IdorPanel extends JPanel {
     private final IdorEngine engine;
     private final IdorPlaybookRegistry playbookRegistry = new IdorPlaybookRegistry();
     private final IdorRequestMutator requestMutator = new IdorRequestMutator();
+    private final IdorDebugInfoBuilder debugInfoBuilder = new IdorDebugInfoBuilder();
 
     private JButton startButton;
     private JButton stopButton;
@@ -86,11 +90,15 @@ public class IdorPanel extends JPanel {
         clearButton.addActionListener(e -> clearResults());
         JButton playbooksButton = new JButton("Playbooks");
         playbooksButton.setToolTipText("Open the current IDOR playbook reference.");
+        JButton debugButton = new JButton("Copy Debug Info");
+        debugButton.setToolTipText("Copy IDOR diagnostics, discovered context, and emitted variants to the clipboard.");
         controlPanel.add(startButton);
         controlPanel.add(stopButton);
         controlPanel.add(clearButton);
         controlPanel.add(playbooksButton);
+        controlPanel.add(debugButton);
         playbooksButton.addActionListener(e -> showPlaybookReference());
+        debugButton.addActionListener(e -> copyDebugInfo());
 
         statusLabel = new JLabel("Enter identifier 1 and identifier 2 to compare the authorized control against the unauthorized baseline.");
         warningLabel = new JLabel("");
@@ -152,6 +160,20 @@ public class IdorPanel extends JPanel {
             "Current IDOR Playbooks",
             JOptionPane.INFORMATION_MESSAGE
         );
+    }
+
+    private void copyDebugInfo() {
+        try {
+            String authorizedIdentifier = authorizedIdentifierField.getText() == null ? "" : authorizedIdentifierField.getText().trim();
+            String targetIdentifier = targetIdentifierField.getText() == null ? "" : targetIdentifierField.getText().trim();
+            IdorOptions options = new IdorOptions(authorizedIdentifier, targetIdentifier, runOptionsPanel.collect());
+            String debugInfo = debugInfoBuilder.build(originalRequest, options);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(debugInfo), null);
+            statusLabel.setText("Copied IDOR debug info (" + debugInfo.length() + " chars) to clipboard.");
+            hideWarning();
+        } catch (Exception e) {
+            showWarning("Unable to copy debug info: " + e.getMessage());
+        }
     }
 
     private String formatPlaybookSummary() {
