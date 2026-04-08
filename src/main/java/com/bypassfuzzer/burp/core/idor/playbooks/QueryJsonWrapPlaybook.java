@@ -3,7 +3,9 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * PLAYBOOK: idor.query.json_wrap
@@ -38,20 +40,20 @@ public class QueryJsonWrapPlaybook implements IdorPlaybook {
         HttpRequest targetRequest = context.targetRequest();
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.parameterNames(context, PARAMETER_NAMES)) {
-            QueryPlaybookSupport.addUpsertVariant(
-                variants,
-                targetRequest,
-                parameterName,
-                "{\"id\":" + IdorPlaybookSupport.toJsonScalar(target) + "}",
-                parameterName + " id wrapper"
-            );
-            QueryPlaybookSupport.addUpsertVariant(
-                variants,
-                targetRequest,
-                parameterName,
-                "{\"" + parameterName + "\":" + IdorPlaybookSupport.toJsonScalar(target) + "}",
-                parameterName + " " + parameterName + " wrapper"
-            );
+            Set<String> wrapperValues = new LinkedHashSet<>();
+            wrapperValues.add("{\"id\":" + IdorPlaybookSupport.toJsonScalar(target) + "}");
+            wrapperValues.add("{\"" + parameterName + "\":" + IdorPlaybookSupport.toJsonScalar(target) + "}");
+
+            for (String wrapperValue : wrapperValues) {
+                String wrapperKey = wrapperValue.startsWith("{\"id\":") ? "id" : parameterName;
+                QueryPlaybookSupport.addUpsertVariant(
+                    variants,
+                    targetRequest,
+                    parameterName,
+                    wrapperValue,
+                    parameterName + " " + wrapperKey + " wrapper"
+                );
+            }
         }
         return variants;
     }

@@ -48,7 +48,10 @@ class IdorDebugInfoBuilderTest {
 
                     @Override
                     public List<IdorRequestVariant> buildVariants(IdorRequestContext context) {
-                        return List.of(new IdorRequestVariant("query override", variantRequest));
+                        return List.of(
+                            new IdorRequestVariant("query override", variantRequest),
+                            new IdorRequestVariant("same query override", variantRequest)
+                        );
                     }
                 });
             }
@@ -68,7 +71,10 @@ class IdorDebugInfoBuilderTest {
         assertTrue(debugInfo.contains("Has query identifier: true"), debugInfo);
         assertTrue(debugInfo.contains("location=QUERY, name=id"), debugInfo);
         assertTrue(debugInfo.contains("idor.test.synthetic | Synthetic"), debugInfo);
-        assertTrue(debugInfo.contains("Variant count: 1"), debugInfo);
+        assertTrue(debugInfo.contains("Variant count: 2"), debugInfo);
+        assertTrue(debugInfo.contains("Unique effective requests: 1"), debugInfo);
+        assertTrue(debugInfo.contains("Duplicate effective requests: 1"), debugInfo);
+        assertTrue(debugInfo.contains("Variants [1, 2] emit the same request"), debugInfo);
         assertTrue(debugInfo.contains("Variant 1: query override"), debugInfo);
         assertTrue(debugInfo.contains("GET /accounts/def456?id=abc123 HTTP/1.1"), debugInfo);
     }

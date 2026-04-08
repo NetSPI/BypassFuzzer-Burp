@@ -8,7 +8,10 @@ import com.bypassfuzzer.burp.http.LocatedParameter;
 
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Builds a clipboard-friendly diagnostics report for the IDOR tab.
@@ -140,6 +143,8 @@ public class IdorDebugInfoBuilder {
                 continue;
             }
 
+            appendDuplicateSummary(debug, variants);
+
             for (int i = 0; i < variants.size(); i++) {
                 IdorRequestVariant variant = variants.get(i);
                 debug.append("Variant ").append(i + 1).append(": ").append(variant.label()).append("\n");
@@ -148,6 +153,28 @@ public class IdorDebugInfoBuilder {
                     .append(safeRawRequest(variant.request()))
                     .append("\n\n");
             }
+        }
+    }
+
+    private void appendDuplicateSummary(StringBuilder debug, List<IdorRequestVariant> variants) {
+        Map<String, List<Integer>> rawRequestToVariants = new LinkedHashMap<>();
+        for (int i = 0; i < variants.size(); i++) {
+            rawRequestToVariants.computeIfAbsent(safeRawRequest(variants.get(i).request()), ignored -> new ArrayList<>())
+                .add(i + 1);
+        }
+
+        debug.append("Unique effective requests: ").append(rawRequestToVariants.size()).append("\n");
+        List<List<Integer>> duplicates = rawRequestToVariants.values().stream()
+            .filter(indexes -> indexes.size() > 1)
+            .toList();
+        if (duplicates.isEmpty()) {
+            debug.append("Duplicate effective requests: 0\n");
+            return;
+        }
+
+        debug.append("Duplicate effective requests: ").append(duplicates.size()).append("\n");
+        for (List<Integer> duplicateIndexes : duplicates) {
+            debug.append("- Variants ").append(duplicateIndexes).append(" emit the same request\n");
         }
     }
 

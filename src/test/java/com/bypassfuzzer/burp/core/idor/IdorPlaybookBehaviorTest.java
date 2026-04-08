@@ -120,6 +120,18 @@ class IdorPlaybookBehaviorTest {
     }
 
     @Test
+    void queryJsonWrapPlaybookAvoidsDuplicateIdWrappers() {
+        QueryJsonWrapPlaybook playbook = new QueryJsonWrapPlaybook();
+
+        List<String> paths = playbook.buildVariants(
+            context("/users/opaque", null, "GET", null, "", "abc123", "def456")
+        ).stream().map(variant -> variant.request().path()).toList();
+
+        assertEquals(5, paths.size());
+        assertEquals(1, paths.stream().filter(path -> path.equals("/users/opaque?id=%7B%22id%22%3A%22def456%22%7D")).count());
+    }
+
+    @Test
     void crossSourceConflictsPlaybookBuildsPathAndQueryConflictMatrix() {
         CrossSourceConflictsPlaybook playbook = new CrossSourceConflictsPlaybook();
 
@@ -157,6 +169,20 @@ class IdorPlaybookBehaviorTest {
 
         assertTrue(variants.stream().anyMatch(variant -> variant.request().bodyToString().contains("\"id\":\"2.json\"")));
         assertTrue(variants.stream().anyMatch(variant -> variant.request().bodyToString().contains("\"id\":\"2.html\"")));
+    }
+
+    @Test
+    void suffixFormatsPlaybookAvoidsDuplicatePathVariants() {
+        SuffixFormatPlaybook playbook = new SuffixFormatPlaybook();
+
+        List<String> paths = playbook.buildVariants(
+            context("/ecm-service/resellers/EWZ/children/RA1/", null, "GET", null, "", "RA1", "BAC")
+        ).stream().map(variant -> variant.request().path()).toList();
+
+        assertEquals(3, paths.size());
+        assertEquals(1, paths.stream().filter(path -> path.equals("/ecm-service/resellers/EWZ/children/BAC.json/")).count());
+        assertTrue(paths.contains("/ecm-service/resellers/EWZ/children/BAC.html/"), paths.toString());
+        assertTrue(paths.contains("/ecm-service/resellers/EWZ/children/BAC.json.json/"), paths.toString());
     }
 
     @Test

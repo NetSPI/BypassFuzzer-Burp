@@ -7,7 +7,9 @@ import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * PLAYBOOK: idor.path.suffix_formats
@@ -60,9 +62,12 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
             return;
         }
 
+        Set<String> seenPaths = new LinkedHashSet<>();
+
         for (String suffix : IDENTIFIER_SUFFIXES) {
-            IdorPlaybookSupport.addPathVariant(
+            addDistinctPathVariant(
                 variants,
+                seenPaths,
                 targetRequest,
                 IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + suffix),
                 "identifier" + suffix
@@ -70,8 +75,9 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
         }
 
         for (String suffix : VERSION_SUFFIXES) {
-            IdorPlaybookSupport.addPathVariant(
+            addDistinctPathVariant(
                 variants,
+                seenPaths,
                 targetRequest,
                 suffixLastPathSegment(targetPath, suffix),
                 "version" + suffix
@@ -81,7 +87,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
         for (String suffix : VERSION_SUFFIXES) {
             String updatedIdentifierPath = IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + suffix);
             String updatedBothPath = suffixLastPathSegment(updatedIdentifierPath, suffix);
-            IdorPlaybookSupport.addPathVariant(variants, targetRequest, updatedBothPath, "identifier+version" + suffix);
+            addDistinctPathVariant(variants, seenPaths, targetRequest, updatedBothPath, "identifier+version" + suffix);
         }
     }
 
@@ -118,5 +124,16 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
             updatedPath += "/";
         }
         return RequestPathUtils.replaceQuery(updatedPath, query);
+    }
+
+    private static void addDistinctPathVariant(List<IdorRequestVariant> variants,
+                                               Set<String> seenPaths,
+                                               HttpRequest targetRequest,
+                                               String updatedPath,
+                                               String label) {
+        if (!seenPaths.add(updatedPath)) {
+            return;
+        }
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest, updatedPath, label);
     }
 }
