@@ -2,6 +2,9 @@ package com.bypassfuzzer.burp.core.filter;
 
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
 /**
  * Manual filter based on user-defined rules.
  */
@@ -78,9 +81,19 @@ public class ManualFilter implements ResponseFilter {
             if (payload == null) {
                 return false; // No payload = filtered out
             }
-            // Case-insensitive contains check
-            if (!payload.toLowerCase().contains(payloadFilter.toLowerCase())) {
+            if (!containsIgnoreCase(payload, payloadFilter)) {
                 return false; // Payload doesn't contain filter text
+            }
+        }
+
+        String responseFilter = config.getResponseContainsFilter();
+        if (responseFilter != null && !responseFilter.trim().isEmpty()) {
+            String responseText = responseText(result);
+            if (responseText == null || responseText.isBlank()) {
+                return false; // No response text = filtered out
+            }
+            if (!matchesResponseFilter(responseText, responseFilter, config.isResponseContainsRegex())) {
+                return false; // Response doesn't match filter
             }
         }
 
@@ -90,5 +103,30 @@ public class ManualFilter implements ResponseFilter {
     @Override
     public String getName() {
         return "Manual Filter";
+    }
+
+    private boolean containsIgnoreCase(String value, String filter) {
+        return value.toLowerCase().contains(filter.toLowerCase());
+    }
+
+    private String responseText(AttackResult result) {
+        if (result.getResponse() == null) {
+            return null;
+        }
+        return String.valueOf(result.getResponse());
+    }
+
+    private boolean matchesResponseFilter(String responseText, String filter, boolean regex) {
+        if (!regex) {
+            return containsIgnoreCase(responseText, filter);
+        }
+
+        try {
+            return Pattern.compile(filter, Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+                .matcher(responseText)
+                .find();
+        } catch (PatternSyntaxException e) {
+            return false;
+        }
     }
 }

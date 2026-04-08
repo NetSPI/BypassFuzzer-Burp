@@ -21,6 +21,8 @@ public class FilterConfig {
     private Set<Integer> shownContentLengths = new HashSet<>();
     private String contentTypeFilter = null;
     private String payloadContainsFilter = null;
+    private String responseContainsFilter = null;
+    private boolean responseContainsRegex = false;
 
     public boolean isSmartFilterEnabled() {
         return smartFilterEnabled;
@@ -108,5 +110,21 @@ public class FilterConfig {
 
     public void setPayloadContainsFilter(String filter) {
         this.payloadContainsFilter = filter;
+    }
+
+    public String getResponseContainsFilter() {
+        return responseContainsFilter;
+    }
+
+    public void setResponseContainsFilter(String filter) {
+        this.responseContainsFilter = filter;
+    }
+
+    public boolean isResponseContainsRegex() {
+        return responseContainsRegex;
+    }
+
+    public void setResponseContainsRegex(boolean responseContainsRegex) {
+        this.responseContainsRegex = responseContainsRegex;
     }
 }

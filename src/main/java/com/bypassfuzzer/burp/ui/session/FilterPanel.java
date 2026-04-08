@@ -15,6 +15,8 @@ import java.awt.Component;
 import java.awt.FlowLayout;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.function.Consumer;
 
 /**
@@ -38,6 +40,8 @@ public class FilterPanel extends JPanel {
     private JTextField showOnlyContentLengthsField;
     private JTextField contentTypeField;
     private JTextField payloadContainsField;
+    private JTextField responseContainsField;
+    private JCheckBox responseRegexCheckbox;
     private JComboBox<String> highlightColorFilter;
     private JButton applyFilterButton;
     private JLabel filterStatusLabel;
@@ -123,6 +127,8 @@ public class FilterPanel extends JPanel {
         showOnlyContentLengthsField = new JTextField(15);
         contentTypeField = new JTextField(20);
         payloadContainsField = new JTextField(20);
+        responseContainsField = new JTextField(20);
+        responseRegexCheckbox = new JCheckBox("Regex");
         highlightColorFilter = new JComboBox<>(new String[]{
             "All", "Red", "Orange", "Yellow", "Green", "Blue", "Cyan", "Magenta", "Gray"
         });
@@ -134,6 +140,8 @@ public class FilterPanel extends JPanel {
         manualPanel.add(createContainsPanel("Content-Type", "Contains:", contentTypeField, "(e.g. html, json)"));
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createContainsPanel("Payload", "Contains:", payloadContainsField, null));
+        manualPanel.add(Box.createVerticalStrut(5));
+        manualPanel.add(createResponsePanel());
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createHighlightPanel());
 
@@ -211,6 +219,18 @@ public class FilterPanel extends JPanel {
         return highlightPanel;
     }
 
+    private JPanel createResponsePanel() {
+        JPanel responsePanel = createTitledPanel("Response");
+
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        row.add(new JLabel("Contains:"));
+        row.add(responseContainsField);
+        responseRegexCheckbox.setToolTipText("Treat the response filter as a regular expression.");
+        row.add(responseRegexCheckbox);
+        responsePanel.add(row);
+        return responsePanel;
+    }
+
     private JPanel createSectionPanel(String title) {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -239,11 +259,20 @@ public class FilterPanel extends JPanel {
         showOnlyContentLengthsField.setEnabled(enabled);
         contentTypeField.setEnabled(enabled);
         payloadContainsField.setEnabled(enabled);
+        responseContainsField.setEnabled(enabled);
+        responseRegexCheckbox.setEnabled(enabled);
         highlightColorFilter.setEnabled(enabled);
         applyFilterButton.setEnabled(enabled);
     }
 
     private void applyManualFilters() {
+        String responseFilter = emptyToNull(responseContainsField.getText());
+        if (responseRegexCheckbox.isSelected() && responseFilter != null) {
+            if (!isValidRegex(responseFilter)) {
+                return;
+            }
+        }
+
         filterConfig.setHiddenStatusCodes(parseIntegerSet(hideStatusCodesField.getText(), "status code"));
         filterConfig.setShownStatusCodes(parseIntegerSet(showOnlyStatusCodesField.getText(), "status code"));
         filterConfig.setMinContentLength(parseInteger(minLengthField.getText(), "min length"));
@@ -252,6 +281,8 @@ public class FilterPanel extends JPanel {
         filterConfig.setShownContentLengths(parseIntegerSet(showOnlyContentLengthsField.getText(), "content length"));
         filterConfig.setContentTypeFilter(emptyToNull(contentTypeField.getText()));
         filterConfig.setPayloadContainsFilter(emptyToNull(payloadContainsField.getText()));
+        filterConfig.setResponseContainsFilter(responseFilter);
+        filterConfig.setResponseContainsRegex(responseRegexCheckbox.isSelected());
         filterChangeListener.run();
     }
 
@@ -289,5 +320,15 @@ public class FilterPanel extends JPanel {
     private String emptyToNull(String value) {
         String trimmed = value == null ? "" : value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private boolean isValidRegex(String regex) {
+        try {
+            Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            return true;
+        } catch (PatternSyntaxException e) {
+            errorLogger.accept("Invalid response regex: " + e.getDescription());
+            return false;
+        }
     }
 }

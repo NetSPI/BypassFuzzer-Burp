@@ -68,6 +68,33 @@ class ResultFilterControllerTest {
         assertFalse(controller.shouldShow(third));
     }
 
+    @Test
+    void manualFilterCanMatchResponseContainsCaseInsensitive() {
+        ResultFilterController controller = new ResultFilterController();
+        controller.filterConfig().setManualFilterEnabled(true);
+        controller.filterConfig().setResponseContainsFilter("secret token");
+
+        AttackResult matching = result("payload", 200, "application/json", "{\"message\":\"Secret Token found\"}");
+        AttackResult nonMatching = result("payload", 200, "application/json", "{\"message\":\"public\"}");
+
+        assertTrue(controller.shouldShow(matching));
+        assertFalse(controller.shouldShow(nonMatching));
+    }
+
+    @Test
+    void manualFilterCanMatchResponseRegex() {
+        ResultFilterController controller = new ResultFilterController();
+        controller.filterConfig().setManualFilterEnabled(true);
+        controller.filterConfig().setResponseContainsFilter("\"id\"\\s*:\\s*\\d+");
+        controller.filterConfig().setResponseContainsRegex(true);
+
+        AttackResult matching = result("payload", 200, "application/json", "{\"id\":42,\"ok\":true}");
+        AttackResult nonMatching = result("payload", 200, "application/json", "{\"id\":\"forty-two\"}");
+
+        assertTrue(controller.shouldShow(matching));
+        assertFalse(controller.shouldShow(nonMatching));
+    }
+
     private AttackResult result(String payload, int statusCode, String contentType, String body) {
         HttpRequest request = mock(HttpRequest.class);
         HttpResponse response = mock(HttpResponse.class);
@@ -78,6 +105,7 @@ class ResultFilterControllerTest {
         when(response.statusCode()).thenReturn((short) statusCode);
         when(response.body()).thenReturn(byteArray);
         when(response.headers()).thenReturn(List.of(header));
+        when(response.toString()).thenReturn(body);
         return new AttackResult("Attack", payload, request, response);
     }
 
