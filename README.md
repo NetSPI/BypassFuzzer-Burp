@@ -58,7 +58,7 @@ Currently, there are 2 main bypasses we can attempt: **Authorization** bypasses 
 1. Download latest JAR from the [releases page](https://github.com/intrudir/BypassFuzzer-Burp/releases)
 2. In Burp, go to **Extensions** → **Installed**
 3. Click **Add**
-4. Select **Extension file**: `bypassfuzzer-burp-1.0.6.jar`
+4. Select **Extension file**: `bypassfuzzer-burp-1.0.7.jar`
 5. The extension will load and a "BypassFuzzer" tab will appear
 
 ### Building from source (optional)
@@ -68,7 +68,7 @@ Currently, there are 2 main bypasses we can attempt: **Authorization** bypasses 
 ./gradlew clean shadowJar
 
 # The compiled JAR will be at:
-# build/libs/bypassfuzzer-burp-1.0.6.jar
+# build/libs/bypassfuzzer-burp-1.0.7.jar
 ```
 
 # Usage
