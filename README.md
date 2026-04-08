@@ -183,6 +183,14 @@ Wiki-style project documentation lives under [`wiki/`](wiki/), including:
 - [`wiki/IDOR-BOLA-Playbooks.md`](wiki/IDOR-BOLA-Playbooks.md)
 - [`wiki/Adding-New-Playbooks.md`](wiki/Adding-New-Playbooks.md)
 
+GitHub's Wiki tab is a separate Git repository. In this project, `wiki/` is the source of truth in the main repo, and you can mirror it into the GitHub wiki with:
+
+```bash
+./scripts/publish-wiki.sh --push
+```
+
+The script clones or updates `../BypassFuzzer-Burp.wiki`, syncs the Markdown pages from `wiki/`, and pushes them to the GitHub wiki repo.
+
 ## Custom Payloads
 
 You can edit the payload files before building. UI config for this will be added in a future release.
