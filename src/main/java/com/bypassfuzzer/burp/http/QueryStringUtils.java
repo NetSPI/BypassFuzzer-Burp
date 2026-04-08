@@ -166,6 +166,16 @@ public final class QueryStringUtils {
         return upsertParameter(pathWithQuery, encodedName + "=" + encodedValue);
     }
 
+    public static String appendDecodedParameter(String pathWithQuery, String parameterName, String parameterValue) {
+        if (parameterName == null || parameterName.isBlank()) {
+            return pathWithQuery;
+        }
+
+        String encodedName = encode(parameterName);
+        String encodedValue = encode(parameterValue == null ? "" : parameterValue);
+        return RequestPathUtils.appendQueryParameter(pathWithQuery, encodedName + "=" + encodedValue);
+    }
+
     public static String toQueryString(List<QueryParameter> parameters) {
         StringBuilder query = new StringBuilder();
         for (QueryParameter parameter : parameters) {

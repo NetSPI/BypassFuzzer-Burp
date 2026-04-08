@@ -19,6 +19,10 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
             new String[]{"#", "Attack Type", "Payload", "Status", "Length", "Content-Type"},
             new Class<?>[]{Integer.class, String.class, String.class, Integer.class, Integer.class, String.class}
         ),
+        IDOR(
+            new String[]{"#", "Group", "Playbook", "Variant", "Status", "Length", "Content-Type"},
+            new Class<?>[]{Integer.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
+        ),
         URL_VALIDATION(
             new String[]{"#", "Target", "Family", "Encoding", "Payload", "Status", "Length", "Content-Type"},
             new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
@@ -87,6 +91,16 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 3 -> result.getStatusCode();
                 case 4 -> result.getContentLength();
                 case 5 -> truncatePayload(result.getContentType(), 50);
+                default -> "";
+            };
+            case IDOR -> switch (columnIndex) {
+                case 0 -> resultIds.getOrDefault(result, 0);
+                case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 20);
+                case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 34);
+                case 3 -> truncatePayload(result.getPayload(), 78);
+                case 4 -> result.getStatusCode();
+                case 5 -> result.getContentLength();
+                case 6 -> truncatePayload(result.getContentType(), 40);
                 default -> "";
             };
             case URL_VALIDATION -> switch (columnIndex) {

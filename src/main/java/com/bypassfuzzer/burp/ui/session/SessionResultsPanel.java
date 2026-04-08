@@ -24,6 +24,7 @@ import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -36,6 +37,14 @@ import java.util.function.Predicate;
  */
 public class SessionResultsPanel extends JPanel {
 
+    private static final Color IDOR_CONTROL_BADGE = new Color(46, 86, 132);
+    private static final Color IDOR_BASELINE_BADGE = new Color(122, 88, 32);
+    private static final Color IDOR_SUCCESS = new Color(108, 214, 152);
+    private static final Color IDOR_REDIRECT = new Color(104, 182, 255);
+    private static final Color IDOR_CLIENT_ERROR = new Color(236, 183, 79);
+    private static final Color IDOR_SERVER_ERROR = new Color(229, 116, 116);
+    private static final Color IDOR_PLAYBOOK = new Color(190, 214, 255);
+
     public enum ViewerLayout {
         BELOW_TABLE,
         RIGHT_OF_TABLE
@@ -43,6 +52,7 @@ public class SessionResultsPanel extends JPanel {
 
     public enum TableLayout {
         DEFAULT,
+        IDOR,
         URL_VALIDATION
     }
 
@@ -155,17 +165,92 @@ public class SessionResultsPanel extends JPanel {
                                                            int row, int column) {
                 Component component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 setHorizontalAlignment(SwingConstants.LEFT);
+                setFont(table.getFont());
 
+                AttackResult result = tableModel.getResult(table.convertRowIndexToModel(row));
                 if (!isSelected) {
-                    AttackResult result = tableModel.getResult(table.convertRowIndexToModel(row));
                     Color rowColor = result == null ? null : highlighter.colorFor(result);
                     component.setBackground(rowColor != null ? rowColor : table.getBackground());
                     component.setForeground(table.getForeground());
                 }
 
+                if (tableLayout == TableLayout.IDOR && result != null) {
+                    applyIdorCellStyling(table, component, value, column, isSelected, result);
+                } else if (column == 3 || column == 4 || column == 5 || column == 6) {
+                    setHorizontalAlignment(SwingConstants.CENTER);
+                }
+
                 return component;
             }
         });
+    }
+
+    private void applyIdorCellStyling(JTable table,
+                                      Component component,
+                                      Object value,
+                                      int column,
+                                      boolean isSelected,
+                                      AttackResult result) {
+        if (!(component instanceof DefaultTableCellRenderer renderer)) {
+            return;
+        }
+
+        if (column == 1) {
+            renderer.setHorizontalAlignment(SwingConstants.CENTER);
+            renderer.setFont(table.getFont().deriveFont(Font.BOLD));
+
+            if (!isSelected) {
+                String group = result.getTargetLabel();
+                if ("Control".equals(group)) {
+                    component.setBackground(IDOR_CONTROL_BADGE);
+                } else if ("Baseline".equals(group)) {
+                    component.setBackground(IDOR_BASELINE_BADGE);
+                }
+            }
+            return;
+        }
+
+        if (column == 2) {
+            renderer.setFont(new Font(Font.MONOSPACED, table.getFont().getStyle(), table.getFont().getSize() - 1));
+            if (!isSelected) {
+                component.setForeground(IDOR_PLAYBOOK);
+            }
+            return;
+        }
+
+        if (column == 4) {
+            renderer.setHorizontalAlignment(SwingConstants.CENTER);
+            renderer.setFont(table.getFont().deriveFont(Font.BOLD));
+            if (!isSelected && value instanceof Integer status) {
+                component.setForeground(statusColor(status));
+            }
+            return;
+        }
+
+        if (column == 5) {
+            renderer.setHorizontalAlignment(SwingConstants.RIGHT);
+            return;
+        }
+
+        if (column == 6) {
+            renderer.setHorizontalAlignment(SwingConstants.LEFT);
+        }
+    }
+
+    private Color statusColor(int status) {
+        if (status >= 200 && status < 300) {
+            return IDOR_SUCCESS;
+        }
+        if (status >= 300 && status < 400) {
+            return IDOR_REDIRECT;
+        }
+        if (status >= 400 && status < 500) {
+            return IDOR_CLIENT_ERROR;
+        }
+        if (status >= 500) {
+            return IDOR_SERVER_ERROR;
+        }
+        return resultsTable.getForeground();
     }
 
     private void configureSelection() {
@@ -196,6 +281,21 @@ public class SessionResultsPanel extends JPanel {
             return;
         }
 
+        if (tableLayout == TableLayout.IDOR) {
+            resultsTable.getColumnModel().getColumn(0).setPreferredWidth(34);
+            resultsTable.getColumnModel().getColumn(0).setMaxWidth(52);
+            resultsTable.getColumnModel().getColumn(1).setPreferredWidth(88);
+            resultsTable.getColumnModel().getColumn(1).setMaxWidth(110);
+            resultsTable.getColumnModel().getColumn(2).setPreferredWidth(210);
+            resultsTable.getColumnModel().getColumn(3).setPreferredWidth(420);
+            resultsTable.getColumnModel().getColumn(4).setPreferredWidth(64);
+            resultsTable.getColumnModel().getColumn(4).setMaxWidth(84);
+            resultsTable.getColumnModel().getColumn(5).setPreferredWidth(86);
+            resultsTable.getColumnModel().getColumn(5).setMaxWidth(110);
+            resultsTable.getColumnModel().getColumn(6).setPreferredWidth(170);
+            return;
+        }
+
         resultsTable.getColumnModel().getColumn(0).setPreferredWidth(30);
         resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);
         resultsTable.getColumnModel().getColumn(1).setPreferredWidth(60);
@@ -212,6 +312,9 @@ public class SessionResultsPanel extends JPanel {
         if (tableLayout == TableLayout.URL_VALIDATION) {
             sorter.setComparator(5, Comparator.comparingInt(o -> (Integer) o));
             sorter.setComparator(6, Comparator.comparingInt(o -> (Integer) o));
+        } else if (tableLayout == TableLayout.IDOR) {
+            sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
+            sorter.setComparator(5, Comparator.comparingInt(o -> (Integer) o));
         } else {
             sorter.setComparator(3, Comparator.comparingInt(o -> (Integer) o));
             sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
@@ -304,8 +407,10 @@ public class SessionResultsPanel extends JPanel {
     }
 
     private FuzzerResultsTableModel.TableLayout toModelLayout(TableLayout tableLayout) {
-        return tableLayout == TableLayout.URL_VALIDATION
-            ? FuzzerResultsTableModel.TableLayout.URL_VALIDATION
-            : FuzzerResultsTableModel.TableLayout.DEFAULT;
+        return switch (tableLayout) {
+            case URL_VALIDATION -> FuzzerResultsTableModel.TableLayout.URL_VALIDATION;
+            case IDOR -> FuzzerResultsTableModel.TableLayout.IDOR;
+            case DEFAULT -> FuzzerResultsTableModel.TableLayout.DEFAULT;
+        };
     }
 }

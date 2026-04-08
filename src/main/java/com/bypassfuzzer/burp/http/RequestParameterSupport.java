@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.http;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -37,7 +38,7 @@ import java.util.regex.Pattern;
  */
 public final class RequestParameterSupport {
 
-    private static final Gson GSON = new Gson();
+    private static final Gson GSON = new GsonBuilder().serializeNulls().create();
 
     private RequestParameterSupport() {
     }
@@ -173,6 +174,31 @@ public final class RequestParameterSupport {
             newBody = replaceMultipartParameterValue(body, contentType, parameter, newValue);
         }
 
+        return request.withBody(newBody);
+    }
+
+    public static HttpRequest replaceJsonParameterValueWithJson(HttpRequest request, LocatedParameter parameter, String rawJsonValue) {
+        String contentType = request.headerValue("Content-Type");
+        if (contentType == null || !contentType.contains("application/json")) {
+            return request;
+        }
+
+        String body = request.bodyToString();
+        String newBody = replaceJsonParameterValueWithJson(body, parameter, rawJsonValue);
+        return request.withBody(newBody);
+    }
+
+    public static HttpRequest replaceJsonParameterWithDuplicateKeys(HttpRequest request,
+                                                                    LocatedParameter parameter,
+                                                                    String firstRawJsonValue,
+                                                                    String secondRawJsonValue) {
+        String contentType = request.headerValue("Content-Type");
+        if (contentType == null || !contentType.contains("application/json")) {
+            return request;
+        }
+
+        String body = request.bodyToString();
+        String newBody = replaceJsonParameterWithDuplicateKeys(body, parameter, firstRawJsonValue, secondRawJsonValue);
         return request.withBody(newBody);
     }
 
@@ -432,6 +458,59 @@ public final class RequestParameterSupport {
                 return body;
             }
             return GSON.toJson(root);
+        } catch (Exception e) {
+            return body;
+        }
+    }
+
+    private static String replaceJsonParameterValueWithJson(String body, LocatedParameter target, String rawJsonValue) {
+        try {
+            JsonElement root = JsonParser.parseString(body);
+            List<String> tokens = jsonTokens(target);
+            if (tokens.isEmpty()) {
+                return body;
+            }
+            JsonElement replacement = "null".equals(rawJsonValue.trim())
+                ? JsonNull.INSTANCE
+                : JsonParser.parseString(rawJsonValue);
+            if (!replaceJsonValue(root, tokens, replacement)) {
+                return body;
+            }
+            return GSON.toJson(root);
+        } catch (Exception e) {
+            return body;
+        }
+    }
+
+    private static String replaceJsonParameterWithDuplicateKeys(String body,
+                                                                LocatedParameter target,
+                                                                String firstRawJsonValue,
+                                                                String secondRawJsonValue) {
+        try {
+            List<String> tokens = jsonTokens(target);
+            if (tokens.isEmpty()) {
+                return body;
+            }
+
+            String leaf = tokens.get(tokens.size() - 1);
+            if (isArrayIndex(leaf)) {
+                return body;
+            }
+
+            JsonElement root = JsonParser.parseString(body);
+            JsonElement currentValue = findJsonElement(root, tokens);
+            if (currentValue == null) {
+                return body;
+            }
+
+            String currentRawJsonValue = GSON.toJson(currentValue);
+            String propertyPattern = "\""
+                + Pattern.quote(leaf)
+                + "\"\\s*:\\s*"
+                + Pattern.quote(currentRawJsonValue);
+            String replacement = "\"" + leaf + "\":" + firstRawJsonValue
+                + ",\"" + leaf + "\":" + secondRawJsonValue;
+            return body.replaceFirst(propertyPattern, Matcher.quoteReplacement(replacement));
         } catch (Exception e) {
             return body;
         }
@@ -814,6 +893,56 @@ public final class RequestParameterSupport {
             return true;
         }
         return false;
+    }
+
+    private static boolean replaceJsonValue(JsonElement root, List<String> tokens, JsonElement newValue) {
+        JsonElement parent = navigateJsonParent(root, tokens);
+        if (parent == null) {
+            return false;
+        }
+
+        String leaf = tokens.get(tokens.size() - 1);
+        if (parent.isJsonObject()) {
+            JsonObject object = parent.getAsJsonObject();
+            if (!object.has(leaf)) {
+                return false;
+            }
+            object.add(leaf, newValue);
+            return true;
+        }
+        if (parent.isJsonArray() && isArrayIndex(leaf)) {
+            int index = Integer.parseInt(leaf);
+            if (index < 0 || index >= parent.getAsJsonArray().size()) {
+                return false;
+            }
+            parent.getAsJsonArray().set(index, newValue);
+            return true;
+        }
+        return false;
+    }
+
+    private static JsonElement findJsonElement(JsonElement root, List<String> tokens) {
+        if (tokens.isEmpty()) {
+            return null;
+        }
+
+        JsonElement parent = navigateJsonParent(root, tokens);
+        if (parent == null) {
+            return null;
+        }
+
+        String leaf = tokens.get(tokens.size() - 1);
+        if (parent.isJsonObject()) {
+            return parent.getAsJsonObject().get(leaf);
+        }
+        if (parent.isJsonArray() && isArrayIndex(leaf)) {
+            int index = Integer.parseInt(leaf);
+            if (index < 0 || index >= parent.getAsJsonArray().size()) {
+                return null;
+            }
+            return parent.getAsJsonArray().get(index);
+        }
+        return null;
     }
 
     private static JsonElement navigateJsonParent(JsonElement root, List<String> tokens) {

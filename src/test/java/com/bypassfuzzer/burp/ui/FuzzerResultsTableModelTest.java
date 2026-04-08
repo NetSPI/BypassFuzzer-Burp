@@ -57,4 +57,22 @@ class FuzzerResultsTableModelTest {
         assertEquals("Intruder's", model.getValueAt(0, 3));
         assertEquals("http://127.0.0.1/", model.getValueAt(0, 4));
     }
+
+    @Test
+    void idorLayoutSeparatesPhasePlaybookAndVariant() {
+        FuzzerResultsTableModel model = new FuzzerResultsTableModel(FuzzerResultsTableModel.TableLayout.IDOR);
+        model.addResult(new AttackResult(
+            "IDOR",
+            "path-authorized query-target",
+            "Cross Source",
+            "idor.hybrid.cross_source_conflicts",
+            null,
+            null,
+            null
+        ), true);
+
+        assertEquals("Cross Source", model.getValueAt(0, 1));
+        assertEquals("idor.hybrid.cross_source_conflicts", model.getValueAt(0, 2));
+        assertEquals("path-authorized query-target", model.getValueAt(0, 3));
+    }
 }

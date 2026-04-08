@@ -11,10 +11,11 @@ import com.bypassfuzzer.burp.session.SessionPreflightAnalyzer;
 import com.bypassfuzzer.burp.session.SessionRunOptions;
 import com.bypassfuzzer.burp.session.SessionState;
 import com.bypassfuzzer.burp.ui.session.AttackSelectionPanel;
+import com.bypassfuzzer.burp.ui.session.IdorPanel;
 import com.bypassfuzzer.burp.ui.session.RunOptionsPanel;
 import com.bypassfuzzer.burp.ui.session.SessionResultsPanel;
 import com.bypassfuzzer.burp.ui.session.SessionResultsWorkspace;
-import com.bypassfuzzer.burp.ui.session.SessionInputParsers;
+import com.bypassfuzzer.burp.ui.session.SessionRunOptionsSupport;
 import com.bypassfuzzer.burp.ui.session.UrlValidationPanel;
 
 import javax.swing.BoxLayout;
@@ -51,6 +52,7 @@ public class FuzzingSessionTab extends JPanel {
     private RunOptionsPanel runOptionsPanel;
     private SessionResultsWorkspace resultsWorkspace;
     private UrlValidationPanel urlValidationPanel;
+    private IdorPanel idorPanel;
 
     private volatile boolean shuttingDown = false;
 
@@ -89,6 +91,9 @@ public class FuzzingSessionTab extends JPanel {
         if (urlValidationPanel != null) {
             urlValidationPanel.cleanup();
         }
+        if (idorPanel != null) {
+            idorPanel.cleanup();
+        }
     }
 
     private void initializeUi() {
@@ -103,6 +108,8 @@ public class FuzzingSessionTab extends JPanel {
     private JTabbedPane buildSessionTabs() {
         JTabbedPane sessionTabs = new JTabbedPane();
         sessionTabs.addTab("Bypass", buildBypassTab());
+        idorPanel = new IdorPanel(api, request);
+        sessionTabs.addTab("IDOR", idorPanel);
         urlValidationPanel = new UrlValidationPanel(api, request);
         sessionTabs.addTab("URL Validation", urlValidationPanel);
         return sessionTabs;
@@ -220,31 +227,7 @@ public class FuzzingSessionTab extends JPanel {
     }
 
     private SessionRunOptions collectRunOptions() {
-        int requestsPerSecond;
-        try {
-            requestsPerSecond = Math.max(0, Integer.parseInt(runOptionsPanel.requestsPerSecondText().trim()));
-        } catch (NumberFormatException e) {
-            requestsPerSecond = 0;
-        }
-
-        return new SessionRunOptions(
-            attackSelectionPanel.isHeaderAttackEnabled(),
-            attackSelectionPanel.isPathAttackEnabled(),
-            attackSelectionPanel.isVerbAttackEnabled(),
-            attackSelectionPanel.isParamAttackEnabled(),
-            attackSelectionPanel.isTrailingDotAttackEnabled(),
-            attackSelectionPanel.isTrailingSlashAttackEnabled(),
-            attackSelectionPanel.isExtensionAttackEnabled(),
-            attackSelectionPanel.isContentTypeAttackEnabled(),
-            attackSelectionPanel.isEncodingAttackEnabled(),
-            attackSelectionPanel.isProtocolAttackEnabled(),
-            attackSelectionPanel.isCaseAttackEnabled(),
-            runOptionsPanel.isCollaboratorEnabled(),
-            attackSelectionPanel.isCookieParamAttackEnabled(),
-            runOptionsPanel.isFuzzExistingCookiesEnabled(),
-            requestsPerSecond,
-            SessionInputParsers.parseStatusCodes(runOptionsPanel.throttleStatusCodesText())
-        );
+        return SessionRunOptionsSupport.collect(attackSelectionPanel, runOptionsPanel);
     }
 
     private void clearResults() {

@@ -215,7 +215,7 @@ class AttackStrategyBehaviorTest {
 
         attack.execute(
             api(),
-            request("/admin?debug=one&debug=two&role=safe", "debug=one&debug=two&role=safe", "GET", null, ""),
+            request("/admin", "debug=one&debug=two&role=safe", "GET", null, ""),
             "https://example.com/admin?debug=one&debug=two&role=safe",
             results::add,
             () -> true,

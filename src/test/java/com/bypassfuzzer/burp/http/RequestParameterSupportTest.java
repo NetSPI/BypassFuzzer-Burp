@@ -31,7 +31,7 @@ class RequestParameterSupportTest {
 
     @Test
     void extractsLocatedParametersFromQueryAndBody() {
-        HttpRequest request = request("/admin?debug=1", "debug=1", "POST", "application/json", "{\"role\":\"admin\"}");
+        HttpRequest request = request("/admin", "debug=1", "POST", "application/json", "{\"role\":\"admin\"}");
 
         List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(request);
 
@@ -115,7 +115,7 @@ class RequestParameterSupportTest {
 
     @Test
     void replacesQueryAndBodyParameters() {
-        HttpRequest queryRequest = request("/admin?debug=1&role=user", "debug=1&role=user", "GET", null, "");
+        HttpRequest queryRequest = request("/admin", "debug=1&role=user", "GET", null, "");
         HttpRequest renamedQuery = RequestParameterSupport.replaceParameterName(
             queryRequest,
             new LocatedParameter("debug", "1", ParameterLocation.QUERY),
@@ -310,7 +310,7 @@ class RequestParameterSupportTest {
 
     @Test
     void movesParametersBetweenQueryAndBody() {
-        HttpRequest queryRequest = request("/admin?debug=1&role=user", "debug=1&role=user", "GET", null, "");
+        HttpRequest queryRequest = request("/admin", "debug=1&role=user", "GET", null, "");
         HttpRequest movedToBody = RequestParameterSupport.moveQueryToBody(queryRequest, "POST");
         assertEquals("/admin", movedToBody.path());
         assertEquals("debug=1&role=user", movedToBody.bodyToString());
@@ -324,7 +324,7 @@ class RequestParameterSupportTest {
 
     @Test
     void preparesQueryOnlyRequestForBodyFormatByDroppingTheQuery() {
-        HttpRequest request = request("/admin?debug=1&role=user", "debug=1&role=user", "GET", null, "");
+        HttpRequest request = request("/admin", "debug=1&role=user", "GET", null, "");
 
         HttpRequest prepared = RequestParameterSupport.prepareForBodyFormat(request, "POST");
 
@@ -335,7 +335,7 @@ class RequestParameterSupportTest {
 
     @Test
     void preservesDuplicateQueryParametersWhenExtractingLocatedParameters() {
-        HttpRequest request = request("/admin?debug=1&debug=2&role=user", "debug=1&debug=2&role=user", "GET", null, "");
+        HttpRequest request = request("/admin", "debug=1&debug=2&role=user", "GET", null, "");
 
         List<LocatedParameter> params = RequestParameterSupport.extractLocatedParameters(request);
 
