@@ -69,20 +69,24 @@ public class UrlPayloadProcessor {
 
         for (Classified cp : classified) {
             String payload = cp.payload;
+            // Traversal payloads mid-path reroute off the target endpoint. Restrict them
+            // to segment-0 PREFIX; skip SUFFIX/SANDWICH entirely (they also drift off).
+            boolean traversal = isTraversalLike(payload);
 
             for (int i = 0; i < pathSegments.size(); i++) {
                 String segment = pathSegments.get(i);
-                if (cp.classes.contains(InjectionClass.PREFIX)) {
+                if (cp.classes.contains(InjectionClass.PREFIX)
+                        && !(traversal && i > 0)) {
                     List<String> ns = new ArrayList<>(pathSegments);
                     ns.set(i, payload + segment);
                     allPaths.add(String.join("/", ns));
                 }
-                if (cp.classes.contains(InjectionClass.SUFFIX)) {
+                if (cp.classes.contains(InjectionClass.SUFFIX) && !traversal) {
                     List<String> ns = new ArrayList<>(pathSegments);
                     ns.set(i, segment + payload);
                     allPaths.add(String.join("/", ns));
                 }
-                if (cp.classes.contains(InjectionClass.SANDWICH)) {
+                if (cp.classes.contains(InjectionClass.SANDWICH) && !traversal) {
                     List<String> ns = new ArrayList<>(pathSegments);
                     ns.set(i, payload + segment + payload);
                     allPaths.add(String.join("/", ns));
@@ -157,6 +161,26 @@ public class UrlPayloadProcessor {
     private static final String[] TRAVERSAL_PRIMITIVES = {
             "../", "..%2f", "..;/", "%2e%2e/", "%2e%2e%2f"
     };
+
+    /**
+     * Heuristic: does this payload represent a traversal operation (contains '..' in
+     * some encoded or literal form)? Such payloads are off-target when PREFIX-injected
+     * into mid-path segments (/api/../admin -> /admin, wrong endpoint for AuthZ bypass
+     * of /api/admin) and always off-target for SUFFIX/SANDWICH. We allow them only at
+     * segment 0 via PREFIX, plus HEAD insertion (which callers tag explicitly as [h]).
+     */
+    static boolean isTraversalLike(String payload) {
+        String s = payload.toLowerCase();
+        return s.contains("..")
+                || s.contains("%2e%2e")
+                || s.contains("%252e%252e")
+                || s.contains(".%2e") || s.contains("%2e.")
+                || s.contains(".%c0%ae") || s.contains("%c0%ae.")
+                || s.contains("%c0%ae%c0%ae")
+                || s.contains("%e0%80%ae%e0%80%ae")
+                || s.contains("%f0%80%80%ae%f0%80%80%ae")
+                || s.contains("%ef%bc%8e%ef%bc%8e");
+    }
 
     static List<String> generateCrossEncodingChains() {
         List<String> out = new ArrayList<>();

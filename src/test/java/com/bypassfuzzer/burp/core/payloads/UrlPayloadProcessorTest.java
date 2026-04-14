@@ -124,6 +124,72 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void isTraversalLike_catchesKnownForms() {
+        assertTrue(UrlPayloadProcessor.isTraversalLike("../"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("..;/"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("%2e%2e"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("%2E%2E%2F"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("%252e%252e"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("%c0%ae%c0%ae"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("%ef%bc%8e%ef%bc%8e"));
+        assertTrue(UrlPayloadProcessor.isTraversalLike("x/.."));
+        assertTrue(UrlPayloadProcessor.isTraversalLike(".%2e"));
+    }
+
+    @Test
+    void isTraversalLike_rejectsSingleDotAndOtherNonTraversals() {
+        assertFalse(UrlPayloadProcessor.isTraversalLike("."));
+        assertFalse(UrlPayloadProcessor.isTraversalLike("%2e"));
+        assertFalse(UrlPayloadProcessor.isTraversalLike("/"));
+        assertFalse(UrlPayloadProcessor.isTraversalLike(";"));
+        assertFalse(UrlPayloadProcessor.isTraversalLike("%09"));
+        assertFalse(UrlPayloadProcessor.isTraversalLike(".html"));
+    }
+
+    @Test
+    void generator_traversalPrefixRestrictedToSegmentZero() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
+        List<String> out = processor.generateUrlPayloads(List.of("../"));
+        // Segment-0 prefix should be present:
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/../api/admin/users")),
+                "traversal PREFIX on seg 0 should still emit; got " + out);
+        // Mid-path prefixes would reroute off-target — must not appear:
+        assertFalse(out.stream().anyMatch(u -> u.contains("/api/../admin/users")),
+                "traversal PREFIX on seg 1 reroutes off-target; must be skipped; got " + out);
+        assertFalse(out.stream().anyMatch(u -> u.contains("/api/admin/../users")),
+                "traversal PREFIX on seg 2 reroutes off-target; must be skipped; got " + out);
+    }
+
+    @Test
+    void generator_traversalSuffixAndSandwichSkipped() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
+        List<String> out = processor.generateUrlPayloads(List.of("../"));
+        assertFalse(out.stream().anyMatch(u -> u.contains("/api../")),
+                "traversal SUFFIX produces literal 'api..' segment — off-target; got " + out);
+        assertFalse(out.stream().anyMatch(u -> u.contains("/users../")),
+                "traversal SUFFIX on last segment — off-target; got " + out);
+    }
+
+    @Test
+    void generator_nonTraversalPrefixStillHitsAllSegments() throws Exception {
+        // ';' is not traversal — should still be PREFIX-injected at every segment.
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
+        List<String> out = processor.generateUrlPayloads(List.of(";"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/;api/admin/users")),
+                "non-traversal PREFIX seg 0; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.contains("/api/;admin/users")),
+                "non-traversal PREFIX seg 1 must still emit; got " + out);
+    }
+
+    @Test
+    void generator_sacrificialPrefixLandsOnTargetShape() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/admin");
+        List<String> out = processor.generateUrlPayloads(List.of("[h]x/.."));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x/../admin")),
+                "expected /x/../admin from [h]x/.. ; got " + out);
+    }
+
+    @Test
     void generator_headInjectionPositionZeroOnly() throws Exception {
         UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
         List<String> out = processor.generateUrlPayloads(List.of("[h]..;"));
