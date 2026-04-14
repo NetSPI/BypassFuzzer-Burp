@@ -31,9 +31,8 @@ public class PathAttack implements AttackStrategy {
         // Check if original request is just root path
         String originalPath = extractPath(targetUrl);
         AttackExecutionSupport.logOutput(api, "Path Attack: Checking path from URL '" + targetUrl + "' -> extracted path: '" + originalPath + "'");
-        if ("/".equals(originalPath)) {
-            AttackExecutionSupport.logOutput(api, "Path Attack: Skipped - original path is root '/' (path manipulation attacks are less effective on root paths - consider testing a deeper endpoint)");
-            return;
+        if ("/".equals(originalPath) && !pathPayloads.isEmpty()) {
+            AttackExecutionSupport.logOutput(api, "Path Attack: Root path '/' detected - running reduced payload set from [b] between-segment and server-level normalization probes (" + pathPayloads.size() + " payloads). For deeper coverage target a non-root endpoint.");
         }
 
         if (!AttackExecutionSupport.logStart(api, "Starting Path Attack: " + pathPayloads.size() + " payloads")) {

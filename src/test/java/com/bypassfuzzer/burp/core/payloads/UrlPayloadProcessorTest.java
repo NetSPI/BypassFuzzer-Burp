@@ -179,6 +179,15 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void rootUrlWithBetweenTagProducesPayloads() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/");
+        List<String> generated = processor.generateUrlPayloads(List.of("[b]..;", "[b]%2e%2e"));
+        assertFalse(generated.isEmpty(), "root URL with [b] payloads should produce URLs");
+        assertTrue(generated.stream().anyMatch(u -> u.contains("..;")),
+                "expected ..; to appear in some root-targeted URL; got " + generated);
+    }
+
+    @Test
     void reportPayloadSurvivalAndManglingRate() throws Exception {
         List<String> payloads = PayloadLoader.loadPayloads("url_payloads.txt");
         UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/v1/users");
