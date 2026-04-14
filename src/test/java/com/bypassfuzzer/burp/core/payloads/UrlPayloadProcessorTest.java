@@ -179,6 +179,51 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void expandSegmentCase_fullCartesianUnderCap() {
+        List<String> variants = UrlPayloadProcessor.expandSegmentCase("api");
+        assertEquals(8, variants.size());
+        assertTrue(variants.contains("api"));
+        assertTrue(variants.contains("API"));
+        assertTrue(variants.contains("Api"));
+        assertTrue(variants.contains("aPi"));
+        assertTrue(variants.contains("apI"));
+    }
+
+    @Test
+    void expandSegmentCase_aboveCapFallsBackToAllLowerAndAllUpper() {
+        List<String> variants = UrlPayloadProcessor.expandSegmentCase("dashboard");
+        assertEquals(2, variants.size());
+        assertTrue(variants.contains("dashboard"));
+        assertTrue(variants.contains("DASHBOARD"));
+    }
+
+    @Test
+    void expandSegmentCase_digitsAndSymbolsUntouched() {
+        assertEquals(List.of("123"), UrlPayloadProcessor.expandSegmentCase("123"));
+        List<String> v1 = UrlPayloadProcessor.expandSegmentCase("v1");
+        assertEquals(2, v1.size());
+        assertTrue(v1.contains("v1"));
+        assertTrue(v1.contains("V1"));
+    }
+
+    @Test
+    void generator_outputIsDeterministicAcrossRuns() throws Exception {
+        UrlPayloadProcessor p1 = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        UrlPayloadProcessor p2 = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        List<String> out1 = p1.generateUrlPayloads(List.of("../", "%2e%2e%2f"));
+        List<String> out2 = p2.generateUrlPayloads(List.of("../", "%2e%2e%2f"));
+        assertEquals(out1, out2, "two runs must produce identical URLs (was flaky under old random-case)");
+    }
+
+    @Test
+    void generator_wholePathAllUpperAppears() throws Exception {
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        List<String> out = p.generateUrlPayloads(List.of());
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/API/V1/USERS")),
+                "whole-path all-upper URL should appear; got " + out);
+    }
+
+    @Test
     void crossEncodingChains_areHeterogeneous() {
         List<String> chains = UrlPayloadProcessor.generateCrossEncodingChains();
         assertEquals(20, chains.size(), "expected 5 primitives * 4 non-self = 20 chains");

@@ -96,12 +96,28 @@ public class UrlPayloadProcessor {
             }
         }
 
+        // Per-segment case expansion (deterministic, bounded cartesian via LETTER_CAP).
+        // Catches case-insensitive routing bypasses like /Admin vs /admin on IIS /
+        // misconfigured Spring regex / CDN-vs-origin case desyncs.
         for (int i = 0; i < pathSegments.size(); i++) {
-            for (int r = 0; r < 5; r++) {
+            for (String variant : expandSegmentCase(pathSegments.get(i))) {
                 List<String> ns = new ArrayList<>(pathSegments);
-                ns.set(i, randomCapitalize(pathSegments.get(i)));
+                ns.set(i, variant);
                 allPaths.add(String.join("/", ns));
             }
+        }
+
+        // Whole-path all-upper / all-lower. Catches WAF rules that normalize partial
+        // case but miss /ADMIN/V1/USERS-style fully-uppercased paths.
+        if (!pathSegments.isEmpty()) {
+            List<String> upper = new ArrayList<>(pathSegments.size());
+            List<String> lower = new ArrayList<>(pathSegments.size());
+            for (String seg : pathSegments) {
+                upper.add(seg.toUpperCase());
+                lower.add(seg.toLowerCase());
+            }
+            allPaths.add(String.join("/", upper));
+            allPaths.add(String.join("/", lower));
         }
 
         // Add query/extension suffix payloads to the last segment
@@ -247,13 +263,33 @@ public class UrlPayloadProcessor {
         return segments;
     }
 
-    private String randomCapitalize(String str) {
-        Random random = new Random();
-        StringBuilder result = new StringBuilder();
-        for (char c : str.toCharArray()) {
-            result.append(random.nextBoolean() ? Character.toUpperCase(c) : Character.toLowerCase(c));
+    /**
+     * Deterministic case expansion across all ASCII letters in a segment name (e.g.
+     * 'api' -> {'api','Api','aPi','ApI','apI','aPI','API','ApI'...} up to 2^LETTER_CAP,
+     * falling back to {all-lower, all-upper} beyond the cap). Sibling of
+     * expandCaseVariants, which only targets hex letters inside %XX triplets.
+     */
+    static List<String> expandSegmentCase(String segment) {
+        List<Integer> letterPositions = new ArrayList<>();
+        for (int i = 0; i < segment.length(); i++) {
+            if (Character.isLetter(segment.charAt(i))) {
+                letterPositions.add(i);
+            }
         }
-        return result.toString();
+        if (letterPositions.isEmpty()) {
+            return Collections.singletonList(segment);
+        }
+        int n = letterPositions.size();
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (n <= LETTER_CAP) {
+            for (int mask = 0; mask < (1 << n); mask++) {
+                out.add(applyLetterCase(segment, letterPositions, mask));
+            }
+        } else {
+            out.add(applyLetterCase(segment, letterPositions, 0));
+            out.add(applyLetterCase(segment, letterPositions, (1 << n) - 1));
+        }
+        return new ArrayList<>(out);
     }
 
     private List<String> generateSuffixPayloads() {
@@ -277,11 +313,9 @@ public class UrlPayloadProcessor {
 
         Set<String> allSuffixes = new LinkedHashSet<>(baseSuffixes);
 
-        // Add random capitalization variations
+        // Deterministic case expansion (was: 3 random variants per suffix)
         for (String suffix : baseSuffixes) {
-            for (int i = 0; i < 3; i++) {
-                allSuffixes.add(randomCapitalize(suffix));
-            }
+            allSuffixes.addAll(expandSegmentCase(suffix));
         }
 
         return new ArrayList<>(allSuffixes);
