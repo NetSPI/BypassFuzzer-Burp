@@ -137,32 +137,29 @@ public class UrlPayloadProcessor {
     }
 
     private List<String> convertPathsToUrls(List<String> paths, List<String> suffixPayloads) {
+        // Build URLs via raw string assembly. Java's URI(scheme,authority,path,query,fragment)
+        // constructor re-escapes '%' to '%25', which destroys every %-encoded payload
+        // (%2e -> %252e, case variants collapse, etc.). We need bytes on the wire to match
+        // what's in url_payloads.txt exactly.
         List<String> urls = new ArrayList<>();
         String originalQuery = uri.getQuery();
+        String base = uri.getScheme() + "://" + uri.getAuthority();
 
         for (String path : paths) {
             String lastSegment = path.substring(path.lastIndexOf('/') + 1);
             boolean hasQuerySuffix = suffixPayloads.stream().anyMatch(lastSegment::contains);
 
-            try {
-                if (hasQuerySuffix) {
-                    // Remove original query if payload has its own query
-                    URI newUri = new URI(uri.getScheme(), uri.getAuthority(), "/" + path, null, null);
-                    urls.add(newUri.toString());
+            if (hasQuerySuffix) {
+                urls.add(base + "/" + path);
 
-                    // If there's a '?' in the payload and original query exists, append it
-                    if (originalQuery != null && !originalQuery.isEmpty() &&
-                        (lastSegment.contains("?") || lastSegment.toLowerCase().contains("%3f"))) {
-                        newUri = new URI(uri.getScheme(), uri.getAuthority(), "/" + path + "&" + originalQuery, null, null);
-                        urls.add(newUri.toString());
-                    }
-                } else {
-                    // Keep original query
-                    URI newUri = new URI(uri.getScheme(), uri.getAuthority(), "/" + path, originalQuery, null);
-                    urls.add(newUri.toString());
+                if (originalQuery != null && !originalQuery.isEmpty() &&
+                    (lastSegment.contains("?") || lastSegment.toLowerCase().contains("%3f"))) {
+                    urls.add(base + "/" + path + "&" + originalQuery);
                 }
-            } catch (URISyntaxException e) {
-                // Skip malformed URLs
+            } else if (originalQuery != null && !originalQuery.isEmpty()) {
+                urls.add(base + "/" + path + "?" + originalQuery);
+            } else {
+                urls.add(base + "/" + path);
             }
         }
 
