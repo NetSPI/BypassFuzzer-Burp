@@ -179,6 +179,30 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void crossEncodingChains_areHeterogeneous() {
+        List<String> chains = UrlPayloadProcessor.generateCrossEncodingChains();
+        assertEquals(20, chains.size(), "expected 5 primitives * 4 non-self = 20 chains");
+        for (String chain : chains) {
+            assertFalse(chain.equals("../../"), "chain should never be homogeneous self-pair");
+            assertFalse(chain.equals("..%2f..%2f"), "chain should never be homogeneous self-pair");
+        }
+        assertTrue(chains.contains("../..%2f"));
+        assertTrue(chains.contains("..%2f../"));
+        assertTrue(chains.contains("..;/%2e%2e%2f"));
+    }
+
+    @Test
+    void crossEncodingChains_appearInGeneratedUrls() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        List<String> urls = processor.generateUrlPayloads(List.of());
+        assertTrue(urls.stream().anyMatch(u -> u.contains("../..%2f")),
+                "cross-encoded chain ../..%2f should appear somewhere in URLs");
+        assertTrue(urls.stream().anyMatch(u -> u.contains("%2e%2e%2f..;/")
+                        || u.contains("..;/%2e%2e%2f")),
+                "at least one ..;/ <-> %2e%2e%2f cross-chain should appear");
+    }
+
+    @Test
     void rootUrlWithBetweenTagProducesPayloads() throws Exception {
         UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/");
         List<String> generated = processor.generateUrlPayloads(List.of("[b]..;", "[b]%2e%2e"));
