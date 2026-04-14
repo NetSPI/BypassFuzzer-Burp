@@ -55,7 +55,9 @@ public class UrlPayloadProcessor {
         // Auto-generated cross-encoding traversal chains: mix different encoding styles
         // in one payload (e.g. ../..%2f) to hit parser-diff bugs where layer 1 decodes
         // %2f but layer 2 doesn't (nginx alias, Spring routing, CDN-vs-origin desyncs).
-        Set<InjectionClass> chainClasses = EnumSet.of(InjectionClass.PREFIX, InjectionClass.BETWEEN);
+        // PREFIX + HEAD only: mid-path BETWEEN insertion of traversal reroutes off
+        // the target endpoint, defeating the AuthZ-bypass purpose.
+        Set<InjectionClass> chainClasses = EnumSet.of(InjectionClass.PREFIX, InjectionClass.HEAD);
         for (String chain : generateCrossEncodingChains()) {
             for (String variant : expandCaseVariants(chain)) {
                 String key = chainClasses + "|" + variant;
@@ -93,6 +95,12 @@ public class UrlPayloadProcessor {
                     ns.add(i, payload);
                     allPaths.add(String.join("/", ns));
                 }
+            }
+
+            if (cp.classes.contains(InjectionClass.HEAD)) {
+                List<String> ns = new ArrayList<>(pathSegments);
+                ns.add(0, payload);
+                allPaths.add(String.join("/", ns));
             }
         }
 
@@ -135,10 +143,13 @@ public class UrlPayloadProcessor {
         return convertPathsToUrls(new ArrayList<>(allPaths), suffixPayloads);
     }
 
-    // Injection pattern for a payload. PREFIX/SUFFIX/SANDWICH modify a path segment in
-    // place; BETWEEN inserts the payload as its own segment between existing ones
-    // (e.g. /api/..;/v1/users — not reachable via the other three).
-    enum InjectionClass { PREFIX, SUFFIX, SANDWICH, BETWEEN }
+    // Injection pattern for a payload.
+    //   PREFIX/SUFFIX/SANDWICH: modify a path segment in place.
+    //   HEAD:    insert payload as a new first segment (before all others).
+    //            Safe for traversal payloads — /..;/admin still normalizes to /admin.
+    //   BETWEEN: insert payload at every position between segments. Safe only for
+    //            no-op payloads (., %2e) — traversal mid-path reroutes off-target.
+    enum InjectionClass { PREFIX, SUFFIX, SANDWICH, BETWEEN, HEAD }
 
     // Traversal primitives with different encoding styles. Cross-chaining two unlike
     // primitives in one payload produces parser-diff bugs against stacks that decode
@@ -163,8 +174,8 @@ public class UrlPayloadProcessor {
             Collections.unmodifiableSet(EnumSet.of(
                     InjectionClass.PREFIX, InjectionClass.SUFFIX, InjectionClass.SANDWICH));
 
-    // Line tag: [flags]<payload>. Flags: p/s/w/b (single classes) or a (all four).
-    private static final Pattern TAG_RE = Pattern.compile("^\\[([pswba]+)\\](.+)$");
+    // Line tag: [flags]<payload>. Flags: p/s/w/b/h (single classes) or a (all five).
+    private static final Pattern TAG_RE = Pattern.compile("^\\[([pswbah]+)\\](.+)$");
 
     static final class Classified {
         final Set<InjectionClass> classes;
@@ -187,6 +198,7 @@ public class UrlPayloadProcessor {
                 case 's': cs.add(InjectionClass.SUFFIX); break;
                 case 'w': cs.add(InjectionClass.SANDWICH); break;
                 case 'b': cs.add(InjectionClass.BETWEEN); break;
+                case 'h': cs.add(InjectionClass.HEAD); break;
                 case 'a': cs.addAll(EnumSet.allOf(InjectionClass.class)); break;
             }
         }

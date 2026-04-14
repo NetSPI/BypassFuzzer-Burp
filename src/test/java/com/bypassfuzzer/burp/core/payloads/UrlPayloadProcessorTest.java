@@ -99,9 +99,9 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
-    void parseClassifiedPayload_allTagExpandsToFourClasses() {
+    void parseClassifiedPayload_allTagExpandsToAllClasses() {
         UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[a]..");
-        assertEquals(4, c.classes.size());
+        assertEquals(UrlPayloadProcessor.InjectionClass.values().length, c.classes.size());
     }
 
     @Test
@@ -121,6 +121,30 @@ class UrlPayloadProcessorTest {
         assertEquals("[xyz]foo", c.payload);
         assertEquals(UrlPayloadProcessor.InjectionClass.PREFIX,
                 c.classes.iterator().next()); // has default classes
+    }
+
+    @Test
+    void generator_headInjectionPositionZeroOnly() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
+        List<String> out = processor.generateUrlPayloads(List.of("[h]..;"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/..;/api/admin/users")),
+                "HEAD should put payload before first segment; got " + out);
+        assertFalse(out.stream().anyMatch(u -> u.contains("/api/..;/admin")),
+                "HEAD must NOT inject at non-zero positions (would reroute off-target); got " + out);
+        assertFalse(out.stream().anyMatch(u -> u.endsWith("/..;") && !u.endsWith("/..;/api/admin/users")),
+                "HEAD must NOT append at end; got " + out);
+    }
+
+    @Test
+    void generator_crossEncodingChainsStayOnTarget() throws Exception {
+        // Target /admin: the whole point is that bypass URLs still resolve to /admin
+        // after normalization. BETWEEN mid-path on ../..%2f would produce /api/../..%2f/
+        // which goes up and off target. Cross-chains must use only HEAD/PREFIX.
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/admin/users");
+        List<String> out = processor.generateUrlPayloads(List.of());
+        // Cross-chain mid-path between-segment forms should NOT exist:
+        assertFalse(out.stream().anyMatch(u -> u.matches(".*/api/\\.\\.(/|%2f)\\.\\.(/|%2f)/admin.*")),
+                "cross-chain must not insert between segments; got " + out);
     }
 
     @Test
