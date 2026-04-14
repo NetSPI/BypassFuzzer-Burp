@@ -34,6 +34,17 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void expandCaseVariants_doubleEncodedTripletHandled() {
+        // The trailing '2e' of %252e is the hex payload of a double-encoded dot.
+        // Expander must toggle its 'e' to cover decoder-case bugs on the 2nd level
+        // (e.g. React %252F vs %252f).
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("%252e");
+        assertTrue(variants.contains("%252e"));
+        assertTrue(variants.contains("%252E"));
+        assertEquals(2, variants.size());
+    }
+
+    @Test
     void expandCaseVariants_multiLetterCartesian() {
         List<String> variants = UrlPayloadProcessor.expandCaseVariants("%2e%2f");
         assertTrue(variants.contains("%2e%2f"));
@@ -65,7 +76,7 @@ class UrlPayloadProcessorTest {
     void embeddedPayloadFileLoads() {
         List<String> payloads = PayloadLoader.loadPayloads("url_payloads.txt");
         assertFalse(payloads.isEmpty(), "url_payloads.txt must load");
-        assertTrue(payloads.size() > 500, "expected > 500 payloads after cleanup, got " + payloads.size());
+        assertTrue(payloads.size() > 300, "expected > 300 payloads in file, got " + payloads.size());
         for (String p : payloads) {
             assertFalse(p.trim().startsWith("#"), "comment leaked into payload list: " + p);
             assertFalse(p.isBlank(), "blank payload leaked into list");

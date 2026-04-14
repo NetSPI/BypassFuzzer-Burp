@@ -87,7 +87,10 @@ public class UrlPayloadProcessor {
         return convertPathsToUrls(new ArrayList<>(allPaths), suffixPayloads);
     }
 
-    private static final Pattern PCT_TRIPLET = Pattern.compile("%[0-9a-fA-F]{2}");
+    // Captures the 2-hex-digit payload of a single- or double-level percent-encoding.
+    // %XX matches the inner hex; %25XX matches the inner hex of a double-encoded form
+    // (important for decoder-case bugs like React's %252F vs %252f).
+    private static final Pattern PCT_TRIPLET = Pattern.compile("%(?:25)?([0-9a-fA-F]{2})");
     // 2^LETTER_CAP is the max variants emitted per payload via full Cartesian expansion.
     // Beyond the cap we fall back to just [all-lower-hex, all-upper-hex].
     private static final int LETTER_CAP = 4;
@@ -110,7 +113,7 @@ public class UrlPayloadProcessor {
         List<Integer> letterPositions = new ArrayList<>();
         Matcher m = PCT_TRIPLET.matcher(payload);
         while (m.find()) {
-            for (int i = m.start() + 1; i < m.end(); i++) {
+            for (int i = m.start(1); i < m.end(1); i++) {
                 char c = payload.charAt(i);
                 if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
                     letterPositions.add(i);
