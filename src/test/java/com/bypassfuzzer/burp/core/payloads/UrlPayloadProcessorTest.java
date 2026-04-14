@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.payloads;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -73,6 +74,78 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void parseClassifiedPayload_untaggedGetsDefaultThreeClasses() {
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("../");
+        assertEquals("../", c.payload);
+        assertTrue(c.classes.contains(UrlPayloadProcessor.InjectionClass.PREFIX));
+        assertTrue(c.classes.contains(UrlPayloadProcessor.InjectionClass.SUFFIX));
+        assertTrue(c.classes.contains(UrlPayloadProcessor.InjectionClass.SANDWICH));
+        assertFalse(c.classes.contains(UrlPayloadProcessor.InjectionClass.BETWEEN));
+    }
+
+    @Test
+    void parseClassifiedPayload_suffixOnlyTagParsed() {
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[s]?admin");
+        assertEquals("?admin", c.payload);
+        assertEquals(1, c.classes.size());
+        assertTrue(c.classes.contains(UrlPayloadProcessor.InjectionClass.SUFFIX));
+    }
+
+    @Test
+    void parseClassifiedPayload_betweenTagParsed() {
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[b]..;");
+        assertEquals("..;", c.payload);
+        assertEquals(Set.of(UrlPayloadProcessor.InjectionClass.BETWEEN), c.classes);
+    }
+
+    @Test
+    void parseClassifiedPayload_allTagExpandsToFourClasses() {
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[a]..");
+        assertEquals(4, c.classes.size());
+    }
+
+    @Test
+    void parseClassifiedPayload_multiCharTagParsed() {
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[pb]..");
+        assertEquals(Set.of(
+                UrlPayloadProcessor.InjectionClass.PREFIX,
+                UrlPayloadProcessor.InjectionClass.BETWEEN), c.classes);
+    }
+
+    @Test
+    void parseClassifiedPayload_bracketInPayloadNotInterpretedAsTag() {
+        // A real payload can't start with '[xxx]' where xxx are all pswba chars,
+        // but a payload like [xyz]... has invalid flag chars so the whole thing
+        // should be treated as the raw payload (no match).
+        UrlPayloadProcessor.Classified c = UrlPayloadProcessor.parseClassifiedPayload("[xyz]foo");
+        assertEquals("[xyz]foo", c.payload);
+        assertEquals(UrlPayloadProcessor.InjectionClass.PREFIX,
+                c.classes.iterator().next()); // has default classes
+    }
+
+    @Test
+    void generator_betweenInjectionInsertsNewSegment() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        List<String> out = processor.generateUrlPayloads(List.of("[b]..;"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/..;/api/v1/users")),
+                "BETWEEN should produce ..; before first segment; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.contains("/api/..;/v1/users")),
+                "BETWEEN should produce ..; between api and v1; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/api/v1/users/..;")),
+                "BETWEEN should produce ..; after last segment; got " + out);
+    }
+
+    @Test
+    void generator_suffixOnlyPayloadDoesNotAppearAsPrefix() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/v1/users");
+        List<String> out = processor.generateUrlPayloads(List.of("[s]?evil"));
+        assertFalse(out.stream().anyMatch(u -> u.contains("/?evilapi")),
+                "[s] payload should not be prefix-injected; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.contains("users?evil")),
+                "[s] payload should still be suffix-appended; got " + out);
+    }
+
+    @Test
     void embeddedPayloadFileLoads() {
         List<String> payloads = PayloadLoader.loadPayloads("url_payloads.txt");
         assertFalse(payloads.isEmpty(), "url_payloads.txt must load");
@@ -116,9 +189,12 @@ class UrlPayloadProcessorTest {
         List<String> vanished = new java.util.ArrayList<>();
 
         for (String p : payloads) {
-            boolean verbatim = generated.stream().anyMatch(u -> u.contains(p));
-            String mangled = p.replace("%", "%25");
-            boolean mangledPresent = !p.equals(mangled)
+            // Strip any classification tag (e.g. [s]?) to the raw payload content;
+            // that's what actually reaches the wire.
+            String content = UrlPayloadProcessor.parseClassifiedPayload(p).payload;
+            boolean verbatim = generated.stream().anyMatch(u -> u.contains(content));
+            String mangled = content.replace("%", "%25");
+            boolean mangledPresent = !content.equals(mangled)
                     && generated.stream().anyMatch(u -> u.contains(mangled));
 
             if (verbatim) {

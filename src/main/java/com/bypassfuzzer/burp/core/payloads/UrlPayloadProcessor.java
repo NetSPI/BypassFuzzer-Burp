@@ -39,36 +39,55 @@ public class UrlPayloadProcessor {
     public List<String> generateUrlPayloads(List<String> urlPayloads) {
         Set<String> allPaths = new LinkedHashSet<>();
 
-        // Expand each payload into its case variants (e.g. %2e -> {%2e, %2E}) so we
-        // catch decoder-case bugs without hand-maintaining every variant in the file.
-        List<String> expandedPayloads = expandAllCaseVariants(urlPayloads);
+        // Parse classification tags, expand case variants, and keep class info per payload.
+        List<Classified> classified = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String line : urlPayloads) {
+            Classified cp = parseClassifiedPayload(line);
+            for (String variant : expandCaseVariants(cp.payload)) {
+                String key = cp.classes + "|" + variant;
+                if (seen.add(key)) {
+                    classified.add(new Classified(cp.classes, variant));
+                }
+            }
+        }
 
-        // Generate path permutations for each payload and path segment
-        for (int i = 0; i < pathSegments.size(); i++) {
-            for (String payload : expandedPayloads) {
+        for (Classified cp : classified) {
+            String payload = cp.payload;
+
+            for (int i = 0; i < pathSegments.size(); i++) {
                 String segment = pathSegments.get(i);
-
-                // Pattern 1: payload + segment (e.g., ../test1)
-                List<String> newSegments = new ArrayList<>(pathSegments);
-                newSegments.set(i, payload + segment);
-                allPaths.add(String.join("/", newSegments));
-
-                // Pattern 2: segment + payload (e.g., test1../)
-                newSegments = new ArrayList<>(pathSegments);
-                newSegments.set(i, segment + payload);
-                allPaths.add(String.join("/", newSegments));
-
-                // Pattern 3: payload + segment + payload (e.g., ../test1../)
-                newSegments = new ArrayList<>(pathSegments);
-                newSegments.set(i, payload + segment + payload);
-                allPaths.add(String.join("/", newSegments));
+                if (cp.classes.contains(InjectionClass.PREFIX)) {
+                    List<String> ns = new ArrayList<>(pathSegments);
+                    ns.set(i, payload + segment);
+                    allPaths.add(String.join("/", ns));
+                }
+                if (cp.classes.contains(InjectionClass.SUFFIX)) {
+                    List<String> ns = new ArrayList<>(pathSegments);
+                    ns.set(i, segment + payload);
+                    allPaths.add(String.join("/", ns));
+                }
+                if (cp.classes.contains(InjectionClass.SANDWICH)) {
+                    List<String> ns = new ArrayList<>(pathSegments);
+                    ns.set(i, payload + segment + payload);
+                    allPaths.add(String.join("/", ns));
+                }
             }
 
-            // Random capitalization (5 variations)
+            if (cp.classes.contains(InjectionClass.BETWEEN)) {
+                for (int i = 0; i <= pathSegments.size(); i++) {
+                    List<String> ns = new ArrayList<>(pathSegments);
+                    ns.add(i, payload);
+                    allPaths.add(String.join("/", ns));
+                }
+            }
+        }
+
+        for (int i = 0; i < pathSegments.size(); i++) {
             for (int r = 0; r < 5; r++) {
-                List<String> newSegments = new ArrayList<>(pathSegments);
-                newSegments.set(i, randomCapitalize(pathSegments.get(i)));
-                allPaths.add(String.join("/", newSegments));
+                List<String> ns = new ArrayList<>(pathSegments);
+                ns.set(i, randomCapitalize(pathSegments.get(i)));
+                allPaths.add(String.join("/", ns));
             }
         }
 
@@ -87,6 +106,45 @@ public class UrlPayloadProcessor {
         return convertPathsToUrls(new ArrayList<>(allPaths), suffixPayloads);
     }
 
+    // Injection pattern for a payload. PREFIX/SUFFIX/SANDWICH modify a path segment in
+    // place; BETWEEN inserts the payload as its own segment between existing ones
+    // (e.g. /api/..;/v1/users — not reachable via the other three).
+    enum InjectionClass { PREFIX, SUFFIX, SANDWICH, BETWEEN }
+
+    private static final Set<InjectionClass> DEFAULT_CLASSES =
+            Collections.unmodifiableSet(EnumSet.of(
+                    InjectionClass.PREFIX, InjectionClass.SUFFIX, InjectionClass.SANDWICH));
+
+    // Line tag: [flags]<payload>. Flags: p/s/w/b (single classes) or a (all four).
+    private static final Pattern TAG_RE = Pattern.compile("^\\[([pswba]+)\\](.+)$");
+
+    static final class Classified {
+        final Set<InjectionClass> classes;
+        final String payload;
+        Classified(Set<InjectionClass> classes, String payload) {
+            this.classes = classes;
+            this.payload = payload;
+        }
+    }
+
+    static Classified parseClassifiedPayload(String line) {
+        Matcher m = TAG_RE.matcher(line);
+        if (!m.matches()) {
+            return new Classified(DEFAULT_CLASSES, line);
+        }
+        EnumSet<InjectionClass> cs = EnumSet.noneOf(InjectionClass.class);
+        for (char c : m.group(1).toCharArray()) {
+            switch (c) {
+                case 'p': cs.add(InjectionClass.PREFIX); break;
+                case 's': cs.add(InjectionClass.SUFFIX); break;
+                case 'w': cs.add(InjectionClass.SANDWICH); break;
+                case 'b': cs.add(InjectionClass.BETWEEN); break;
+                case 'a': cs.addAll(EnumSet.allOf(InjectionClass.class)); break;
+            }
+        }
+        return new Classified(cs, m.group(2));
+    }
+
     // Captures the 2-hex-digit payload of a single- or double-level percent-encoding.
     // %XX matches the inner hex; %25XX matches the inner hex of a double-encoded form
     // (important for decoder-case bugs like React's %252F vs %252f).
@@ -94,14 +152,6 @@ public class UrlPayloadProcessor {
     // 2^LETTER_CAP is the max variants emitted per payload via full Cartesian expansion.
     // Beyond the cap we fall back to just [all-lower-hex, all-upper-hex].
     private static final int LETTER_CAP = 4;
-
-    static List<String> expandAllCaseVariants(List<String> payloads) {
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        for (String p : payloads) {
-            out.addAll(expandCaseVariants(p));
-        }
-        return new ArrayList<>(out);
-    }
 
     /**
      * Emit case variants of every %XX triplet in the payload. Digits are left alone,
