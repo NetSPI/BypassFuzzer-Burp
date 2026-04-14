@@ -3,6 +3,8 @@ package com.bypassfuzzer.burp.core.payloads;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Generates URL/path manipulation payloads by injecting patterns into each path segment.
@@ -37,9 +39,13 @@ public class UrlPayloadProcessor {
     public List<String> generateUrlPayloads(List<String> urlPayloads) {
         Set<String> allPaths = new LinkedHashSet<>();
 
+        // Expand each payload into its case variants (e.g. %2e -> {%2e, %2E}) so we
+        // catch decoder-case bugs without hand-maintaining every variant in the file.
+        List<String> expandedPayloads = expandAllCaseVariants(urlPayloads);
+
         // Generate path permutations for each payload and path segment
         for (int i = 0; i < pathSegments.size(); i++) {
-            for (String payload : urlPayloads) {
+            for (String payload : expandedPayloads) {
                 String segment = pathSegments.get(i);
 
                 // Pattern 1: payload + segment (e.g., ../test1)
@@ -79,6 +85,66 @@ public class UrlPayloadProcessor {
 
         // Convert paths back to full URLs
         return convertPathsToUrls(new ArrayList<>(allPaths), suffixPayloads);
+    }
+
+    private static final Pattern PCT_TRIPLET = Pattern.compile("%[0-9a-fA-F]{2}");
+    // 2^LETTER_CAP is the max variants emitted per payload via full Cartesian expansion.
+    // Beyond the cap we fall back to just [all-lower-hex, all-upper-hex].
+    private static final int LETTER_CAP = 4;
+
+    static List<String> expandAllCaseVariants(List<String> payloads) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (String p : payloads) {
+            out.addAll(expandCaseVariants(p));
+        }
+        return new ArrayList<>(out);
+    }
+
+    /**
+     * Emit case variants of every %XX triplet in the payload. Digits are left alone,
+     * hex letters (a-f/A-F) are toggled independently. Input payload is always kept
+     * verbatim. Bounded expansion: up to 2^LETTER_CAP full variants, otherwise just
+     * the original + all-lower + all-upper.
+     */
+    static List<String> expandCaseVariants(String payload) {
+        List<Integer> letterPositions = new ArrayList<>();
+        Matcher m = PCT_TRIPLET.matcher(payload);
+        while (m.find()) {
+            for (int i = m.start() + 1; i < m.end(); i++) {
+                char c = payload.charAt(i);
+                if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+                    letterPositions.add(i);
+                }
+            }
+        }
+        if (letterPositions.isEmpty()) {
+            return Collections.singletonList(payload);
+        }
+
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        out.add(payload);
+        int n = letterPositions.size();
+
+        if (n <= LETTER_CAP) {
+            for (int mask = 0; mask < (1 << n); mask++) {
+                out.add(applyLetterCase(payload, letterPositions, mask));
+            }
+        } else {
+            out.add(applyLetterCase(payload, letterPositions, 0));
+            out.add(applyLetterCase(payload, letterPositions, (1 << n) - 1));
+        }
+        return new ArrayList<>(out);
+    }
+
+    private static String applyLetterCase(String payload, List<Integer> positions, int mask) {
+        StringBuilder sb = new StringBuilder(payload);
+        for (int i = 0; i < positions.size(); i++) {
+            int pos = positions.get(i);
+            char c = payload.charAt(pos);
+            boolean upper = ((mask >> i) & 1) == 1;
+            sb.setCharAt(pos, upper ? Character.toUpperCase(c) : Character.toLowerCase(c));
+        }
+        return sb.toString();
     }
 
     private List<String> parsePathSegments(String path) {

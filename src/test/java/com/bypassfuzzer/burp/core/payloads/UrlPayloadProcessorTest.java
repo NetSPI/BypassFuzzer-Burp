@@ -11,6 +11,57 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class UrlPayloadProcessorTest {
 
     @Test
+    void expandCaseVariants_noHexLettersReturnsOriginalOnly() {
+        assertEquals(List.of("../"), UrlPayloadProcessor.expandCaseVariants("../"));
+        assertEquals(List.of("%20%23"), UrlPayloadProcessor.expandCaseVariants("%20%23"));
+    }
+
+    @Test
+    void expandCaseVariants_singleLetterProducesBothCases() {
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("%2e");
+        assertTrue(variants.contains("%2e"));
+        assertTrue(variants.contains("%2E"));
+        assertEquals(2, variants.size());
+    }
+
+    @Test
+    void expandCaseVariants_percentUFiveArgFormNotTouched() {
+        // %u002e is IIS-style Unicode escape (not a real percent-encoding). The '%u'
+        // prefix is not a valid %XX triplet, so the expander leaves it verbatim.
+        // To exercise both cases we rely on the hand-written %U002E variant in the file.
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("%u002e");
+        assertEquals(List.of("%u002e"), variants);
+    }
+
+    @Test
+    void expandCaseVariants_multiLetterCartesian() {
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("%2e%2f");
+        assertTrue(variants.contains("%2e%2f"));
+        assertTrue(variants.contains("%2E%2f"));
+        assertTrue(variants.contains("%2e%2F"));
+        assertTrue(variants.contains("%2E%2F"));
+        assertEquals(4, variants.size());
+    }
+
+    @Test
+    void expandCaseVariants_aboveCapFallsBackToJustAllLowerAndAllUpper() {
+        // %ef%bc%8f has 5 hex letters (e,f,b,c,f) > LETTER_CAP=4.
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("%ef%bc%8f");
+        assertTrue(variants.contains("%ef%bc%8f"));
+        assertTrue(variants.contains("%EF%BC%8F"));
+        assertTrue(variants.size() <= 3);
+    }
+
+    @Test
+    void expandCaseVariants_preservesNonLetterBytes() {
+        List<String> variants = UrlPayloadProcessor.expandCaseVariants("/%2e%2e/admin");
+        for (String v : variants) {
+            assertTrue(v.startsWith("/") && v.endsWith("/admin"),
+                    "non-hex bytes should be untouched: " + v);
+        }
+    }
+
+    @Test
     void embeddedPayloadFileLoads() {
         List<String> payloads = PayloadLoader.loadPayloads("url_payloads.txt");
         assertFalse(payloads.isEmpty(), "url_payloads.txt must load");
