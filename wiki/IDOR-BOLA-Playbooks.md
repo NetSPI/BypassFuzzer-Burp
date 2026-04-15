@@ -6,6 +6,45 @@ The registry lives in `src/main/java/com/bypassfuzzer/burp/core/idor/playbooks/I
 
 This page is meant to read like an operator guide, not just a registry dump. It shows why the tab exists, how the flow works, and what the raw requests look like when we mutate an identifier.
 
+## Table of Contents
+
+- [Why This Is In The Tool](#why-this-is-in-the-tool)
+- [Core Flow](#core-flow)
+- [Context-Aware Model](#context-aware-model)
+- [Naming Scheme](#naming-scheme)
+- [Current Playbooks](#current-playbooks)
+  - [`idor.path.suffix_formats`](#idorpathsuffix_formats)
+  - [`idor.path.trailing_slash`](#idorpathtrailing_slash)
+  - [`idor.path.special_identifier_values`](#idorpathspecial_identifier_values)
+  - [`idor.path.dot_segments`](#idorpathdot_segments)
+  - [`idor.query.conflicting_identifiers`](#idorqueryconflicting_identifiers)
+  - [`idor.hybrid.cross_source_conflicts`](#idorhybridcross_source_conflicts)
+  - [`idor.query.parameter_pollution`](#idorqueryparameter_pollution)
+  - [`idor.query.comma_separated_identifiers`](#idorquerycomma_separated_identifiers)
+  - [`idor.query.json_wrap`](#idorqueryjson_wrap)
+  - [`idor.query.identifier_aliases`](#idorqueryidentifier_aliases)
+  - [`idor.query.numeric_pivots`](#idorquerynumeric_pivots)
+  - [`idor.body.content_type_tampering`](#idorbodycontent_type_tampering)
+  - [`idor.body.json_batch_identifiers`](#idorbodyjson_batch_identifiers)
+  - [`idor.hybrid.accept_negotiation`](#idorhybridaccept_negotiation)
+  - [`idor.body.json_wrap`](#idorbodyjson_wrap)
+  - [`idor.body.deserialization_hints`](#idorbodydeserialization_hints)
+  - [`idor.body.json_parameter_pollution`](#idorbodyjson_parameter_pollution)
+  - [`idor.body.wildcard_identifiers`](#idorbodywildcard_identifiers)
+  - [`idor.body.unexpected_data_types`](#idorbodyunexpected_data_types)
+  - [`idor.hybrid.trailing_control_characters`](#idorhybridtrailing_control_characters)
+  - [`idor.hybrid.empty_identifier_values`](#idorhybridempty_identifier_values)
+  - [`idor.hybrid.resource_shortcuts`](#idorhybridresource_shortcuts)
+  - [`idor.hybrid.case_variants`](#idorhybridcase_variants)
+  - [`idor.hybrid.canonical_identifier_formats`](#idorhybridcanonical_identifier_formats)
+  - [`idor.hybrid.uuid_neighbor_edits`](#idorhybriduuid_neighbor_edits)
+  - [`idor.hybrid.truncated_identifier_variants`](#idorhybridtruncated_identifier_variants)
+  - [`idor.hybrid.uuid_version_variants`](#idorhybriduuid_version_variants)
+  - [`idor.hybrid.identifier_encoding`](#idorhybrididentifier_encoding)
+  - [`idor.hybrid.method_override`](#idorhybridmethod_override)
+- [Notes For Future Additions](#notes-for-future-additions)
+- [Documentation Rule](#documentation-rule)
+
 ## Why This Is In The Tool
 
 An IDOR/BOLA workflow is different from a generic AuthZ bypass workflow.
