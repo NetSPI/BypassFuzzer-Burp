@@ -220,6 +220,18 @@ You can edit the payload files before building. UI config for this will be added
 
    Example: `debug=true`
 
+## Syncing with Upstream
+
+The URL Validation tab is driven by the PortSwigger [`url-cheatsheet-data`](https://github.com/PortSwigger/url-cheatsheet-data) repository, mirrored into [`src/main/resources/payloads/url_validation_source_data.json`](src/main/resources/payloads/url_validation_source_data.json).
+
+To pull the latest payloads from upstream:
+
+```bash
+python3 scripts/sync-url-cheatsheet.py
+```
+
+The script clones the upstream repo, rebuilds our source JSON, and reports what changed. If payloads were added or removed, review the diff and update the `expected` map in `UrlValidationPayloadGeneratorTest#bundledSourceDataHasExpectedCategorySizes` before committing. Run `./gradlew test` afterward to confirm nothing regressed.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.

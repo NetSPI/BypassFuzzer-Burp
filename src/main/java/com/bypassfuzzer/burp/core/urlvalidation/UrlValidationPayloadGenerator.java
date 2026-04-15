@@ -38,18 +38,6 @@ public class UrlValidationPayloadGenerator {
         UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
         UrlValidationAttackSetting.LOOPBACK
     );
-    private static final Set<String> CORS_EXCLUDED_SOURCE_IDS = Set.of(
-        "774d39681f93dd129c28e19122be14831684a1ae",
-        "f290a8f3c04e67ee70722ae1e0d0a821a1b74408",
-        "363d6e8b3bc70faf9bf55367f127ff502fb3f429",
-        "8d52c4fcf76fa2e662a3df7903653189af480967",
-        "715a06de30c2c88c39fe5e586cb906d436940a40",
-        "97cef03a53eb5bd597deb2eb703e419eb2e70aa1",
-        "cfa39a4008237a7be563114230f1aa624ce0c46c",
-        "18a114b8a46c2f257d2a84cd3a9ef7d85966cf03",
-        "6144ab11463cbf6c4346ecfb5aebf2e135e89984",
-        "aa2b6caa1bc125a1617a779bf35faf2a7ea71114"
-    );
 
     public List<UrlValidationPayload> generate(UrlValidationCandidate candidate, UrlValidationOptions options) {
         return generate(candidate, options, options::normalizedAttackerHost);
@@ -76,9 +64,6 @@ public class UrlValidationPayloadGenerator {
             for (SourcePayload sourcePayload : sourcePayloads) {
                 for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
                     if (!sourcePayload.supports(family)) {
-                        continue;
-                    }
-                    if (family == UrlValidationContext.CORS_ORIGIN && CORS_EXCLUDED_SOURCE_IDS.contains(sourcePayload.id())) {
                         continue;
                     }
                     String attackerHost = attackerHostSupplier.get();

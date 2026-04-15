@@ -1,8 +1,14 @@
 package com.bypassfuzzer.burp.core.urlvalidation;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -228,5 +234,71 @@ class UrlValidationPayloadGeneratorTest {
         assertTrue(userInfoPayloads.contains("https://@collab-5.oastify.com"));
         assertTrue(userInfoPayloads.contains("http:@collab-6.oastify.com"));
         assertTrue(userInfoPayloads.contains("https:@collab-7.oastify.com"));
+    }
+
+    // --- Upstream sync sanity checks ---
+    // The bundled url_validation_source_data.json mirrors the upstream
+    // PortSwigger url-cheatsheet-data repo. These tests fail if a local
+    // edit accidentally drops or duplicates payloads. scripts/sync-url-
+    // cheatsheet.py pulls fresh upstream data; if it changes a count
+    // below, bump the expected number.
+
+    @Test
+    void bundledSourceDataHasExpectedCategorySizes() throws Exception {
+        // Load the raw JSON resource and count payloads per category. Catches
+        // local edits that drop/duplicate entries or break the file format.
+        try (InputStream stream = getClass().getResourceAsStream("/payloads/url_validation_source_data.json")) {
+            assertTrue(stream != null, "resource /payloads/url_validation_source_data.json must load");
+            List<Map<String, Object>> wordlists = new Gson().fromJson(
+                new InputStreamReader(stream, StandardCharsets.UTF_8),
+                new TypeToken<List<Map<String, Object>>>() {}.getType()
+            );
+
+            Map<String, Integer> expected = Map.of(
+                "DOMAIN_ALLOW_LIST_BYPASS",         94,
+                "FAKE_RELATIVE_URLS",                73,
+                "LOOPBACK",                          68,
+                "IPV6",                               3,
+                "CLOUD_METADATA_ENDPOINTS",          17,
+                "URL_SPLITTING_UNICODE_CHARACTERS",  51
+            );
+
+            assertEquals(expected.size(), wordlists.size(), "expected 6 wordlist categories");
+            for (Map<String, Object> wordlist : wordlists) {
+                String setting = (String) wordlist.get("setting");
+                List<?> payloads = (List<?>) wordlist.get("payloads");
+                Integer want = expected.get(setting);
+                assertTrue(want != null, "unexpected category: " + setting);
+                assertEquals(
+                    want.intValue(), payloads.size(),
+                    setting + " drifted from upstream. Re-run scripts/sync-url-cheatsheet.py "
+                        + "and bump the expected value in this test if the upstream count changed."
+                );
+            }
+        }
+    }
+
+    @Test
+    void loopbackCorsPayloadsAreNoLongerFiltered() {
+        // Upstream tags loopback payloads like 127.0.0.1 and [::1] with CORS.
+        // We previously dropped them via a hardcoded exclusion list; now we
+        // follow upstream and emit them.
+        UrlValidationPayloadGenerator generator = new UrlValidationPayloadGenerator();
+        UrlValidationCandidate candidate = new UrlValidationCandidate("{INJECT}", "{INJECT}", "marker", (request, newValue) -> request);
+        UrlValidationOptions options = new UrlValidationOptions(
+            "{INJECT}", "trusted.example", "attacker.example", false, "https",
+            Set.of(UrlValidationContext.CORS_ORIGIN),
+            Set.of(UrlValidationAttackSetting.LOOPBACK),
+            UrlValidationEncoding.RAW,
+            0, Set.of()
+        );
+
+        List<UrlValidationPayload> payloads = generator.generate(candidate, options);
+
+        // Presence of any previously-excluded id is enough to prove the filter is gone.
+        assertTrue(payloads.stream().anyMatch(p -> p.value().contains("127.0.0.1")),
+            "expected a 127.0.0.1 CORS payload; got " + payloads.size() + " total");
+        assertTrue(payloads.stream().anyMatch(p -> p.value().contains("localhost")),
+            "expected a localhost CORS payload");
     }
 }
