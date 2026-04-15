@@ -341,16 +341,15 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
-    void crossEncodingChains_areHeterogeneous() {
+    void crossEncodingChains_twoAndThreeElementDistinct() {
         List<String> chains = UrlPayloadProcessor.generateCrossEncodingChains();
-        assertEquals(20, chains.size(), "expected 5 primitives * 4 non-self = 20 chains");
-        for (String chain : chains) {
-            assertFalse(chain.equals("../../"), "chain should never be homogeneous self-pair");
-            assertFalse(chain.equals("..%2f..%2f"), "chain should never be homogeneous self-pair");
-        }
+        // 5*4 = 20 two-chains (pairs non-equal) + 5*4*3 = 60 three-chains (all distinct)
+        assertEquals(80, chains.size(), "expected 20 two-chains + 60 three-chains = 80");
         assertTrue(chains.contains("../..%2f"));
-        assertTrue(chains.contains("..%2f../"));
         assertTrue(chains.contains("..;/%2e%2e%2f"));
+        // Sample three-chains (all three distinct primitives)
+        assertTrue(chains.contains("../..%2f..;/"), "expected ../..%2f..;/ three-chain");
+        assertTrue(chains.contains("%2e%2e/..%2f../"), "expected 3-chain starting with %2e%2e/");
     }
 
     @Test

@@ -233,10 +233,23 @@ public class UrlPayloadProcessor {
 
     static List<String> generateCrossEncodingChains() {
         List<String> out = new ArrayList<>();
+        // 2-chains: heterogeneous pair (a != b). Catches 1-layer parser-diff.
         for (String a : TRAVERSAL_PRIMITIVES) {
             for (String b : TRAVERSAL_PRIMITIVES) {
                 if (!a.equals(b)) {
                     out.add(a + b);
+                }
+            }
+        }
+        // 3-chains: all three distinct. Targets WAF/proxy stacks with normalizer
+        // depth limits that bail out after 1-2 passes — the leftover mismatched
+        // encoding gets forwarded verbatim and origin keeps normalizing to target.
+        for (String a : TRAVERSAL_PRIMITIVES) {
+            for (String b : TRAVERSAL_PRIMITIVES) {
+                if (a.equals(b)) continue;
+                for (String c : TRAVERSAL_PRIMITIVES) {
+                    if (c.equals(a) || c.equals(b)) continue;
+                    out.add(a + b + c);
                 }
             }
         }

