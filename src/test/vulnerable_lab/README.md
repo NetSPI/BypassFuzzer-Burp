@@ -59,6 +59,11 @@ The lab is meant to double as a consultant demo environment. Each bypass-tab pla
 | URL Validation (Absolute URL) | `GET /redirect/next?next={INJECT}` | `url-allowlist-bypass` |
 | URL Validation (Hostname) | `GET /host/check?host={INJECT}` | `hostname-allowlist-bypass` |
 | URL Validation (CORS Origin) | `GET /cors/profile` with `Origin: {INJECT}` | `cors-origin-bypass` |
+| Realistic: Sacrificial-Prefix | `GET /static/../admin/api/users` | `sacrificial-prefix-exemption` |
+| Realistic: Per-Char Encoding | `GET /api/profile/%61lice` | `per-char-encoding` |
+| Realistic: Matrix-Suffix | `GET /api/tenants/acme/invoices/INV-42;jsessionid=x` | `matrix-param-suffix` |
+| Realistic: Double-Encoding | `GET /api/gateway/%2561dmin` | `double-encoding` |
+| Realistic: Splitter | `GET /api/a%09udit/export` | `splitter-via-stripped-chars` |
 
 ### Header Trust
 
@@ -283,6 +288,65 @@ Note:
 
 - this lab is built on Python stdlib `http.server`, so it is useful for `HTTP/1.0` vs `HTTP/1.1` smoke checks
 - it is not a full HTTP/2 target
+
+## Realistic Bypass Routes
+
+Five routes model specific WAF+origin disagreement bugs you'd find in production. Each baseline returns `403` with a realistic error JSON. Each bypass returns `200` with plausible sensitive data and an `X-Smoke-Bypass` header naming the technique. The handlers are implemented as two explicit layers (WAF check, then origin dispatch) so the bug shape is readable directly from the source.
+
+### `/admin/api/users` — sacrificial-prefix exemption
+
+**Bug modeled:** AuthZ middleware exempts asset-serving prefixes (`/static/*`, `/public/*`, `/assets/*`, `/images/*`) from the auth check. The exemption test runs on the RAW path; dispatch runs on the NORMALIZED path.
+
+```http
+GET /admin/api/users HTTP/1.1                   # baseline -> 403 admin role required
+GET /static/../admin/api/users HTTP/1.1         # bypass -> 200, returns admin users JSON
+```
+
+Response on bypass: list of admin/service accounts (username, email, role, last_login).
+
+### `/api/profile/alice` — per-character encoding
+
+**Bug modeled:** WAF matches the raw path segment literally against a block-list of high-value user profiles. The origin decodes `%XX` before dispatching.
+
+```http
+GET /api/profile/alice HTTP/1.1                 # baseline -> 403 PII block rule
+GET /api/profile/%61lice HTTP/1.1               # bypass -> 200, returns alice's profile
+```
+
+Response on bypass: full user profile (id, email, MFA status, created_at).
+
+### `/api/tenants/acme/invoices/INV-42` — matrix-parameter suffix
+
+**Bug modeled:** Tomcat/Jetty/Spring strip `;matrix=params` from each segment before routing. A WAF regex anchored to the literal path won't match a URL with a matrix suffix, but the servlet container still dispatches to the invoice handler.
+
+```http
+GET /api/tenants/acme/invoices/INV-42 HTTP/1.1            # baseline -> 403
+GET /api/tenants/acme/invoices/INV-42;jsessionid=x HTTP/1.1  # bypass -> 200
+```
+
+Response on bypass: invoice JSON (amount, line items, status, due date).
+
+### `/api/gateway/admin` — double-encoding
+
+**Bug modeled:** The WAF URL-decodes once before its ACL check; the origin decodes twice (proxy + framework). A double-encoded payload passes the WAF's single-decoded view but still resolves on the origin.
+
+```http
+GET /api/gateway/admin HTTP/1.1                 # baseline -> 403 perimeter WAF
+GET /api/gateway/%2561dmin HTTP/1.1             # bypass -> 200, returns gateway config
+```
+
+Response on bypass: gateway routing config, rate-limit settings, shared secret.
+
+### `/api/audit/export` — splitter via stripped control chars
+
+**Bug modeled:** The WAF decodes once and checks for literal substrings. The origin decodes once, then strips tab/LF/CR bytes before routing. A `%09`-tab embedded inside the protected segment decodes to a tab-containing string the WAF doesn't match, but the origin strips the tab and dispatches.
+
+```http
+GET /api/audit/export HTTP/1.1                  # baseline -> 403 deny-audit-egress
+GET /api/a%09udit/export HTTP/1.1               # bypass -> 200, returns audit events
+```
+
+Response on bypass: recent audit events (actor, action, target, source IP, timestamp).
 
 ## Response markers
 

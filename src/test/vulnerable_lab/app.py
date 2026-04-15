@@ -12,6 +12,74 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
+# Realistic bypass-route fixtures. Each route below models ONE specific AuthZ
+# bypass pattern with an explicit WAF layer + origin layer so the bug is easy
+# to read in the code and the response body carries plausible sensitive data.
+
+USERS_DB = {
+    "alice":   {"id": 1,  "username": "alice",   "email": "alice@acme.example",   "role": "user",    "mfa_enrolled": True,  "created_at": "2023-06-14T10:42:00Z"},
+    "bob":     {"id": 2,  "username": "bob",     "email": "bob@acme.example",     "role": "user",    "mfa_enrolled": False, "created_at": "2024-01-09T14:11:33Z"},
+    "charlie": {"id": 3,  "username": "charlie", "email": "charlie@acme.example", "role": "user",    "mfa_enrolled": True,  "created_at": "2024-08-22T08:03:12Z"},
+    "admin":   {"id": 99, "username": "admin",   "email": "admin@acme.example",   "role": "admin",   "mfa_enrolled": True,  "created_at": "2022-01-01T00:00:00Z"},
+}
+
+INVOICES_DB = {
+    ("acme", "INV-42"): {
+        "invoice_id": "INV-42",
+        "tenant": "acme",
+        "status": "paid",
+        "amount_cents": 1284729,
+        "currency": "USD",
+        "issued": "2025-09-14",
+        "due": "2025-10-14",
+        "line_items": [{"sku": "ENT-SUPPORT-Q3", "qty": 1, "amount_cents": 1284729}],
+    },
+    ("acme", "INV-43"): {
+        "invoice_id": "INV-43",
+        "tenant": "acme",
+        "status": "pending",
+        "amount_cents": 459200,
+        "currency": "USD",
+        "issued": "2025-10-01",
+        "due": "2025-11-01",
+        "line_items": [{"sku": "ENT-STORAGE-Q4", "qty": 10, "amount_cents": 459200}],
+    },
+}
+
+ADMIN_USERS_LIST = [
+    {"id": 99,  "username": "admin",          "email": "admin@acme.example",          "role": "admin",   "last_login": "2026-04-14T09:22:14Z"},
+    {"id": 42,  "username": "svc-deploy",     "email": "svc-deploy@acme.example",     "role": "service", "last_login": "2026-04-14T10:01:03Z"},
+    {"id": 108, "username": "compliance-bot", "email": "compliance@acme.example",     "role": "service", "last_login": "2026-04-14T03:45:00Z"},
+]
+
+GATEWAY_ADMIN_CONFIG = {
+    "routing": {
+        "primary_gateway":  "gw-us-east-1.internal",
+        "failover_gateway": "gw-us-west-2.internal",
+        "upstream_pool":    ["app-01.internal", "app-02.internal", "app-03.internal"],
+    },
+    "rate_limits":   {"global_rps": 5000, "per_tenant_rps": 200},
+    "debug_flags":   {"trace_requests": False, "dump_headers": False, "log_waf_miss": True},
+    "shared_secret": "rotate-2026-04-14-sk_live_PLACEHOLDER",
+}
+
+AUDIT_EVENTS = [
+    {"ts": "2026-04-14T09:21:11Z", "actor": "admin",      "action": "user.create",    "target": "alice",       "src_ip": "10.2.3.4"},
+    {"ts": "2026-04-14T10:05:42Z", "actor": "admin",      "action": "policy.update",  "target": "authz-v3",    "src_ip": "10.2.3.4"},
+    {"ts": "2026-04-14T11:18:29Z", "actor": "svc-deploy", "action": "deploy.prod",    "target": "api-v2.8.0",  "src_ip": "10.4.5.6"},
+    {"ts": "2026-04-14T12:02:07Z", "actor": "admin",      "action": "role.grant",     "target": "bob:editor",  "src_ip": "10.2.3.4"},
+]
+
+# Route constants for the new realistic-bypass endpoints
+SACRIFICIAL_PREFIX_ROUTE = "/admin/api/users"
+PER_CHAR_ENCODING_ROUTE  = "/api/profile/alice"
+MATRIX_SUFFIX_ROUTE_RE   = re.compile(r"^/api/tenants/([a-z]+)/invoices/(INV-\d+)$")
+DOUBLE_ENCODING_ROUTE    = "/api/gateway/admin"
+SPLITTER_ROUTE           = "/api/audit/export"
+
+AUTHZ_EXEMPT_PREFIXES = ("/static/", "/public/", "/assets/", "/images/")
+
+
 TRUTHY_VALUES = {"1", "true", "yes", "on", "admin", "root"}
 ADMIN_KEYS = {"debug", "is_admin", "isadmin", "access", "role"}
 TRUSTED_HOST = "trusted.example"
@@ -227,11 +295,22 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 (
                     "BypassFuzzer vulnerable lab\n"
-                    "Visit /login first, then try "
-                    "/edge/private/reports/quarterly, /api/v1/reports/export, /tenant/acme/billing/invoices, "
-                    "/console/settings/users, /rest/admin/users/42, /api/internal/runtime/config, "
-                    "/portal/account/export, /edge/admin/console, /graphql/internal/preferences, "
-                    "/api/v2/admin/audit, /legacy/admin/audit, /redirect/next, /host/check, and /cors/profile\n"
+                    "Visit /login first, then try:\n"
+                    "\n"
+                    "Legacy smoke-test routes:\n"
+                    "  /edge/private/reports/quarterly, /api/v1/reports/export,\n"
+                    "  /tenant/acme/billing/invoices, /console/settings/users,\n"
+                    "  /rest/admin/users/42, /api/internal/runtime/config,\n"
+                    "  /portal/account/export, /edge/admin/console,\n"
+                    "  /graphql/internal/preferences, /api/v2/admin/audit,\n"
+                    "  /legacy/admin/audit, /redirect/next, /host/check, /cors/profile\n"
+                    "\n"
+                    "Realistic-bypass routes (WAF+origin disagreement, JSON responses):\n"
+                    "  /admin/api/users                          sacrificial-prefix via /static/../\n"
+                    "  /api/profile/alice                        per-char encoding (/%61lice)\n"
+                    "  /api/tenants/acme/invoices/INV-42         matrix-param suffix (;jsessionid=x)\n"
+                    "  /api/gateway/admin                        double-encoding (%2561dmin)\n"
+                    "  /api/audit/export                         splitter via stripped \\t (%09)\n"
                 ),
                 send_body,
             )
@@ -248,6 +327,12 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
 
         if exact_path == "/health":
             self.respond(HTTPStatus.OK, "ok\n", send_body)
+            return
+
+        # Realistic-bypass routes — each models ONE specific WAF+origin
+        # disagreement. They must run BEFORE the flattening path dispatch
+        # below because they need to inspect the raw request bytes.
+        if self.try_realistic_bypass_routes(authenticated, raw_path, send_body):
             return
 
         if normalized_path in PATH_NORMALIZATION_ROUTES:
@@ -591,6 +676,216 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
             return
 
         self.respond(HTTPStatus.FORBIDDEN, "origin blocked by validation\n", send_body)
+
+    # ------------------------------------------------------------------------
+    # Realistic AuthZ-bypass routes. Each route models ONE specific bug with
+    # an explicit WAF layer + origin layer written as two steps so the bug is
+    # obvious from reading the code. Responses are realistic JSON payloads
+    # containing plausible sensitive data to demonstrate impact.
+    # ------------------------------------------------------------------------
+
+    def try_realistic_bypass_routes(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        for handler in (
+            self.try_sacrificial_prefix_admin,
+            self.try_per_char_encoding_profile,
+            self.try_matrix_suffix_invoice,
+            self.try_double_encoding_gateway,
+            self.try_splitter_audit,
+        ):
+            if handler(authenticated, raw_path, send_body):
+                return True
+        return False
+
+    def try_sacrificial_prefix_admin(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: AuthZ middleware exempts /static/*, /public/*, /assets/* from auth
+        checks (common framework pattern for asset serving). The exemption test
+        runs on the RAW path. Dispatch runs on the NORMALIZED path. A request
+        with raw path /static/../admin/api/users normalizes to /admin/api/users
+        after middleware has already waved it through.
+        """
+        normalized = normalize_dot_segments(urllib.parse.unquote(raw_path))
+        if normalized != SACRIFICIAL_PREFIX_ROUTE:
+            return False
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        is_exempt = raw_path.startswith(AUTHZ_EXEMPT_PREFIXES)
+        user_role = "user"  # lab session is always a regular user
+
+        if not is_exempt and user_role != "admin":
+            self.respond(HTTPStatus.FORBIDDEN, "admin role required\n", send_body)
+            return True
+
+        bypass = is_exempt and raw_path != SACRIFICIAL_PREFIX_ROUTE
+        self.respond_json(
+            HTTPStatus.OK,
+            {"users": ADMIN_USERS_LIST, "count": len(ADMIN_USERS_LIST)},
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "sacrificial-prefix-exemption"} if bypass else None,
+        )
+        return True
+
+    def try_per_char_encoding_profile(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: WAF matches raw path segment literally against a blocklist of high-
+        value user profiles (/api/profile/alice). The origin decodes %XX before
+        dispatching. A request for /api/profile/%61lice slips past the WAF's
+        literal-substring check but still resolves alice's profile at the origin.
+        """
+        decoded = urllib.parse.unquote(raw_path)
+        if decoded != PER_CHAR_ENCODING_ROUTE:
+            return False
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        waf_blocks = PER_CHAR_ENCODING_ROUTE in raw_path  # literal-substring WAF rule
+
+        if waf_blocks:
+            self.respond_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "profile blocked by WAF rule protecting-pii-alice"},
+                send_body,
+            )
+            return True
+
+        profile = USERS_DB["alice"]
+        self.respond_json(
+            HTTPStatus.OK,
+            profile,
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "per-char-encoding"},
+        )
+        return True
+
+    def try_matrix_suffix_invoice(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: Tomcat/Jetty/Spring strip ;matrix=params from each segment before
+        routing. A WAF that regex-matches the literal path won't match a URL
+        with a matrix suffix, but the servlet container still dispatches to the
+        same invoice handler.
+        """
+        stripped_path = "/".join(segment.split(";", 1)[0] for segment in raw_path.split("/"))
+        match = MATRIX_SUFFIX_ROUTE_RE.match(stripped_path)
+        if not match:
+            return False
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        tenant, invoice_id = match.group(1), match.group(2)
+
+        waf_regex = MATRIX_SUFFIX_ROUTE_RE
+        waf_blocks = bool(waf_regex.match(raw_path))
+
+        if waf_blocks:
+            self.respond_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "invoice blocked by WAF", "rule": "finance-invoice-readonly"},
+                send_body,
+            )
+            return True
+
+        invoice = INVOICES_DB.get((tenant, invoice_id))
+        if invoice is None:
+            self.respond_json(HTTPStatus.NOT_FOUND, {"error": "invoice not found"}, send_body)
+            return True
+
+        self.respond_json(
+            HTTPStatus.OK,
+            invoice,
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "matrix-param-suffix"},
+        )
+        return True
+
+    def try_double_encoding_gateway(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: The WAF percent-decodes the path once before applying its ACL. The
+        origin decodes twice (proxy + framework). A payload that's double-
+        encoded (%2561 -> %61 after WAF decode, -> a after origin decode) passes
+        the WAF's single-decoded check while the origin still dispatches to the
+        protected gateway admin handler.
+        """
+        single_decoded = urllib.parse.unquote(raw_path)
+        double_decoded = urllib.parse.unquote(single_decoded)
+        if double_decoded != DOUBLE_ENCODING_ROUTE:
+            return False
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        waf_blocks = (single_decoded == DOUBLE_ENCODING_ROUTE)
+
+        if waf_blocks:
+            self.respond_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "gateway admin blocked by perimeter WAF"},
+                send_body,
+            )
+            return True
+
+        self.respond_json(
+            HTTPStatus.OK,
+            GATEWAY_ADMIN_CONFIG,
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "double-encoding"},
+        )
+        return True
+
+    def try_splitter_audit(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: The WAF percent-decodes the path once and checks for literal
+        substrings. The origin decodes once, then strips tab / LF / CR bytes
+        before routing. A payload that embeds %09 (tab) inside the protected
+        segment decodes to a tab-containing string the WAF doesn't match, but
+        the origin strips the tab and dispatches to the audit handler.
+        """
+        single_decoded = urllib.parse.unquote(raw_path)
+        stripped = re.sub(r"[\t\n\r]", "", single_decoded)
+        if stripped != SPLITTER_ROUTE:
+            return False
+        if not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        waf_blocks = "/api/audit/" in single_decoded
+
+        if waf_blocks:
+            self.respond_json(
+                HTTPStatus.FORBIDDEN,
+                {"error": "audit export blocked by WAF", "rule": "deny-audit-egress"},
+                send_body,
+            )
+            return True
+
+        self.respond_json(
+            HTTPStatus.OK,
+            {"events": AUDIT_EVENTS, "count": len(AUDIT_EVENTS)},
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "splitter-via-stripped-chars"},
+        )
+        return True
+
+    def respond_json(
+        self,
+        status: HTTPStatus,
+        body: object,
+        send_body: bool,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        payload = (json.dumps(body, indent=2) + "\n").encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        if extra_headers:
+            for name, value in extra_headers.items():
+                self.send_header(name, value)
+        self.end_headers()
+        if send_body:
+            self.wfile.write(payload)
 
     def respond(
         self,
