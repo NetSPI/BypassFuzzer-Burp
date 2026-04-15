@@ -76,6 +76,20 @@ PER_CHAR_ENCODING_ROUTE  = "/api/profile/alice"
 MATRIX_SUFFIX_ROUTE_RE   = re.compile(r"^/api/tenants/([a-z]+)/invoices/(INV-\d+)$")
 DOUBLE_ENCODING_ROUTE    = "/api/gateway/admin"
 SPLITTER_ROUTE           = "/api/audit/export"
+REWRITE_HEADER_ROUTE     = "/internal/dashboard"
+
+INTERNAL_DASHBOARD_DATA = {
+    "dashboard": "internal-ops",
+    "active_incidents": [
+        {"id": "INC-2301", "severity": "high", "title": "prod-api p99 latency regression", "owner": "sre-oncall"},
+        {"id": "INC-2298", "severity": "medium", "title": "billing nightly job stuck at step 3", "owner": "finance-eng"},
+    ],
+    "deploys_pending": [
+        {"service": "checkout-api",  "version": "v4.12.1-rc3", "approved_by": None},
+        {"service": "identity-idp",  "version": "v2.88.0",     "approved_by": "admin"},
+    ],
+    "feature_flags": {"new_pricing_engine": True, "experimental_rate_limiter": False},
+}
 
 AUTHZ_EXEMPT_PREFIXES = ("/static/", "/public/", "/assets/", "/images/")
 
@@ -306,11 +320,12 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
                     "  /legacy/admin/audit, /redirect/next, /host/check, /cors/profile\n"
                     "\n"
                     "Realistic-bypass routes (WAF+origin disagreement, JSON responses):\n"
-                    "  /admin/api/users                          sacrificial-prefix via /static/../\n"
+                    "  /admin/api/users                          sacrificial-prefix via /static/../      [UNAUTH OK]\n"
                     "  /api/profile/alice                        per-char encoding (/%61lice)\n"
                     "  /api/tenants/acme/invoices/INV-42         matrix-param suffix (;jsessionid=x)\n"
                     "  /api/gateway/admin                        double-encoding (%2561dmin)\n"
-                    "  /api/audit/export                         splitter via stripped \\t (%09)\n"
+                    "  /api/audit/export                         splitter via stripped \\t (%09)         [UNAUTH OK]\n"
+                    "  /internal/dashboard                       X-Original-URL header rewrite         [UNAUTH OK]\n"
                 ),
                 send_body,
             )
@@ -691,6 +706,7 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
             self.try_matrix_suffix_invoice,
             self.try_double_encoding_gateway,
             self.try_splitter_audit,
+            self.try_rewrite_header_dashboard,
         ):
             if handler(authenticated, raw_path, send_body):
                 return True
@@ -698,32 +714,44 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
 
     def try_sacrificial_prefix_admin(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
         """
-        BUG: AuthZ middleware exempts /static/*, /public/*, /assets/* from auth
-        checks (common framework pattern for asset serving). The exemption test
-        runs on the RAW path. Dispatch runs on the NORMALIZED path. A request
-        with raw path /static/../admin/api/users normalizes to /admin/api/users
-        after middleware has already waved it through.
+        BUG: Asset-serving middleware (Express/Nuxt/Nginx) matches /static/*,
+        /public/*, /assets/*, /images/* on the RAW path FIRST and skips BOTH
+        authentication and authorization — because static files shouldn't
+        require login. The router still dispatches on the NORMALIZED path.
+        A request to /static/../admin/api/users has its middleware exemption
+        granted on the raw prefix, then lands on the admin handler unauth.
         """
         normalized = normalize_dot_segments(urllib.parse.unquote(raw_path))
         if normalized != SACRIFICIAL_PREFIX_ROUTE:
             return False
+
+        is_exempt = raw_path.startswith(AUTHZ_EXEMPT_PREFIXES)
+        bypass = is_exempt and raw_path != SACRIFICIAL_PREFIX_ROUTE
+
+        if bypass:
+            # Middleware exempted the request — no auth check runs at all.
+            self.respond_json(
+                HTTPStatus.OK,
+                {"users": ADMIN_USERS_LIST, "count": len(ADMIN_USERS_LIST)},
+                send_body,
+                extra_headers={"X-Smoke-Bypass": "sacrificial-prefix-exemption-unauth"},
+            )
+            return True
+
+        # No bypass shape — normal auth and role checks apply.
         if not authenticated:
             self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
             return True
 
-        is_exempt = raw_path.startswith(AUTHZ_EXEMPT_PREFIXES)
         user_role = "user"  # lab session is always a regular user
-
-        if not is_exempt and user_role != "admin":
+        if user_role != "admin":
             self.respond(HTTPStatus.FORBIDDEN, "admin role required\n", send_body)
             return True
 
-        bypass = is_exempt and raw_path != SACRIFICIAL_PREFIX_ROUTE
         self.respond_json(
             HTTPStatus.OK,
             {"users": ADMIN_USERS_LIST, "count": len(ADMIN_USERS_LIST)},
             send_body,
-            extra_headers={"X-Smoke-Bypass": "sacrificial-prefix-exemption"} if bypass else None,
         )
         return True
 
@@ -837,23 +865,27 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
 
     def try_splitter_audit(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
         """
-        BUG: The WAF percent-decodes the path once and checks for literal
-        substrings. The origin decodes once, then strips tab / LF / CR bytes
-        before routing. A payload that embeds %09 (tab) inside the protected
-        segment decodes to a tab-containing string the WAF doesn't match, but
-        the origin strips the tab and dispatches to the audit handler.
+        BUG: The WAF applies BOTH authentication and deny rules based on path-
+        regex match. When the path string doesn't match /api/audit/*, no WAF
+        check runs at all — including the auth gate. The WAF percent-decodes
+        the path once before matching. The origin decodes once, then strips
+        tab / LF / CR bytes before routing. A payload embedding %09 inside the
+        protected segment decodes to a tab-containing string the WAF doesn't
+        match, and since no WAF rule matches, no auth is required either. The
+        origin strips the tab and dispatches to the audit handler unauth.
         """
         single_decoded = urllib.parse.unquote(raw_path)
         stripped = re.sub(r"[\t\n\r]", "", single_decoded)
         if stripped != SPLITTER_ROUTE:
             return False
-        if not authenticated:
-            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
-            return True
 
-        waf_blocks = "/api/audit/" in single_decoded
+        waf_matches = "/api/audit/" in single_decoded
 
-        if waf_blocks:
+        if waf_matches:
+            # WAF rule hit — applies its full chain (auth + deny).
+            if not authenticated:
+                self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+                return True
             self.respond_json(
                 HTTPStatus.FORBIDDEN,
                 {"error": "audit export blocked by WAF", "rule": "deny-audit-egress"},
@@ -861,11 +893,48 @@ class VulnerableLabHandler(BaseHTTPRequestHandler):
             )
             return True
 
+        # WAF never matched — no auth required, dispatch goes straight through.
         self.respond_json(
             HTTPStatus.OK,
             {"events": AUDIT_EVENTS, "count": len(AUDIT_EVENTS)},
             send_body,
-            extra_headers={"X-Smoke-Bypass": "splitter-via-stripped-chars"},
+            extra_headers={"X-Smoke-Bypass": "splitter-via-stripped-chars-unauth"},
+        )
+        return True
+
+    def try_rewrite_header_dashboard(self, authenticated: bool, raw_path: str, send_body: bool) -> bool:
+        """
+        BUG: The reverse proxy / edge gateway enforces auth based on the
+        request line, but the upstream application honors X-Original-URL /
+        X-Rewrite-URL / X-Forwarded-URI to determine the effective route.
+        A request with request line GET /public/health + X-Original-URL:
+        /internal/dashboard passes the edge auth check (the public health
+        endpoint is unauth) and then gets dispatched to the internal
+        dashboard handler. Classic IIS ARR / Apache mod_rewrite / Kong
+        misconfiguration.
+        """
+        rewrite = (
+            self.headers.get("X-Original-URL")
+            or self.headers.get("X-Rewrite-URL")
+            or self.headers.get("X-Forwarded-URI")
+            or ""
+        ).strip()
+        effective_path = rewrite if rewrite else raw_path
+        if effective_path != REWRITE_HEADER_ROUTE:
+            return False
+
+        edge_requires_auth = raw_path.startswith("/internal/")
+
+        if edge_requires_auth and not authenticated:
+            self.respond(HTTPStatus.UNAUTHORIZED, "login required\n", send_body)
+            return True
+
+        bypass = bool(rewrite) and raw_path != REWRITE_HEADER_ROUTE
+        self.respond_json(
+            HTTPStatus.OK,
+            INTERNAL_DASHBOARD_DATA,
+            send_body,
+            extra_headers={"X-Smoke-Bypass": "rewrite-header-unauth"} if bypass else None,
         )
         return True
 

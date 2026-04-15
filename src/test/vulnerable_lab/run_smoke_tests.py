@@ -358,6 +358,59 @@ def build_cases() -> list[SmokeCase]:
             expected_header_value="splitter-via-stripped-chars",
             headers=auth_cookie,
         ),
+        # ----- Unauthenticated bypasses — real-world patterns where the
+        # attacker reaches sensitive endpoints with no session at all because
+        # the check was structural (middleware order, WAF path regex, or
+        # header trust). -----
+        SmokeCase(
+            "Realistic-Unauth",
+            "Sacrificial-prefix unauth baseline /admin/api/users stays blocked (no cookie)",
+            "GET",
+            "/admin/api/users",
+            401,
+            expected_body="login required",
+        ),
+        SmokeCase(
+            "Realistic-Unauth",
+            "Sacrificial-prefix unauth bypass via /static/../admin/api/users",
+            "GET",
+            "/static/../admin/api/users",
+            200,
+            expected_header_value="sacrificial-prefix-exemption-unauth",
+        ),
+        SmokeCase(
+            "Realistic-Unauth",
+            "Splitter unauth baseline /api/audit/export stays blocked",
+            "GET",
+            "/api/audit/export",
+            401,
+            expected_body="login required",
+        ),
+        SmokeCase(
+            "Realistic-Unauth",
+            "Splitter unauth bypass via %09 tab (WAF path regex misses it)",
+            "GET",
+            "/api/a%09udit/export",
+            200,
+            expected_header_value="splitter-via-stripped-chars-unauth",
+        ),
+        SmokeCase(
+            "Realistic-Unauth",
+            "Rewrite-header baseline /internal/dashboard stays blocked unauth",
+            "GET",
+            "/internal/dashboard",
+            401,
+            expected_body="login required",
+        ),
+        SmokeCase(
+            "Realistic-Unauth",
+            "Rewrite-header unauth bypass: request line /public/health + X-Original-URL",
+            "GET",
+            "/public/health",
+            200,
+            expected_header_value="rewrite-header-unauth",
+            headers={"X-Original-URL": "/internal/dashboard"},
+        ),
     ]
 
 

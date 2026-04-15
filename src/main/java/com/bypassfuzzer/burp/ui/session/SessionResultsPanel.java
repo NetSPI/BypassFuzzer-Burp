@@ -7,6 +7,8 @@ import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.filter.ResultHighlighter;
 import com.bypassfuzzer.burp.ui.FuzzerResultsTableModel;
 
+import javax.swing.AbstractAction;
+import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -14,6 +16,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
@@ -25,6 +28,10 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -130,12 +137,13 @@ public class SessionResultsPanel extends JPanel {
     }
 
     private void initializeUi() {
-        resultsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        resultsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         initializeRowSorter();
         configureRenderer();
         configureSelection();
         createTablePopupMenu();
         configurePopupHandling();
+        configureCopyAction();
         configureColumns();
 
         JScrollPane tableScrollPane = new JScrollPane(resultsTable);
@@ -354,6 +362,57 @@ public class SessionResultsPanel extends JPanel {
         JMenuItem clearItem = new JMenuItem("Clear Highlight");
         clearItem.addActionListener(e -> updateHighlight(null, true));
         tablePopupMenu.add(clearItem);
+
+        tablePopupMenu.addSeparator();
+        JMenuItem copyItem = new JMenuItem("Copy selected rows (TSV)");
+        copyItem.addActionListener(e -> copySelectedRowsToClipboard());
+        tablePopupMenu.add(copyItem);
+    }
+
+    private void configureCopyAction() {
+        // Cross-platform accelerator: Cmd+C on macOS, Ctrl+C on Windows/Linux.
+        int menuShortcut = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        KeyStroke copyKey = KeyStroke.getKeyStroke(KeyEvent.VK_C, menuShortcut);
+        String actionKey = "bypassfuzzer-copy-rows";
+        resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(copyKey, actionKey);
+        resultsTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(copyKey, actionKey);
+        resultsTable.getActionMap().put(actionKey, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelectedRowsToClipboard();
+            }
+        });
+    }
+
+    private void copySelectedRowsToClipboard() {
+        int[] viewRows = resultsTable.getSelectedRows();
+        if (viewRows.length == 0) {
+            return;
+        }
+        int columnCount = resultsTable.getColumnCount();
+        StringBuilder sb = new StringBuilder(256);
+
+        for (int c = 0; c < columnCount; c++) {
+            if (c > 0) sb.append('\t');
+            sb.append(resultsTable.getColumnName(c));
+        }
+        sb.append(System.lineSeparator());
+
+        for (int viewRow : viewRows) {
+            for (int c = 0; c < columnCount; c++) {
+                if (c > 0) sb.append('\t');
+                Object value = resultsTable.getValueAt(viewRow, c);
+                String cell = value == null ? "" : value.toString();
+                // Keep the TSV line-delimited — scrub embedded newlines/tabs so one row == one line.
+                cell = cell.replace('\t', ' ').replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ');
+                sb.append(cell);
+            }
+            sb.append(System.lineSeparator());
+        }
+
+        Toolkit.getDefaultToolkit()
+            .getSystemClipboard()
+            .setContents(new StringSelection(sb.toString()), null);
     }
 
     private void configurePopupHandling() {
@@ -375,7 +434,11 @@ public class SessionResultsPanel extends JPanel {
 
                 int row = resultsTable.rowAtPoint(event.getPoint());
                 if (row >= 0) {
-                    resultsTable.setRowSelectionInterval(row, row);
+                    // Only replace the selection if the right-clicked row is not already
+                    // part of the current multi-selection — otherwise preserve it.
+                    if (!resultsTable.isRowSelected(row)) {
+                        resultsTable.setRowSelectionInterval(row, row);
+                    }
                     tablePopupMenu.show(event.getComponent(), event.getX(), event.getY());
                 }
             }

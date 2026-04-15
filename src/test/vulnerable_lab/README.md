@@ -59,11 +59,12 @@ The lab is meant to double as a consultant demo environment. Each bypass-tab pla
 | URL Validation (Absolute URL) | `GET /redirect/next?next={INJECT}` | `url-allowlist-bypass` |
 | URL Validation (Hostname) | `GET /host/check?host={INJECT}` | `hostname-allowlist-bypass` |
 | URL Validation (CORS Origin) | `GET /cors/profile` with `Origin: {INJECT}` | `cors-origin-bypass` |
-| Realistic: Sacrificial-Prefix | `GET /static/../admin/api/users` | `sacrificial-prefix-exemption` |
+| Realistic: Sacrificial-Prefix (**unauth-capable**) | `GET /static/../admin/api/users` | `sacrificial-prefix-exemption` |
 | Realistic: Per-Char Encoding | `GET /api/profile/%61lice` | `per-char-encoding` |
 | Realistic: Matrix-Suffix | `GET /api/tenants/acme/invoices/INV-42;jsessionid=x` | `matrix-param-suffix` |
 | Realistic: Double-Encoding | `GET /api/gateway/%2561dmin` | `double-encoding` |
-| Realistic: Splitter | `GET /api/a%09udit/export` | `splitter-via-stripped-chars` |
+| Realistic: Splitter (**unauth-capable**) | `GET /api/a%09udit/export` | `splitter-via-stripped-chars` |
+| Realistic: Rewrite-Header (**unauth-only**) | `GET /public/health` + `X-Original-URL: /internal/dashboard` | `rewrite-header-unauth` |
 
 ### Header Trust
 
@@ -347,6 +348,42 @@ GET /api/a%09udit/export HTTP/1.1               # bypass -> 200, returns audit e
 ```
 
 Response on bypass: recent audit events (actor, action, target, source IP, timestamp).
+
+## Unauthenticated Bypasses
+
+Three of the realistic routes support **complete unauth bypass** — no session cookie at all. These model real-world patterns where the authentication check was structural (middleware order, WAF path regex, edge vs origin trust) and the bypass technique routes around the check entirely. If an attacker hits these, they read sensitive data without any credentials.
+
+### `/admin/api/users` — unauth via asset-exemption middleware
+
+Real-world pattern: Express/Nuxt/Nginx register static-file middleware BEFORE the auth middleware. The static middleware matches `/static/*`, `/public/*`, `/assets/*`, `/images/*` on the raw path and passes the request through untouched — including skipping the auth gate. The router then normalizes and dispatches.
+
+```http
+GET /admin/api/users HTTP/1.1                   # unauth baseline -> 401 login required
+GET /static/../admin/api/users HTTP/1.1         # unauth bypass  -> 200, returns user list
+```
+
+No `Cookie: session=...` header needed on the bypass.
+
+### `/api/audit/export` — unauth via WAF path-regex miss
+
+Real-world pattern: the WAF applies BOTH its auth gate and its deny rule to paths matching a specific regex (`/api/audit/*`). A payload that embeds `%09` (tab) inside the audit segment decodes to a tab-containing string the WAF's regex doesn't match — so neither the deny rule nor the auth gate runs. The origin strips the tab and dispatches normally.
+
+```http
+GET /api/audit/export HTTP/1.1                  # unauth baseline -> 401 login required
+GET /api/a%09udit/export HTTP/1.1               # unauth bypass  -> 200, returns audit events
+```
+
+### `/internal/dashboard` — unauth via `X-Original-URL` header trust
+
+Real-world pattern: the edge gateway (IIS + ARR, Apache mod_rewrite, some Kong configs) enforces auth based on the request line. The application, however, reads `X-Original-URL` / `X-Rewrite-URL` / `X-Forwarded-URI` to decide the effective route. A request with a request line pointing to an unauth-exempt path plus a rewrite header pointing to the protected path bypasses the edge auth entirely.
+
+```http
+GET /internal/dashboard HTTP/1.1                # unauth baseline -> 401
+GET /public/health HTTP/1.1                     # unauth bypass  -> 200, returns dashboard
+X-Original-URL: /internal/dashboard
+```
+
+Also works with `X-Rewrite-URL` and `X-Forwarded-URI`.
 
 ## Response markers
 
