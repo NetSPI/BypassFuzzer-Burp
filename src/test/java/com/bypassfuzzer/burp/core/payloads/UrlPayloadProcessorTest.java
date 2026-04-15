@@ -124,6 +124,33 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void expandCharEncodedVariants_singleAndDoubleLevelPerChar() {
+        List<String> variants = UrlPayloadProcessor.expandCharEncodedVariants("admin");
+        assertTrue(variants.contains("%61dmin"), "single-encoded first char");
+        assertTrue(variants.contains("a%64min"), "single-encoded second char");
+        assertTrue(variants.contains("adm%69n"), "single-encoded fourth char");
+        assertTrue(variants.contains("admi%6e"), "single-encoded last char");
+        assertTrue(variants.contains("%2561dmin"), "double-encoded first char");
+        assertTrue(variants.contains("a%2564min"), "double-encoded second char");
+        assertTrue(variants.contains("%61%64%6d%69%6e"), "fully-encoded segment");
+    }
+
+    @Test
+    void generator_perCharEncodedUrlsLandOnTarget() throws Exception {
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/admin");
+        List<String> out = p.generateUrlPayloads(List.of());
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/%61dmin")),
+                "expected /%61dmin in output; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/adm%69n")),
+                "expected /adm%69n in output; got " + out);
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/%61%64%6d%69%6e")
+                        || u.endsWith("/%61%64%6d%69%6E")
+                        || u.endsWith("/%61%64%6D%69%6e")
+                        || u.endsWith("/%61%64%6D%69%6E")),
+                "expected fully encoded /admin in some hex case; got " + out);
+    }
+
+    @Test
     void isTraversalLike_catchesKnownForms() {
         assertTrue(UrlPayloadProcessor.isTraversalLike("../"));
         assertTrue(UrlPayloadProcessor.isTraversalLike("..;/"));

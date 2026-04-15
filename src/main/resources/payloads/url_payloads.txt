@@ -101,6 +101,32 @@
 [s]#?
 
 # ------------------------------------------------------------------------------
+# Matrix params / session-IDs appended to the target segment [s]. Tomcat/Jetty/
+# Spring strip these for routing -> handler runs on /admin, but a WAF ACL that
+# regex-matches the raw path string sees /admin;jsessionid=X and may not match.
+# ------------------------------------------------------------------------------
+[s];
+[s];/
+[s];jsessionid=1
+[s];jsessionid=x
+[s];JSESSIONID=1
+[s];phpsessid=1
+[s];PHPSESSID=1
+[s];sessionid=1
+[s];session=1
+[s];foo=bar
+[s];foo
+[s];x=1
+[s];x
+[s];%00
+[s];%09
+[s];%2f
+[s]%3b
+[s]%3bjsessionid=1
+[s]%3Bjsessionid=1
+[s]%3bfoo=bar
+
+# ------------------------------------------------------------------------------
 # Dot-segment normalization
 # ------------------------------------------------------------------------------
 .
