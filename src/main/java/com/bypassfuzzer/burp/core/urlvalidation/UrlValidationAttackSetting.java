@@ -6,7 +6,8 @@ public enum UrlValidationAttackSetting {
     LOOPBACK("Loopback"),
     IPV6("IPv6"),
     CLOUD_METADATA_ENDPOINTS("Cloud metadata endpoints"),
-    URL_SPLITTING_UNICODE_CHARACTERS("URL-splitting Unicode characters");
+    URL_SPLITTING_UNICODE_CHARACTERS("URL-splitting Unicode characters"),
+    NORMALIZATION_ATTACK("Normalization attack");
 
     private final String displayName;
 

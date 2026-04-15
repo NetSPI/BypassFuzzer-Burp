@@ -60,6 +60,10 @@ public class UrlValidationPayloadGenerator {
         }
 
         for (UrlValidationAttackSetting attackSetting : selectedSettings) {
+            if (attackSetting == UrlValidationAttackSetting.NORMALIZATION_ATTACK) {
+                addNormalizationAttackPayloads(payloads, options, allowedHost, attackerHostSupplier, scheme, encoding);
+                continue;
+            }
             List<SourcePayload> sourcePayloads = WORDLISTS.getOrDefault(attackSetting, List.of());
             for (SourcePayload sourcePayload : sourcePayloads) {
                 for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
@@ -74,6 +78,56 @@ public class UrlValidationPayloadGenerator {
         }
 
         return payloads;
+    }
+
+    /**
+     * Unicode normalization bypass: emit payloads whose attacker/allowed host
+     * uses Unicode presentation-form characters (fullwidth Latin) that a strict
+     * string-compare allow/deny list rejects but a normalizer (NFKC or similar)
+     * collapses to plain ASCII before the request is routed or redirected.
+     *
+     * Targets the scenario where:
+     *   validate(input) { if (denyList.contains(input)) return reject; }
+     *   route(normalize(input));
+     * The normalizer runs after the validator, so presentation-form bytes
+     * bypass the validator and still resolve to the original ASCII target.
+     */
+    private void addNormalizationAttackPayloads(List<UrlValidationPayload> payloads,
+                                                UrlValidationOptions options,
+                                                String allowedHost,
+                                                Supplier<String> attackerHostSupplier,
+                                                String scheme,
+                                                UrlValidationEncoding encoding) {
+        List<String> allowedVariants = UnicodeCompatibilityVariants.fullwidthVariants(allowedHost);
+
+        for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
+            // Per-payload attacker host keeps each variant distinct when the caller
+            // uses a collaborator supplier that mints fresh domains.
+            for (String attackerVariant : UnicodeCompatibilityVariants.fullwidthVariants(attackerHostSupplier.get())) {
+                addNormalizationVariant(payloads, family, encoding, scheme, attackerVariant);
+            }
+            for (String allowedVariant : allowedVariants) {
+                String attackerHost = attackerHostSupplier.get();
+                // Attacker-domain-after-fullwidth-allowed: cousin-domain shape
+                // where the validator's "starts with trusted.com" check fails
+                // against the fullwidth form but the normalizer resolves it.
+                addNormalizationVariant(payloads, family, encoding, scheme,
+                    allowedVariant + "." + attackerHost);
+                // Fullwidth allowed on the Host header / raw CORS origin
+                addNormalizationVariant(payloads, family, encoding, scheme, allowedVariant);
+            }
+        }
+    }
+
+    private void addNormalizationVariant(List<UrlValidationPayload> payloads,
+                                         UrlValidationContext family,
+                                         UrlValidationEncoding encoding,
+                                         String scheme,
+                                         String host) {
+        String value = family == UrlValidationContext.HOSTNAME
+            ? host
+            : scheme + "://" + host + "/";
+        payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
     }
 
     private void addRenderedDefaultPayloads(List<UrlValidationPayload> payloads,

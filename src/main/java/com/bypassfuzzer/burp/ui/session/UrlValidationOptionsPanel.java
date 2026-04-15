@@ -39,6 +39,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JCheckBox ipv6Checkbox;
     private final JCheckBox cloudMetadataEndpointsCheckbox;
     private final JCheckBox urlSplittingUnicodeCheckbox;
+    private final JCheckBox normalizationAttackCheckbox;
     private final JComboBox<UrlValidationEncoding> encodingCombo;
     private final JTextField requestsPerSecondField;
     private final JTextField throttleStatusCodesField;
@@ -78,6 +79,8 @@ public class UrlValidationOptionsPanel extends JPanel {
         ipv6Checkbox = new JCheckBox(UrlValidationAttackSetting.IPV6.displayName(), false);
         cloudMetadataEndpointsCheckbox = new JCheckBox(UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS.displayName(), false);
         urlSplittingUnicodeCheckbox = new JCheckBox(UrlValidationAttackSetting.URL_SPLITTING_UNICODE_CHARACTERS.displayName(), false);
+        normalizationAttackCheckbox = new JCheckBox(UrlValidationAttackSetting.NORMALIZATION_ATTACK.displayName(), false);
+        normalizationAttackCheckbox.setToolTipText("Emit fullwidth / Unicode compatibility variants of the attacker and allowed hosts that NFKC-normalize back to ASCII.");
         encodingCombo = new JComboBox<>(UrlValidationEncoding.values());
         encodingCombo.setSelectedItem(UrlValidationEncoding.INTRUDERS);
 
@@ -154,6 +157,9 @@ public class UrlValidationOptionsPanel extends JPanel {
         if (urlSplittingUnicodeCheckbox.isSelected()) {
             settings.add(UrlValidationAttackSetting.URL_SPLITTING_UNICODE_CHARACTERS);
         }
+        if (normalizationAttackCheckbox.isSelected()) {
+            settings.add(UrlValidationAttackSetting.NORMALIZATION_ATTACK);
+        }
         return java.util.Set.copyOf(settings);
     }
 
@@ -180,6 +186,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         ipv6Checkbox.setEnabled(enabled);
         cloudMetadataEndpointsCheckbox.setEnabled(enabled);
         urlSplittingUnicodeCheckbox.setEnabled(enabled);
+        normalizationAttackCheckbox.setEnabled(enabled);
         encodingCombo.setEnabled(enabled);
         requestsPerSecondField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
@@ -300,7 +307,8 @@ public class UrlValidationOptionsPanel extends JPanel {
             loopbackCheckbox,
             ipv6Checkbox,
             cloudMetadataEndpointsCheckbox,
-            urlSplittingUnicodeCheckbox
+            urlSplittingUnicodeCheckbox,
+            normalizationAttackCheckbox
         );
     }
 

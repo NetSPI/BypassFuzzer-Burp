@@ -279,6 +279,41 @@ class UrlValidationPayloadGeneratorTest {
     }
 
     @Test
+    void normalizationAttackEmitsFullwidthVariantsOfAttackerAndAllowed() {
+        UrlValidationPayloadGenerator generator = new UrlValidationPayloadGenerator();
+        UrlValidationCandidate candidate = new UrlValidationCandidate("{INJECT}", "{INJECT}", "marker", (request, newValue) -> request);
+        UrlValidationOptions options = new UrlValidationOptions(
+            "{INJECT}", "trusted.example", "attacker.example", false, "https",
+            Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
+            Set.of(UrlValidationAttackSetting.NORMALIZATION_ATTACK),
+            UrlValidationEncoding.RAW,
+            0, Set.of()
+        );
+
+        List<UrlValidationPayload> payloads = generator.generate(candidate, options);
+
+        assertFalse(payloads.isEmpty(), "expected normalization attack to emit payloads");
+        // All-fullwidth attacker host should appear as an absolute URL.
+        String expectedFullwidthAttacker = "\uff41\uff54\uff54\uff41\uff43\uff4b\uff45\uff52"; // "attacker" in fullwidth
+        assertTrue(
+            payloads.stream().anyMatch(p -> p.value().contains(expectedFullwidthAttacker)),
+            "expected all-fullwidth attacker host in output"
+        );
+        // Hostname context should emit a bare host (no scheme).
+        assertTrue(
+            payloads.stream()
+                .filter(p -> p.family() == UrlValidationContext.HOSTNAME)
+                .anyMatch(p -> !p.value().startsWith("http")),
+            "HOSTNAME payloads should be bare host, not URL-shaped"
+        );
+        // Subdomain-cousin shape: fullwidth-allowed dot attacker.
+        assertTrue(
+            payloads.stream().anyMatch(p -> p.value().contains(".attacker.example")),
+            "expected fullwidth-allowed.attacker.example cousin-domain shape"
+        );
+    }
+
+    @Test
     void loopbackCorsPayloadsAreNoLongerFiltered() {
         // Upstream tags loopback payloads like 127.0.0.1 and [::1] with CORS.
         // We previously dropped them via a hardcoded exclusion list; now we
