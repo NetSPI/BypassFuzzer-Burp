@@ -20,3 +20,9 @@ bin/
 # Build outputs
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+
+# Presentation / internal-only files (repo is public)
+docs/*.pdf
+docs/*.pptx
+docs/*.png
+scripts/build-presentation.py
