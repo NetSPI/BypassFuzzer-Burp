@@ -11,6 +11,7 @@ import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationOptions;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationPayload;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationPayloadGenerator;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationCandidate;
+import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationEncoding;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -333,7 +334,7 @@ public class UrlValidationPanel extends JPanel {
             optionsPanel.attackerScheme(),
             optionsPanel.payloadFamilies(),
             optionsPanel.attackSettings(),
-            optionsPanel.encoding(),
+            optionsPanel.encodings(),
             requestsPerSecond,
             SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText())
         );
@@ -418,7 +419,7 @@ public class UrlValidationPanel extends JPanel {
         JLabel header = new JLabel(
             "Previewing " + payloads.size() + " payloads for "
                 + options.normalizedPayloadFamilies().stream().map(Object::toString).collect(Collectors.joining(", "))
-                + " with " + options.effectiveEncoding().label()
+                + " with " + options.effectiveEncodings().stream().map(UrlValidationEncoding::label).collect(Collectors.joining(", "))
         );
         header.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
 

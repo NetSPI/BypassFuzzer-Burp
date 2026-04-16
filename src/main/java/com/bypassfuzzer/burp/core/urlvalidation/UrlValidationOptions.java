@@ -10,7 +10,7 @@ public record UrlValidationOptions(
     String attackerScheme,
     Set<UrlValidationContext> payloadFamilies,
     Set<UrlValidationAttackSetting> attackSettings,
-    UrlValidationEncoding encoding,
+    Set<UrlValidationEncoding> encodings,
     int requestsPerSecond,
     Set<Integer> throttleStatusCodes
 ) {
@@ -52,8 +52,11 @@ public record UrlValidationOptions(
         return attackSettings == null ? DEFAULT_ATTACK_SETTINGS : Set.copyOf(attackSettings);
     }
 
-    public UrlValidationEncoding effectiveEncoding() {
-        return encoding == null ? UrlValidationEncoding.RAW : encoding;
+    public Set<UrlValidationEncoding> effectiveEncodings() {
+        if (encodings == null || encodings.isEmpty()) {
+            return Set.of(UrlValidationEncoding.RAW);
+        }
+        return Set.copyOf(encodings);
     }
 
     public String normalizedMarkerText() {

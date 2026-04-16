@@ -40,7 +40,7 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
                 UrlValidationAttackSetting.LOOPBACK
             ),
-            UrlValidationEncoding.INTRUDERS,
+            Set.of(UrlValidationEncoding.INTRUDERS),
             0,
             Set.of()
         );
@@ -101,7 +101,7 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
                 UrlValidationAttackSetting.LOOPBACK
             ),
-            UrlValidationEncoding.UNICODE_ESCAPE,
+            Set.of(UrlValidationEncoding.UNICODE_ESCAPE),
             0,
             Set.of()
         );
@@ -139,7 +139,7 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.LOOPBACK,
                 UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS
             ),
-            UrlValidationEncoding.INTRUDERS,
+            Set.of(UrlValidationEncoding.INTRUDERS),
             0,
             Set.of()
         );
@@ -176,7 +176,7 @@ class UrlValidationPayloadGeneratorTest {
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS),
-            UrlValidationEncoding.INTRUDERS,
+            Set.of(UrlValidationEncoding.INTRUDERS),
             0,
             Set.of()
         );
@@ -219,7 +219,7 @@ class UrlValidationPayloadGeneratorTest {
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(UrlValidationAttackSetting.FAKE_RELATIVE_URLS),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0,
             Set.of()
         );
@@ -292,7 +292,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}", "trusted.example", "attacker.example", false, "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(UrlValidationAttackSetting.NORMALIZATION_ATTACK),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0, Set.of()
         );
 
@@ -330,7 +330,7 @@ class UrlValidationPayloadGeneratorTest {
             "{INJECT}", "trusted.example", "attacker.example", false, "https",
             Set.of(UrlValidationContext.CORS_ORIGIN),
             Set.of(UrlValidationAttackSetting.LOOPBACK),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0, Set.of()
         );
 

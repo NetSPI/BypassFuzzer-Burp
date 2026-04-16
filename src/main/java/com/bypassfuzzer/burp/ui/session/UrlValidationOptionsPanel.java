@@ -40,7 +40,11 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JCheckBox cloudMetadataEndpointsCheckbox;
     private final JCheckBox urlSplittingUnicodeCheckbox;
     private final JCheckBox normalizationAttackCheckbox;
-    private final JComboBox<UrlValidationEncoding> encodingCombo;
+    private final JCheckBox encodingRawCheckbox;
+    private final JCheckBox encodingIntrudersCheckbox;
+    private final JCheckBox encodingEverythingCheckbox;
+    private final JCheckBox encodingSpecialCharsCheckbox;
+    private final JCheckBox encodingUnicodeEscapeCheckbox;
     private final JTextField requestsPerSecondField;
     private final JTextField throttleStatusCodesField;
 
@@ -81,8 +85,11 @@ public class UrlValidationOptionsPanel extends JPanel {
         urlSplittingUnicodeCheckbox = new JCheckBox(UrlValidationAttackSetting.URL_SPLITTING_UNICODE_CHARACTERS.displayName(), false);
         normalizationAttackCheckbox = new JCheckBox(UrlValidationAttackSetting.NORMALIZATION_ATTACK.displayName(), false);
         normalizationAttackCheckbox.setToolTipText("Emit fullwidth / Unicode compatibility variants of the attacker and allowed hosts that NFKC-normalize back to ASCII.");
-        encodingCombo = new JComboBox<>(UrlValidationEncoding.values());
-        encodingCombo.setSelectedItem(UrlValidationEncoding.INTRUDERS);
+        encodingRawCheckbox = new JCheckBox(UrlValidationEncoding.RAW.label(), true);
+        encodingIntrudersCheckbox = new JCheckBox(UrlValidationEncoding.INTRUDERS.label(), true);
+        encodingEverythingCheckbox = new JCheckBox(UrlValidationEncoding.EVERYTHING.label(), false);
+        encodingSpecialCharsCheckbox = new JCheckBox(UrlValidationEncoding.SPECIAL_CHARS.label(), true);
+        encodingUnicodeEscapeCheckbox = new JCheckBox(UrlValidationEncoding.UNICODE_ESCAPE.label(), false);
 
         requestsPerSecondField = new JTextField("0", 5);
         throttleStatusCodesField = new JTextField("429,503", 10);
@@ -132,9 +139,14 @@ public class UrlValidationOptionsPanel extends JPanel {
         return java.util.Set.copyOf(families);
     }
 
-    public UrlValidationEncoding encoding() {
-        UrlValidationEncoding selected = (UrlValidationEncoding) encodingCombo.getSelectedItem();
-        return selected == null ? UrlValidationEncoding.RAW : selected;
+    public java.util.Set<UrlValidationEncoding> encodings() {
+        java.util.LinkedHashSet<UrlValidationEncoding> selected = new java.util.LinkedHashSet<>();
+        if (encodingRawCheckbox.isSelected()) selected.add(UrlValidationEncoding.RAW);
+        if (encodingIntrudersCheckbox.isSelected()) selected.add(UrlValidationEncoding.INTRUDERS);
+        if (encodingEverythingCheckbox.isSelected()) selected.add(UrlValidationEncoding.EVERYTHING);
+        if (encodingSpecialCharsCheckbox.isSelected()) selected.add(UrlValidationEncoding.SPECIAL_CHARS);
+        if (encodingUnicodeEscapeCheckbox.isSelected()) selected.add(UrlValidationEncoding.UNICODE_ESCAPE);
+        return java.util.Set.copyOf(selected);
     }
 
     public java.util.Set<UrlValidationAttackSetting> attackSettings() {
@@ -187,7 +199,11 @@ public class UrlValidationOptionsPanel extends JPanel {
         cloudMetadataEndpointsCheckbox.setEnabled(enabled);
         urlSplittingUnicodeCheckbox.setEnabled(enabled);
         normalizationAttackCheckbox.setEnabled(enabled);
-        encodingCombo.setEnabled(enabled);
+        encodingRawCheckbox.setEnabled(enabled);
+        encodingIntrudersCheckbox.setEnabled(enabled);
+        encodingEverythingCheckbox.setEnabled(enabled);
+        encodingSpecialCharsCheckbox.setEnabled(enabled);
+        encodingUnicodeEscapeCheckbox.setEnabled(enabled);
         requestsPerSecondField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
     }
@@ -216,8 +232,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         JPanel panel = createSectionPanel("Payloads");
         panel.add(checkboxRow("Families"));
         panel.add(attackSettingsRow("Attack settings"));
-        panel.add(formRow("Encoding", encodingCombo));
-        panel.add(sectionNote("Only one encoding mode applies at a time."));
+        panel.add(encodingCheckboxRow("Encodings"));
         return finalizeSection(panel);
     }
 
@@ -309,6 +324,17 @@ public class UrlValidationOptionsPanel extends JPanel {
             cloudMetadataEndpointsCheckbox,
             urlSplittingUnicodeCheckbox,
             normalizationAttackCheckbox
+        );
+    }
+
+    private JPanel encodingCheckboxRow(String label) {
+        return checkboxListRow(
+            label,
+            encodingRawCheckbox,
+            encodingIntrudersCheckbox,
+            encodingSpecialCharsCheckbox,
+            encodingEverythingCheckbox,
+            encodingUnicodeEscapeCheckbox
         );
     }
 

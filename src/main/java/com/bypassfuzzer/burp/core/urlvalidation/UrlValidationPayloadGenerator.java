@@ -36,25 +36,27 @@ public class UrlValidationPayloadGenerator {
                                                UrlValidationOptions options,
                                                Supplier<String> attackerHostSupplier) {
         String allowedHost = preferredAllowedHost(candidate, options);
-        UrlValidationEncoding encoding = options.effectiveEncoding();
+        Set<UrlValidationEncoding> encodings = options.effectiveEncodings();
         String scheme = options.normalizedAttackerScheme();
         List<UrlValidationPayload> payloads = new ArrayList<>();
         Set<UrlValidationAttackSetting> selectedSettings = options.normalizedAttackSettings();
 
-        for (UrlValidationAttackSetting attackSetting : selectedSettings) {
-            if (attackSetting == UrlValidationAttackSetting.NORMALIZATION_ATTACK) {
-                addNormalizationAttackPayloads(payloads, options, allowedHost, attackerHostSupplier, scheme, encoding);
-                continue;
-            }
-            List<SourcePayload> sourcePayloads = WORDLISTS.getOrDefault(attackSetting, List.of());
-            for (SourcePayload sourcePayload : sourcePayloads) {
-                for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
-                    if (!sourcePayload.supports(family)) {
-                        continue;
+        for (UrlValidationEncoding encoding : encodings) {
+            for (UrlValidationAttackSetting attackSetting : selectedSettings) {
+                if (attackSetting == UrlValidationAttackSetting.NORMALIZATION_ATTACK) {
+                    addNormalizationAttackPayloads(payloads, options, allowedHost, attackerHostSupplier, scheme, encoding);
+                    continue;
+                }
+                List<SourcePayload> sourcePayloads = WORDLISTS.getOrDefault(attackSetting, List.of());
+                for (SourcePayload sourcePayload : sourcePayloads) {
+                    for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
+                        if (!sourcePayload.supports(family)) {
+                            continue;
+                        }
+                        String attackerHost = attackerHostSupplier.get();
+                        String value = renderPayload(attackSetting, sourcePayload, family, scheme, allowedHost, attackerHost);
+                        payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
                     }
-                    String attackerHost = attackerHostSupplier.get();
-                    String value = renderPayload(attackSetting, sourcePayload, family, scheme, allowedHost, attackerHost);
-                    payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
                 }
             }
         }

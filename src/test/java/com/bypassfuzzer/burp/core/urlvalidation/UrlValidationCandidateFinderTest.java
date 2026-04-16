@@ -53,7 +53,7 @@ class UrlValidationCandidateFinderTest {
                 UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
                 UrlValidationAttackSetting.LOOPBACK
             ),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0,
             Set.of()
         );
@@ -107,7 +107,7 @@ class UrlValidationCandidateFinderTest {
                 UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
                 UrlValidationAttackSetting.LOOPBACK
             ),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0,
             Set.of()
         );
@@ -159,7 +159,7 @@ class UrlValidationCandidateFinderTest {
             "https",
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS),
-            UrlValidationEncoding.RAW,
+            Set.of(UrlValidationEncoding.RAW),
             0,
             Set.of()
         );
