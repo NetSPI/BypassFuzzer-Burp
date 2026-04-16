@@ -117,6 +117,41 @@ public class QueryBodyCrossSourcePlaybook implements IdorPlaybook {
             ));
         }
 
+        // Path injection: even if the original request has the identifier in
+        // query or body, the app might ALSO accept it from the URL path.
+        // Some frameworks route /resource/<id> and /resource?id=<id> to the
+        // same handler. Try injecting both identifiers as path segments.
+        String basePath = com.bypassfuzzer.burp.http.RequestPathUtils.pathWithoutQuery(targetRequest.path());
+        if (!basePath.endsWith("/")) basePath += "/";
+
+        for (String id : List.of(target, authorized)) {
+            // /my-account/carlos
+            variants.add(new IdorRequestVariant(
+                "path=" + id + " (appended to path)",
+                targetRequest.withPath(basePath + id)
+            ));
+            // /my-account/id/carlos
+            variants.add(new IdorRequestVariant(
+                "path=/" + paramName + "/" + id,
+                targetRequest.withPath(basePath + paramName + "/" + id)
+            ));
+            // /my-account/carlos + query=authorized (cross-source: path vs query)
+            String otherValue = id.equals(target) ? authorized : target;
+            String pathWithQuery = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                basePath + id, paramName, otherValue);
+            variants.add(new IdorRequestVariant(
+                "path=" + id + " + query=" + otherValue,
+                targetRequest.withPath(pathWithQuery)
+            ));
+            // /my-account/id/carlos + query=authorized
+            String paramPathWithQuery = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                basePath + paramName + "/" + id, paramName, otherValue);
+            variants.add(new IdorRequestVariant(
+                "path=/" + paramName + "/" + id + " + query=" + otherValue,
+                targetRequest.withPath(paramPathWithQuery)
+            ));
+        }
+
         return variants;
     }
 
