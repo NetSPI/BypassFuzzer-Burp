@@ -21,23 +21,12 @@ import java.util.function.Supplier;
  */
 public class UrlValidationPayloadGenerator {
 
-    private static final String RENDERED_RESOURCE = "/payloads/url_validation_cheatsheet.json";
     private static final String SOURCE_RESOURCE = "/payloads/url_validation_source_data.json";
     private static final String DEFAULT_ALLOWED_HOST = "example.com";
-    private static final String DEFAULT_RENDERED_ALLOWED_HOST = "example.com";
-    private static final String DEFAULT_RENDERED_ATTACKER_HOST = "web-attacker.com";
     private static final String CATEGORY = "CHEATSHEET";
     private static final Type RESOURCE_TYPE = new TypeToken<List<SourceWordlist>>() {
     }.getType();
-    private static final Type RENDERED_RESOURCE_TYPE = new TypeToken<Map<String, Map<String, List<String>>>>() {
-    }.getType();
     private static final Map<UrlValidationAttackSetting, List<SourcePayload>> WORDLISTS = loadWordlists();
-    private static final Map<String, Map<String, List<String>>> RENDERED_PAYLOADS = loadRenderedPayloads();
-    private static final Set<UrlValidationAttackSetting> DEFAULT_RENDERED_ATTACK_SETTINGS = Set.of(
-        UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS,
-        UrlValidationAttackSetting.FAKE_RELATIVE_URLS,
-        UrlValidationAttackSetting.LOOPBACK
-    );
 
     public List<UrlValidationPayload> generate(UrlValidationCandidate candidate, UrlValidationOptions options) {
         return generate(candidate, options, options::normalizedAttackerHost);
@@ -51,13 +40,6 @@ public class UrlValidationPayloadGenerator {
         String scheme = options.normalizedAttackerScheme();
         List<UrlValidationPayload> payloads = new ArrayList<>();
         Set<UrlValidationAttackSetting> selectedSettings = options.normalizedAttackSettings();
-
-        if (selectedSettings.containsAll(DEFAULT_RENDERED_ATTACK_SETTINGS)) {
-            addRenderedDefaultPayloads(payloads, options, allowedHost, attackerHostSupplier);
-            selectedSettings = selectedSettings.stream()
-                .filter(setting -> !DEFAULT_RENDERED_ATTACK_SETTINGS.contains(setting))
-                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
-        }
 
         for (UrlValidationAttackSetting attackSetting : selectedSettings) {
             if (attackSetting == UrlValidationAttackSetting.NORMALIZATION_ATTACK) {
@@ -130,28 +112,6 @@ public class UrlValidationPayloadGenerator {
         payloads.add(new UrlValidationPayload(family, CATEGORY, encoding, encode(value, encoding)));
     }
 
-    private void addRenderedDefaultPayloads(List<UrlValidationPayload> payloads,
-                                            UrlValidationOptions options,
-                                            String allowedHost,
-                                            Supplier<String> attackerHostSupplier) {
-        String encodingKey = renderedEncodingKey(options.effectiveEncoding());
-        for (UrlValidationContext family : options.normalizedPayloadFamilies()) {
-            List<String> renderedValues = RENDERED_PAYLOADS
-                .getOrDefault(renderedFamilyKey(family), Map.of())
-                .getOrDefault(encodingKey, List.of());
-            for (String renderedValue : renderedValues) {
-                String attackerHost = attackerHostSupplier.get();
-                payloads.add(new UrlValidationPayload(
-                    family,
-                    CATEGORY,
-                    options.effectiveEncoding(),
-                    renderedValue
-                        .replace(DEFAULT_RENDERED_ALLOWED_HOST, allowedHost)
-                        .replace(DEFAULT_RENDERED_ATTACKER_HOST, attackerHost)
-                ));
-            }
-        }
-    }
 
     private String renderPayload(UrlValidationAttackSetting attackSetting,
                                  SourcePayload sourcePayload,
@@ -214,24 +174,6 @@ public class UrlValidationPayloadGenerator {
         }
 
         return trimmed.contains("/") ? "" : trimmed;
-    }
-
-    private String renderedFamilyKey(UrlValidationContext family) {
-        return switch (family) {
-            case ABSOLUTE_URL -> "Absolute URL";
-            case HOSTNAME -> "Host header";
-            case CORS_ORIGIN -> "CORS";
-        };
-    }
-
-    private String renderedEncodingKey(UrlValidationEncoding encoding) {
-        return switch (encoding) {
-            case RAW -> "raw";
-            case INTRUDERS -> "intruders";
-            case EVERYTHING -> "everything";
-            case SPECIAL_CHARS -> "special_chars";
-            case UNICODE_ESCAPE -> "unicode_escape";
-        };
     }
 
     private String encode(String value, UrlValidationEncoding encoding) {
@@ -320,20 +262,6 @@ public class UrlValidationPayloadGenerator {
             return Map.copyOf(mapped);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to load URL validation source payloads", e);
-        }
-    }
-
-    private static Map<String, Map<String, List<String>>> loadRenderedPayloads() {
-        InputStream inputStream = UrlValidationPayloadGenerator.class.getResourceAsStream(RENDERED_RESOURCE);
-        if (inputStream == null) {
-            throw new IllegalStateException("Missing URL validation rendered payload resource: " + RENDERED_RESOURCE);
-        }
-
-        try (Reader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
-            Map<String, Map<String, List<String>>> payloads = new Gson().fromJson(reader, RENDERED_RESOURCE_TYPE);
-            return Map.copyOf(payloads);
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to load URL validation rendered payloads", e);
         }
     }
 

