@@ -158,7 +158,12 @@ public class UrlValidationPanel extends JPanel {
         viewPayloadsButton = new JButton("View Payloads");
         viewPayloadsButton.addActionListener(e -> openPayloadPreviewDialog());
 
+        JButton copyPayloadsButton = new JButton("Copy Payloads");
+        copyPayloadsButton.addActionListener(e -> copyPayloadsToClipboard());
+
         actionsPanel.add(viewPayloadsButton);
+        actionsPanel.add(javax.swing.Box.createHorizontalStrut(6));
+        actionsPanel.add(copyPayloadsButton);
         return actionsPanel;
     }
 
@@ -430,17 +435,46 @@ public class UrlValidationPanel extends JPanel {
         previewDialog.setVisible(true);
     }
 
+    private void copyPayloadsToClipboard() {
+        UrlValidationOptions options = collectOptions();
+        if (options == null) return;
+
+        UrlValidationCandidate candidate = new UrlValidationCandidate(
+            options.normalizedMarkerText(), options.normalizedMarkerText(), "marker",
+            (request, newValue) -> request
+        );
+        java.util.List<UrlValidationPayload> payloads = payloadGenerator.generate(candidate, options);
+        String text = payloads.stream()
+            .map(UrlValidationPayload::value)
+            .collect(Collectors.joining(System.lineSeparator()));
+        java.awt.Toolkit.getDefaultToolkit()
+            .getSystemClipboard()
+            .setContents(new java.awt.datatransfer.StringSelection(text), null);
+
+        javax.swing.JOptionPane.showMessageDialog(
+            configDialog,
+            payloads.size() + " payloads copied to clipboard.",
+            "Copied",
+            javax.swing.JOptionPane.INFORMATION_MESSAGE
+        );
+    }
+
     private String renderPayloadPreview(java.util.List<UrlValidationPayload> payloads) {
         StringBuilder builder = new StringBuilder();
         builder.append(String.format("%-14s %-16s %-15s %s%n", "Family", "Category", "Encoding", "Payload"));
         builder.append(String.format("%-14s %-16s %-15s %s%n", "------", "--------", "--------", "-------"));
         for (UrlValidationPayload payload : payloads) {
+            // Sanitize control chars so they don't break the fixed-width display.
+            // The actual payload sent on the wire is unaffected — this is display-only.
+            String displayValue = payload.value()
+                .replace("\r\n", "\\r\\n").replace("\n", "\\n")
+                .replace("\r", "\\r").replace("\t", "\\t");
             builder.append(String.format(
                 "%-14s %-16s %-15s %s%n",
                 payload.family().displayName(),
                 payload.category(),
                 payload.encoding().label(),
-                payload.value()
+                displayValue
             ));
         }
         return builder.toString();
