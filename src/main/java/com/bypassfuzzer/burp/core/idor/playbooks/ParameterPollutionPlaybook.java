@@ -64,6 +64,22 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
                     targetRequest.withPath(withBracket)
                 ));
             }
+
+            // Indexed array with both IDs — id[0]=target&id[1]=authorized and reversed.
+            // Auth might check index 0, resolver might iterate all or take last.
+            String idx0 = parameterName + "[0]";
+            String idx1 = parameterName + "[1]";
+            String base = stripped;
+            // target first, authorized second
+            String ta = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(base, idx0, target),
+                idx1, authorized);
+            variants.add(new IdorRequestVariant(idx0 + "=" + target + "&" + idx1 + "=" + authorized, targetRequest.withPath(ta)));
+            // authorized first, target second
+            String at = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(base, idx0, authorized),
+                idx1, target);
+            variants.add(new IdorRequestVariant(idx0 + "=" + authorized + "&" + idx1 + "=" + target, targetRequest.withPath(at)));
         }
         return variants;
     }
