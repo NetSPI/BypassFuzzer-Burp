@@ -116,7 +116,9 @@ public class TrailingControlCharactersPlaybook implements IdorPlaybook {
         }
         if (authorizedIdentifier != null && !authorizedIdentifier.isBlank()) {
             for (String token : INFIX_SEPARATOR_TOKENS) {
+                // Both directions: auth might parse first/last differently
                 candidates.add(value + token + authorizedIdentifier);
+                candidates.add(authorizedIdentifier + token + value);
             }
         }
         return candidates;

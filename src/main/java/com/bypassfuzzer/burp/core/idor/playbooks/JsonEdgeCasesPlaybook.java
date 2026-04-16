@@ -147,7 +147,9 @@ public class JsonEdgeCasesPlaybook implements IdorPlaybook {
             // --- Authorized/target combos with special shapes ---
             if (!authorized.isEmpty()) {
                 addRawValueVariant(variants, targetRequest, body, name, tJson,
-                    "\"" + authorized + "/../" + target + "\"", "path traversal in value");
+                    "\"" + authorized + "/../" + target + "\"", "path traversal auth/../target");
+                addRawValueVariant(variants, targetRequest, body, name, tJson,
+                    "\"" + target + "/../" + authorized + "\"", "path traversal target/../auth");
             }
         }
         return variants;
