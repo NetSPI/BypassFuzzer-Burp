@@ -47,7 +47,7 @@ class UrlValidationPayloadGeneratorTest {
 
         List<UrlValidationPayload> payloads = generator.generate(candidate, options);
 
-        assertEquals(419, payloads.size());
+        assertEquals(413, payloads.size());
         assertTrue(payloads.stream().anyMatch(payload ->
             payload.family() == UrlValidationContext.ABSOLUTE_URL
                 && payload.encoding() == UrlValidationEncoding.INTRUDERS
@@ -108,7 +108,7 @@ class UrlValidationPayloadGeneratorTest {
 
         List<UrlValidationPayload> payloads = generator.generate(candidate, options);
 
-        assertEquals(38, payloads.size());
+        assertEquals(35, payloads.size());
         assertTrue(payloads.stream().allMatch(payload -> payload.family() == UrlValidationContext.CORS_ORIGIN));
         assertEquals(
             payloads.size(),

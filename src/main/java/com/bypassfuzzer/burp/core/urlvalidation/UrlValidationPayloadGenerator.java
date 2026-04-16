@@ -11,6 +11,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,7 +62,19 @@ public class UrlValidationPayloadGenerator {
             }
         }
 
-        return payloads;
+        // Deduplicate: different source templates can collapse to the same
+        // rendered string (e.g., LOOPBACK's <attacker> and DOMAIN_ALLOW_LIST's
+        // <attacker> both become http://127.0.0.1). Send each unique
+        // (family + encoding + value) only once.
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        List<UrlValidationPayload> deduped = new ArrayList<>();
+        for (UrlValidationPayload p : payloads) {
+            String key = p.family().name() + "|" + p.encoding().name() + "|" + p.value();
+            if (seen.add(key)) {
+                deduped.add(p);
+            }
+        }
+        return deduped;
     }
 
     /**
