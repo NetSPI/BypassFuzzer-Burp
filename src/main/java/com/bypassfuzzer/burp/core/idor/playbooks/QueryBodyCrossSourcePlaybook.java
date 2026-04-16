@@ -78,31 +78,29 @@ public class QueryBodyCrossSourcePlaybook implements IdorPlaybook {
             for (RequestBodyFormat format : FORMATS) {
                 String formatLabel = IdorPlaybookSupport.bodyFormatLabel(format);
 
-                // Variant A: BOTH — query=authorized + body=target
-                // Auth check reads query (sees authorized → passes), resolver reads body (sees target).
-                HttpRequest variantA = withQueryAndBody(targetRequest, method, paramName, authorized, target, format);
+                // A: query=authorized, body=target
                 variants.add(new IdorRequestVariant(
                     method + " query=" + authorized + " + " + formatLabel + " body=" + target,
-                    variantA
+                    withQueryAndBody(targetRequest, method, paramName, authorized, target, format)
                 ));
 
-                // Variant B: body ONLY — no query param, just the body
-                // Tests if the body alone is enough to resolve the object.
-                HttpRequest variantB = bodyOnly(targetRequest, method, paramName, target, format);
+                // A flipped: query=target, body=authorized
+                variants.add(new IdorRequestVariant(
+                    method + " query=" + target + " + " + formatLabel + " body=" + authorized,
+                    withQueryAndBody(targetRequest, method, paramName, target, authorized, format)
+                ));
+
+                // B: body=target only (no query)
                 variants.add(new IdorRequestVariant(
                     method + " " + formatLabel + " body=" + target + " (no query)",
-                    variantB
+                    bodyOnly(targetRequest, method, paramName, target, format)
                 ));
 
-                // Variant C: BOTH — query=target + body=target
-                // Tests if adding a body changes routing even when query already has target.
-                if (!method.equals(originalMethod) || format != RequestBodyFormat.URL_ENCODED) {
-                    HttpRequest variantC = withQueryAndBody(targetRequest, method, paramName, target, target, format);
-                    variants.add(new IdorRequestVariant(
-                        method + " query=" + target + " + " + formatLabel + " body=" + target,
-                        variantC
-                    ));
-                }
+                // B flipped: body=authorized only (no query)
+                variants.add(new IdorRequestVariant(
+                    method + " " + formatLabel + " body=" + authorized + " (no query)",
+                    bodyOnly(targetRequest, method, paramName, authorized, format)
+                ));
             }
         }
 
