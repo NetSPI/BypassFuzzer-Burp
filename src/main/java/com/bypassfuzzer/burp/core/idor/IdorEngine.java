@@ -11,6 +11,7 @@ import com.bypassfuzzer.burp.core.idor.playbooks.IdorRequestVariant;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestSender;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -144,6 +145,12 @@ public class IdorEngine {
             return;
         }
 
+        // Deduplicate across playbooks: if two playbooks produce the same
+        // effective request (same method + path + query + headers + body),
+        // only send the first one. Prevents wasting requests when e.g.
+        // IdentifierAliases and ParameterPollution both emit ?id[0]=carlos.
+        Set<String> sentRequests = new HashSet<>();
+
         for (IdorPlaybook playbook : playbookRegistry.all()) {
             if (!running) {
                 return;
@@ -153,6 +160,14 @@ public class IdorEngine {
             for (IdorRequestVariant variant : variants) {
                 if (!running) {
                     return;
+                }
+
+                // Dedup key: method + path (includes query) + body
+                String dedupKey = variant.request().method()
+                    + " " + variant.request().path()
+                    + " " + variant.request().bodyToString();
+                if (!sentRequests.add(dedupKey)) {
+                    continue;
                 }
 
                 if (!attackExecutor.execute(
