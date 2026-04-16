@@ -44,6 +44,7 @@ class IdorPlaybookRegistryTest {
             "idor.hybrid.uuid_version_variants",
             "idor.hybrid.accept_negotiation",
             "idor.hybrid.cross_source_conflicts",
+            "idor.hybrid.query_body_cross_source",
             "idor.hybrid.identifier_encoding",
             "idor.hybrid.method_override"
         ), ids);

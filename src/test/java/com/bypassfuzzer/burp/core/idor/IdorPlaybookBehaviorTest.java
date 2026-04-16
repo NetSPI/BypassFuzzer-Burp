@@ -79,10 +79,11 @@ class IdorPlaybookBehaviorTest {
         List<String> paths = playbook.buildVariants(context("/users/1", "id=1", "GET", null, "", "1", "2"))
             .stream().map(variant -> variant.request().path()).toList();
 
-        // Same-value dupes (id=2&id=2&id=2) removed — only mixed variants matter.
+        // 2-param (single-append) + 3-param (double-append, mixed only) variants.
+        assertTrue(paths.contains("/users/2?id=2&id=1"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=1&id=2"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=2&id=1"), paths.toString());
-        assertEquals(2, paths.size(), paths.toString());
+        assertEquals(3, paths.size(), paths.toString());
     }
 
     @Test

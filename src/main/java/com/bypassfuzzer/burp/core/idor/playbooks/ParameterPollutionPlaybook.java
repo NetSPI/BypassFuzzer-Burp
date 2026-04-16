@@ -39,20 +39,37 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
 
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.parameterNames(context, PARAMETER_NAMES)) {
-            // Mix authorized + target in both orders. Auth checks one,
-            // resolver reads the other. Skips same-value dupes (target+target)
-            // since those don't test parameter-precedence disagreements.
-            addVariant(variants, targetRequest, parameterName, authorized, target);
-            addVariant(variants, targetRequest, parameterName, target, authorized);
+            // 2-param: target request already has param=target; append one
+            // more to test first-wins vs last-wins with just 2 values.
+            addSingleAppend(variants, targetRequest, parameterName, authorized);
+
+            // 3-param: target request has param=target; append two more in
+            // mixed order. Some parsers take the middle value.
+            addDoubleAppend(variants, targetRequest, parameterName, authorized, target);
+            addDoubleAppend(variants, targetRequest, parameterName, target, authorized);
         }
         return variants;
     }
 
-    private static void addVariant(List<IdorRequestVariant> variants,
-                                   HttpRequest request,
-                                   String parameterName,
-                                   String firstValue,
-                                   String secondValue) {
+    private static void addSingleAppend(List<IdorRequestVariant> variants,
+                                       HttpRequest request,
+                                       String parameterName,
+                                       String appendValue) {
+        String label = "+" + parameterName + "=" + appendValue;
+        String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+            request.path(), parameterName, appendValue
+        );
+        variants.add(new IdorRequestVariant(
+            label + " -> " + com.bypassfuzzer.burp.http.RequestPathUtils.pathWithoutQuery(updatedPath),
+            request.withPath(updatedPath)
+        ));
+    }
+
+    private static void addDoubleAppend(List<IdorRequestVariant> variants,
+                                        HttpRequest request,
+                                        String parameterName,
+                                        String firstValue,
+                                        String secondValue) {
         String label = parameterName + "=" + firstValue + " & " + parameterName + "=" + secondValue;
         String updatedPathRequest = request.path();
         updatedPathRequest = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(updatedPathRequest, parameterName, firstValue);

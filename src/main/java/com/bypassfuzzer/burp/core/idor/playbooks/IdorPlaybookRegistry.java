@@ -66,6 +66,8 @@ public class IdorPlaybookRegistry {
             new AcceptNegotiationPlaybook(),
             // PLAYBOOK: idor.hybrid.cross_source_conflicts
             new CrossSourceConflictsPlaybook(),
+            // PLAYBOOK: idor.hybrid.query_body_cross_source
+            new QueryBodyCrossSourcePlaybook(),
             // PLAYBOOK: idor.hybrid.identifier_encoding
             new IdentifierEncodingPlaybook(),
             // PLAYBOOK: idor.hybrid.method_override
