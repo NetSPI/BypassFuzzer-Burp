@@ -78,21 +78,29 @@ public class QueryBodyCrossSourcePlaybook implements IdorPlaybook {
             for (RequestBodyFormat format : FORMATS) {
                 String formatLabel = IdorPlaybookSupport.bodyFormatLabel(format);
 
-                // Variant A: query=authorized, body=target
+                // Variant A: BOTH — query=authorized + body=target
                 // Auth check reads query (sees authorized → passes), resolver reads body (sees target).
                 HttpRequest variantA = withQueryAndBody(targetRequest, method, paramName, authorized, target, format);
                 variants.add(new IdorRequestVariant(
-                    method + " query " + paramName + "=" + authorized + " + " + formatLabel + " body " + paramName + "=" + target,
+                    method + " query=" + authorized + " + " + formatLabel + " body=" + target,
                     variantA
                 ));
 
-                // Variant B: query=target, body=target (both agree, body present)
+                // Variant B: body ONLY — no query param, just the body
+                // Tests if the body alone is enough to resolve the object.
+                HttpRequest variantB = bodyOnly(targetRequest, method, paramName, target, format);
+                variants.add(new IdorRequestVariant(
+                    method + " " + formatLabel + " body=" + target + " (no query)",
+                    variantB
+                ));
+
+                // Variant C: BOTH — query=target + body=target
                 // Tests if adding a body changes routing even when query already has target.
                 if (!method.equals(originalMethod) || format != RequestBodyFormat.URL_ENCODED) {
-                    HttpRequest variantB = withQueryAndBody(targetRequest, method, paramName, target, target, format);
+                    HttpRequest variantC = withQueryAndBody(targetRequest, method, paramName, target, target, format);
                     variants.add(new IdorRequestVariant(
-                        method + " query " + paramName + "=" + target + " + " + formatLabel + " body " + paramName + "=" + target,
-                        variantB
+                        method + " query=" + target + " + " + formatLabel + " body=" + target,
+                        variantC
                     ));
                 }
             }
@@ -114,19 +122,29 @@ public class QueryBodyCrossSourcePlaybook implements IdorPlaybook {
         return variants;
     }
 
+    private static HttpRequest bodyOnly(HttpRequest request,
+                                       String method,
+                                       String paramName,
+                                       String bodyValue,
+                                       RequestBodyFormat format) {
+        return IdorPlaybookSupport.applyBodyFormat(request, method, format, paramName, bodyValue);
+    }
+
     private static HttpRequest withQueryAndBody(HttpRequest request,
                                                 String method,
                                                 String paramName,
                                                 String queryValue,
                                                 String bodyValue,
                                                 RequestBodyFormat format) {
-        // Set the query parameter value
-        String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(
-            request.path(), paramName, queryValue
+        // Apply the body format first (this may strip query params via
+        // prepareForBodyFormat), then re-add the query parameter so both
+        // sources are present in the final request.
+        HttpRequest withBody = IdorPlaybookSupport.applyBodyFormat(
+            request, method, format, paramName, bodyValue
         );
-
-        // Apply the body format with the target identifier
-        HttpRequest updated = request.withPath(updatedPath).withMethod(method);
-        return IdorPlaybookSupport.applyBodyFormat(updated, method, format, paramName, bodyValue);
+        String pathWithQuery = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(
+            withBody.path(), paramName, queryValue
+        );
+        return withBody.withPath(pathWithQuery);
     }
 }
