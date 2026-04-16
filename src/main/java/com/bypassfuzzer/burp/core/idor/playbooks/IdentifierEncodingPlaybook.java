@@ -79,6 +79,28 @@ public class IdentifierEncodingPlaybook implements IdorPlaybook {
         addCandidate(candidates, value, encodeDelimitersOnly(value));
         addCandidate(candidates, value, encodeUrl("{" + value + "}"));
         addCandidate(candidates, value, Base64.getEncoder().encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        // Per-char double-encoding (one char at a time, rest literal).
+        // Tests decoders that double-decode selectively.
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isLetterOrDigit(c)) {
+                addCandidate(candidates, value,
+                    value.substring(0, i) + String.format("%%25%02X", (int) c) + value.substring(i + 1));
+            }
+        }
+
+        // Per-char overlong UTF-8 2-byte encoding (one char at a time).
+        // Tests decoders that accept overlong sequences: %c0%e1 for 'a' etc.
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c >= 0x01 && c <= 0x7F) {
+                String overlong = String.format("%%C0%%%02X", (0x80 | (c & 0x3F)));
+                addCandidate(candidates, value,
+                    value.substring(0, i) + overlong + value.substring(i + 1));
+            }
+        }
+
         return new ArrayList<>(candidates);
     }
 

@@ -46,6 +46,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
 
         List<IdorRequestVariant> variants = new ArrayList<>();
         addPathVariants(context, variants, targetRequest, targetPath, targetIdentifier);
+        addQueryVariants(context, variants, targetRequest, targetIdentifier);
         addBodyVariants(context, variants, targetRequest);
 
         return variants;
@@ -88,6 +89,28 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
             String updatedIdentifierPath = IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + suffix);
             String updatedBothPath = suffixLastPathSegment(updatedIdentifierPath, suffix);
             addDistinctPathVariant(variants, seenPaths, targetRequest, updatedBothPath, "identifier+version" + suffix);
+        }
+    }
+
+    private static void addQueryVariants(IdorRequestContext context,
+                                         List<IdorRequestVariant> variants,
+                                         HttpRequest targetRequest,
+                                         String targetIdentifier) {
+        if (!context.hasQueryIdentifier()) {
+            return;
+        }
+
+        for (LocatedParameter parameter : context.queryIdentifiers()) {
+            for (String suffix : IDENTIFIER_SUFFIXES) {
+                String value = targetIdentifier + suffix;
+                String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(
+                    targetRequest.path(), parameter.name(), value
+                );
+                variants.add(new IdorRequestVariant(
+                    "query " + parameter.name() + " -> " + value,
+                    targetRequest.withPath(updatedPath)
+                ));
+            }
         }
     }
 
