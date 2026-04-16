@@ -46,8 +46,15 @@ public class IdentifierAliasesPlaybook implements IdorPlaybook {
             return List.of();
         }
 
+        // Skip parameter names already in the target request — those are
+        // identical to the baseline. Only emit ALIAS names the app might
+        // also accept (userId, accountId, etc.).
+        java.util.Set<String> existing = new java.util.HashSet<>(context.discoveredParameterNamesOrDefaults());
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.mergedParameterNames(context, PARAMETER_NAMES)) {
+            if (existing.contains(parameterName)) {
+                continue;
+            }
             QueryPlaybookSupport.addUpsertVariant(
                 variants,
                 targetRequest,

@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IdorPlaybookBehaviorTest {
@@ -78,9 +79,10 @@ class IdorPlaybookBehaviorTest {
         List<String> paths = playbook.buildVariants(context("/users/1", "id=1", "GET", null, "", "1", "2"))
             .stream().map(variant -> variant.request().path()).toList();
 
-        assertTrue(paths.contains("/users/2?id=2&id=2&id=2"), paths.toString());
+        // Same-value dupes (id=2&id=2&id=2) removed — only mixed variants matter.
         assertTrue(paths.contains("/users/2?id=2&id=1&id=2"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=2&id=1"), paths.toString());
+        assertEquals(2, paths.size(), paths.toString());
     }
 
     @Test
@@ -91,8 +93,8 @@ class IdorPlaybookBehaviorTest {
             context("/users/opaque", null, "POST", "application/json", "{\"user_id\":\"1\"}", "1", "2")
         ).stream().map(variant -> variant.request().path()).toList();
 
-        assertTrue(paths.contains("/users/opaque?user_id=2&user_id=2"), paths.toString());
         assertTrue(paths.contains("/users/opaque?user_id=1&user_id=2"), paths.toString());
+        assertTrue(paths.contains("/users/opaque?user_id=2&user_id=1"), paths.toString());
     }
 
     @Test
@@ -192,7 +194,8 @@ class IdorPlaybookBehaviorTest {
         Set<String> paths = playbook.buildVariants(context("/users/opaque", "resourceId=1", "GET", null, "", "1", "2"))
             .stream().map(variant -> variant.request().path()).collect(java.util.stream.Collectors.toSet());
 
-        assertTrue(paths.contains("/users/opaque?resourceId=2"), paths.toString());
+        // resourceId=2 is skipped (identical to baseline). Only alias names emitted.
+        assertFalse(paths.contains("/users/opaque?resourceId=2"), paths.toString());
         assertTrue(paths.contains("/users/opaque?resourceId=2&id=2"), paths.toString());
         assertTrue(paths.contains("/users/opaque?resourceId=2&userId=2"), paths.toString());
         assertTrue(paths.contains("/users/opaque?resourceId=2&accountId=2"), paths.toString());

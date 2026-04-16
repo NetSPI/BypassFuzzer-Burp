@@ -500,8 +500,8 @@ reference_card(
     s9, 2.1,
     "PORTSWIGGER RESEARCH  ·  OPEN SOURCE DATA",
     "URL Validation Bypass Cheat Sheet",
-    "portswigger.net/web-security/ssrf/url-validation-bypass-cheat-sheet",
-    "github.com/PortSwigger/url-cheatsheet-data  ·  6 categories  ·  open to community PRs",
+    "https://portswigger.net/web-security/ssrf/url-validation-bypass-cheat-sheet",
+    "https://github.com/PortSwigger/url-cheatsheet-data  ·  6 categories  ·  open to community PRs",
 )
 
 # What the tool gets from upstream
@@ -545,6 +545,67 @@ add_text(s9, Inches(0.75), Inches(6.75), Inches(11.8), Inches(0.35),
          size=11, color=DIM, font=BODY_FONT)
 
 add_footer_accent(s9)
+
+
+# Slide 10 — IDOR tab
+s10 = prs.slides.add_slide(blank)
+paint_background(s10, BG)
+
+add_text(s10, Inches(0.75), Inches(0.55), Inches(11.8), Inches(0.7),
+         "IDOR / BOLA tab.", size=36, bold=True, color=FG, font=TITLE_FONT)
+add_text(s10, Inches(0.75), Inches(1.25), Inches(11.8), Inches(0.5),
+         "Third bug class. Tests object-level authorization — \"can I access someone else's data by changing the identifier?\"",
+         size=16, color=DIM, font=BODY_FONT)
+
+# How it works
+add_text(s10, Inches(0.75), Inches(2.05), Inches(11.8), Inches(0.4),
+         "How it works", size=15, bold=True, color=ACCENT, font=BODY_FONT)
+
+add_code_block(s10, Inches(0.75), Inches(2.45), Inches(11.8), Inches(1.8), [
+    ("1. You provide two identifiers: one you own, one you don't.",           FG),
+    ("2. Tool sends YOUR id as the control — shows the \"normal\" response.", FG),
+    ("3. Tool swaps in the TARGET id — whatever it returns is your baseline.", FG),
+    ("4. Tool runs 29 playbooks mutating around the target id.",              FG),
+    ("5. You scan the results for any response that differs from baseline.",  FG),
+    ("   The tool generates + fires. You are the comparator.",                ACCENT),
+], size=14)
+
+# Playbook categories — four columns
+add_text(s10, Inches(0.75), Inches(4.45), Inches(11.8), Inches(0.4),
+         "29 playbooks across 5 namespaces:", size=15, bold=True, color=ACCENT, font=BODY_FONT)
+
+col_w = Inches(2.3)
+col_gap = Inches(0.15)
+left0 = Inches(0.75)
+top_cards = Inches(4.85)
+card_h = Inches(1.85)
+
+ns_data = [
+    ("idor.path.*", "4 playbooks", "Suffix formats\nTrailing slash\nSpecial ID values\nDot-segment traversal"),
+    ("idor.query.*", "5 playbooks", "Conflicting identifiers\nParameter pollution\nJSON wrap / aliases\nNumeric pivots"),
+    ("idor.body.*", "6 playbooks", "Content-type tampering\nJSON batch / wrap / dupes\nWildcards\nUnexpected data types"),
+    ("idor.hybrid.*", "10 playbooks", "Cross-source conflicts\nCase / encoding variants\nUUID neighbor edits\nMethod override"),
+]
+
+for i, (ns, count, desc) in enumerate(ns_data):
+    left = left0 + i * (col_w + col_gap)
+    add_code_block(s10, left, top_cards, col_w, card_h, [
+        (ns, ACCENT),
+        (count, GOOD),
+        ("", CODE_FG),
+        *[(line, DIM) for line in desc.split("\n")],
+    ], size=11)
+
+# Extra namespace
+add_text(s10, left0 + 4 * (col_w + col_gap), top_cards, col_w, Inches(0.4),
+         "+ 4 more in idor.header.*", size=11, color=DIM, font=BODY_FONT)
+
+# Context-aware callout
+add_text(s10, Inches(0.75), Inches(6.85), Inches(11.8), Inches(0.35),
+         "Context-aware: if the identifier lives in the path, path playbooks fire. If it's in a JSON body, body playbooks fire. Same for query string.",
+         size=12, bold=True, color=DIM, font=BODY_FONT)
+
+add_footer_accent(s10)
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,13 @@ public class ConflictingQueryIdentifiersPlaybook implements IdorPlaybook {
             return List.of();
         }
 
+        // Cross-source conflict: one source (path or body) carries the target,
+        // query carries the authorized. If the identifier is query-only, there's
+        // no cross-source disagreement to test.
+        if (!context.hasPathIdentifier() && !context.hasBodyIdentifier()) {
+            return List.of();
+        }
+
         List<String> parameterNames = QueryPlaybookSupport.parameterNames(context, List.of("accountId", "id"));
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : parameterNames) {

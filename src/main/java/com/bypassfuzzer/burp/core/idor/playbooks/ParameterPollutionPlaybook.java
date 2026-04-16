@@ -39,7 +39,9 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
 
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.parameterNames(context, PARAMETER_NAMES)) {
-            addVariant(variants, targetRequest, parameterName, target, target);
+            // Mix authorized + target in both orders. Auth checks one,
+            // resolver reads the other. Skips same-value dupes (target+target)
+            // since those don't test parameter-precedence disagreements.
             addVariant(variants, targetRequest, parameterName, authorized, target);
             addVariant(variants, targetRequest, parameterName, target, authorized);
         }
