@@ -84,7 +84,8 @@ class IdorPlaybookBehaviorTest {
         assertTrue(paths.contains("/users/2?id=2&id=1&id=2"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=2&id=1"), paths.toString());
         assertTrue(paths.stream().anyMatch(p -> p.contains("id%5B%5D=2") || p.contains("id[]=2")), paths.toString());
-        assertEquals(6, paths.size(), paths.toString());
+        // 3 scalar HPP + 3 array-appended + 2 array-replaced
+        assertEquals(8, paths.size(), paths.toString());
     }
 
     @Test

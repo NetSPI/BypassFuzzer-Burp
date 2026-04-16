@@ -53,10 +53,19 @@ public class IdentifierAliasesPlaybook implements IdorPlaybook {
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.mergedParameterNames(context, PARAMETER_NAMES)) {
             if (existing.contains(parameterName)) {
-                // Still try array-notation forms of the existing param name —
-                // these are structurally different from the baseline.
-                QueryPlaybookSupport.addUpsertVariant(variants, targetRequest, parameterName + "[]", target, parameterName + "[]=" + target);
-                QueryPlaybookSupport.addUpsertVariant(variants, targetRequest, parameterName + "[0]", target, parameterName + "[0]=" + target);
+                // Array-notation: REPLACE the original param with the bracket
+                // form so the request has id[]=carlos instead of id=carlos&id[]=carlos.
+                // Tests if the app accepts the array form as the primary identifier.
+                String stripped = com.bypassfuzzer.burp.http.QueryStringUtils.removeParameter(
+                    targetRequest.path(), parameterName);
+                for (String bracketName : List.of(parameterName + "[]", parameterName + "[0]")) {
+                    String withBracket = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                        stripped, bracketName, target);
+                    variants.add(new IdorRequestVariant(
+                        bracketName + "=" + target,
+                        targetRequest.withPath(withBracket)
+                    ));
+                }
                 continue;
             }
             QueryPlaybookSupport.addUpsertVariant(

@@ -166,6 +166,30 @@ public final class QueryStringUtils {
         return upsertParameter(pathWithQuery, encodedName + "=" + encodedValue);
     }
 
+    public static String removeParameter(String pathWithQuery, String parameterName) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        if (query == null || query.isEmpty()) {
+            return pathWithQuery;
+        }
+        String encodedName = encode(parameterName);
+        StringBuilder filtered = new StringBuilder();
+        for (String pair : query.split("&")) {
+            String pairName = pair.contains("=") ? pair.substring(0, pair.indexOf('=')) : pair;
+            if (pairName.equals(parameterName) || pairName.equals(encodedName)) {
+                continue;
+            }
+            if (!filtered.isEmpty()) {
+                filtered.append('&');
+            }
+            filtered.append(pair);
+        }
+        if (filtered.isEmpty()) {
+            return path;
+        }
+        return path + "?" + filtered;
+    }
+
     public static String appendDecodedParameter(String pathWithQuery, String parameterName, String parameterValue) {
         if (parameterName == null || parameterName.isBlank()) {
             return pathWithQuery;

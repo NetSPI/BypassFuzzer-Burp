@@ -48,11 +48,22 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
             addDoubleAppend(variants, targetRequest, parameterName, authorized, target);
             addDoubleAppend(variants, targetRequest, parameterName, target, authorized);
 
-            // Array notation: PHP/Express parse param[] as array.
-            // Auth reads scalar param, resolver reads param[] (or vice versa).
+            // Array notation — APPENDED (pollution: scalar + array coexist):
             addSingleAppend(variants, targetRequest, parameterName + "[]", target);
             addSingleAppend(variants, targetRequest, parameterName + "[]", authorized);
             addSingleAppend(variants, targetRequest, parameterName + "[0]", target);
+
+            // Array notation — REPLACED (scalar removed, only array form present):
+            String stripped = com.bypassfuzzer.burp.http.QueryStringUtils.removeParameter(
+                targetRequest.path(), parameterName);
+            for (String bracketName : List.of(parameterName + "[]", parameterName + "[0]")) {
+                String withBracket = com.bypassfuzzer.burp.http.QueryStringUtils.appendDecodedParameter(
+                    stripped, bracketName, target);
+                variants.add(new IdorRequestVariant(
+                    bracketName + "=" + target + " (replaced)",
+                    targetRequest.withPath(withBracket)
+                ));
+            }
         }
         return variants;
     }
