@@ -32,6 +32,7 @@ class IdorPlaybookRegistryTest {
             "idor.body.deserialization_hints",
             "idor.body.json_batch_identifiers",
             "idor.body.json_parameter_pollution",
+            "idor.body.json_edge_cases",
             "idor.body.wildcard_identifiers",
             "idor.body.unexpected_data_types",
             "idor.hybrid.trailing_control_characters",

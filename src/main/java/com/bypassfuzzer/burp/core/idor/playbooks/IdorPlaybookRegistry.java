@@ -42,6 +42,8 @@ public class IdorPlaybookRegistry {
             new JsonBatchIdentifiersPlaybook(),
             // PLAYBOOK: idor.body.json_parameter_pollution
             new JsonParameterPollutionPlaybook(),
+            // PLAYBOOK: idor.body.json_edge_cases
+            new JsonEdgeCasesPlaybook(),
             // PLAYBOOK: idor.body.wildcard_identifiers
             new WildcardIdentifiersPlaybook(),
             // PLAYBOOK: idor.body.unexpected_data_types
