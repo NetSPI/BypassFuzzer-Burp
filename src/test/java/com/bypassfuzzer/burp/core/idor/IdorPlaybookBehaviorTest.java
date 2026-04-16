@@ -79,11 +79,12 @@ class IdorPlaybookBehaviorTest {
         List<String> paths = playbook.buildVariants(context("/users/1", "id=1", "GET", null, "", "1", "2"))
             .stream().map(variant -> variant.request().path()).toList();
 
-        // 2-param (single-append) + 3-param (double-append, mixed only) variants.
+        // 2-param + 3-param + array-notation variants.
         assertTrue(paths.contains("/users/2?id=2&id=1"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=1&id=2"), paths.toString());
         assertTrue(paths.contains("/users/2?id=2&id=2&id=1"), paths.toString());
-        assertEquals(3, paths.size(), paths.toString());
+        assertTrue(paths.stream().anyMatch(p -> p.contains("id%5B%5D=2") || p.contains("id[]=2")), paths.toString());
+        assertEquals(6, paths.size(), paths.toString());
     }
 
     @Test

@@ -47,6 +47,12 @@ public class ParameterPollutionPlaybook implements IdorPlaybook {
             // mixed order. Some parsers take the middle value.
             addDoubleAppend(variants, targetRequest, parameterName, authorized, target);
             addDoubleAppend(variants, targetRequest, parameterName, target, authorized);
+
+            // Array notation: PHP/Express parse param[] as array.
+            // Auth reads scalar param, resolver reads param[] (or vice versa).
+            addSingleAppend(variants, targetRequest, parameterName + "[]", target);
+            addSingleAppend(variants, targetRequest, parameterName + "[]", authorized);
+            addSingleAppend(variants, targetRequest, parameterName + "[0]", target);
         }
         return variants;
     }

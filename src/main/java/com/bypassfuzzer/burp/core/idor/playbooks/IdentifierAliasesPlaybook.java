@@ -53,6 +53,10 @@ public class IdentifierAliasesPlaybook implements IdorPlaybook {
         List<IdorRequestVariant> variants = new ArrayList<>();
         for (String parameterName : QueryPlaybookSupport.mergedParameterNames(context, PARAMETER_NAMES)) {
             if (existing.contains(parameterName)) {
+                // Still try array-notation forms of the existing param name —
+                // these are structurally different from the baseline.
+                QueryPlaybookSupport.addUpsertVariant(variants, targetRequest, parameterName + "[]", target, parameterName + "[]=" + target);
+                QueryPlaybookSupport.addUpsertVariant(variants, targetRequest, parameterName + "[0]", target, parameterName + "[0]=" + target);
                 continue;
             }
             QueryPlaybookSupport.addUpsertVariant(
