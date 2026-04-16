@@ -132,26 +132,31 @@ public class IdorDebugInfoBuilder {
     private void appendPlaybookVariantSection(StringBuilder debug, IdorRequestContext context) {
         debug.append("=== Playbook Variants ===\n");
         for (IdorPlaybook playbook : playbookRegistry.all()) {
-            List<IdorRequestVariant> variants = playbook.buildVariants(context);
             debug.append(playbook.id())
                 .append(" | ")
                 .append(playbook.displayName())
                 .append("\n");
-            debug.append("Variant count: ").append(variants.size()).append("\n");
-            if (variants.isEmpty()) {
-                debug.append("No variants emitted.\n\n");
-                continue;
-            }
+            try {
+                List<IdorRequestVariant> variants = playbook.buildVariants(context);
+                debug.append("Variant count: ").append(variants.size()).append("\n");
+                if (variants.isEmpty()) {
+                    debug.append("No variants emitted.\n\n");
+                    continue;
+                }
 
-            appendDuplicateSummary(debug, variants);
+                appendDuplicateSummary(debug, variants);
 
-            for (int i = 0; i < variants.size(); i++) {
-                IdorRequestVariant variant = variants.get(i);
-                debug.append("Variant ").append(i + 1).append(": ").append(variant.label()).append("\n");
-                appendRequestSummary(debug, variant.request());
-                debug.append("Raw request:\n")
-                    .append(safeRawRequest(variant.request()))
-                    .append("\n\n");
+                for (int i = 0; i < variants.size(); i++) {
+                    IdorRequestVariant variant = variants.get(i);
+                    debug.append("Variant ").append(i + 1).append(": ").append(variant.label()).append("\n");
+                    appendRequestSummary(debug, variant.request());
+                    debug.append("Raw request:\n")
+                        .append(safeRawRequest(variant.request()))
+                        .append("\n\n");
+                }
+            } catch (Exception e) {
+                debug.append("ERROR building variants: ").append(e.getClass().getSimpleName())
+                    .append(": ").append(e.getMessage()).append("\n\n");
             }
         }
     }

@@ -178,6 +178,7 @@ public class IdorPanel extends JPanel {
             hideWarning();
         } catch (Exception e) {
             showWarning("Unable to build debug info: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
