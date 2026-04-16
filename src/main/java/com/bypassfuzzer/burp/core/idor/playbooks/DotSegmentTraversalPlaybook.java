@@ -57,24 +57,26 @@ public class DotSegmentTraversalPlaybook implements IdorPlaybook {
             return;
         }
 
-        IdorPlaybookSupport.addPathVariant(
-            variants,
-            targetRequest,
+        // Direction 1: authorized/../target
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
             IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, authorizedIdentifier + "/../" + targetIdentifier),
-            "authorized/../target"
-        );
-        IdorPlaybookSupport.addPathVariant(
-            variants,
-            targetRequest,
+            "authorized/../target");
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
             IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, authorizedIdentifier + "/%2E%2E/" + targetIdentifier),
-            "authorized/%2E%2E/target"
-        );
-        IdorPlaybookSupport.addPathVariant(
-            variants,
-            targetRequest,
+            "authorized/%2E%2E/target");
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
             IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, authorizedIdentifier + "%2F..%2F" + targetIdentifier),
-            "authorized%2F..%2Ftarget"
-        );
+            "authorized%2F..%2Ftarget");
+        // Direction 2 (reversed): target/../authorized
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
+            IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + "/../" + authorizedIdentifier),
+            "target/../authorized");
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
+            IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + "/%2E%2E/" + authorizedIdentifier),
+            "target/%2E%2E/authorized");
+        IdorPlaybookSupport.addPathVariant(variants, targetRequest,
+            IdorPlaybookSupport.replaceFirst(targetPath, targetIdentifier, targetIdentifier + "%2F..%2F" + authorizedIdentifier),
+            "target%2F..%2Fauthorized");
     }
 
     private static void addQueryVariants(IdorRequestContext context,
@@ -89,9 +91,17 @@ public class DotSegmentTraversalPlaybook implements IdorPlaybook {
         // Dot-segment traversal inside the query parameter VALUE:
         // ?id=wiener/../carlos  tests if the resolver normalizes the value.
         List<String> traversalValues = List.of(
+            // Direction 1: auth resolves to authorized (passes), resolver
+            // normalizes traversal and lands on target.
             authorizedIdentifier + "/../" + targetIdentifier,
             authorizedIdentifier + "/%2E%2E/" + targetIdentifier,
             authorizedIdentifier + "%2F..%2F" + targetIdentifier,
+            // Direction 2 (reversed): auth normalizes to authorized (passes),
+            // resolver takes FIRST segment (target) without normalizing.
+            targetIdentifier + "/../" + authorizedIdentifier,
+            targetIdentifier + "/%2E%2E/" + authorizedIdentifier,
+            targetIdentifier + "%2F..%2F" + authorizedIdentifier,
+            // Self-referencing and bare traversal
             targetIdentifier + "/../" + targetIdentifier,
             "../" + targetIdentifier,
             "%2E%2E/" + targetIdentifier
@@ -120,9 +130,14 @@ public class DotSegmentTraversalPlaybook implements IdorPlaybook {
         }
 
         for (LocatedParameter parameter : context.bodyIdentifiers()) {
-            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "/../" + targetIdentifier, "body " + parameter.path() + " authorized/../target");
-            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "/%2E%2E/" + targetIdentifier, "body " + parameter.path() + " authorized/%2E%2E/target");
-            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "%2F..%2F" + targetIdentifier, "body " + parameter.path() + " authorized%2F..%2Ftarget");
+            String p = parameter.path();
+            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "/../" + targetIdentifier, "body " + p + " authorized/../target");
+            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "/%2E%2E/" + targetIdentifier, "body " + p + " authorized/%2E%2E/target");
+            addBodyVariant(variants, targetRequest, parameter, authorizedIdentifier + "%2F..%2F" + targetIdentifier, "body " + p + " authorized%2F..%2Ftarget");
+            // Reversed direction
+            addBodyVariant(variants, targetRequest, parameter, targetIdentifier + "/../" + authorizedIdentifier, "body " + p + " target/../authorized");
+            addBodyVariant(variants, targetRequest, parameter, targetIdentifier + "/%2E%2E/" + authorizedIdentifier, "body " + p + " target/%2E%2E/authorized");
+            addBodyVariant(variants, targetRequest, parameter, targetIdentifier + "%2F..%2F" + authorizedIdentifier, "body " + p + " target%2F..%2Fauthorized");
         }
     }
 
