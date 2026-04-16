@@ -44,6 +44,16 @@ public class NumericPivotsPlaybook implements IdorPlaybook {
                 );
             }
         }
+        // Also try numeric pivots in JSON body identifiers
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
+            context,
+            variants,
+            targetRequest,
+            CANDIDATES,
+            false,
+            (parameter, candidate) ->
+                parameter.location().name().toLowerCase() + " " + parameter.path() + " -> " + candidate
+        );
         return variants;
     }
 }

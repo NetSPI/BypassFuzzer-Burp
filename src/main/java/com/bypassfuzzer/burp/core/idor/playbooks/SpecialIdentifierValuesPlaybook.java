@@ -44,13 +44,14 @@ public class SpecialIdentifierValuesPlaybook implements IdorPlaybook {
             CANDIDATES,
             candidate -> candidate
         );
-        IdorPlaybookSupport.addBodyIdentifierValueVariants(
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
             context,
             variants,
             targetRequest,
             CANDIDATES,
             false,
-            label -> "body " + label
+            (parameter, candidate) ->
+                parameter.location().name().toLowerCase() + " " + parameter.path() + " -> " + candidate
         );
         return variants;
     }

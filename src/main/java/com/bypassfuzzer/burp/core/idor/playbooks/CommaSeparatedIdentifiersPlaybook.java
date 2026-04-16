@@ -61,6 +61,21 @@ public class CommaSeparatedIdentifiersPlaybook implements IdorPlaybook {
                 parameterName + "=" + target + "," + authorized + "," + target
             );
         }
+        // Also try comma-separated in JSON body identifiers
+        List<String> commaCandidates = List.of(
+            target + "," + authorized,
+            authorized + "," + target,
+            target + "," + authorized + "," + target
+        );
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
+            context,
+            variants,
+            targetRequest,
+            commaCandidates,
+            false,
+            (parameter, candidate) ->
+                parameter.location().name().toLowerCase() + " " + parameter.path() + " -> " + candidate
+        );
         return variants;
     }
 }

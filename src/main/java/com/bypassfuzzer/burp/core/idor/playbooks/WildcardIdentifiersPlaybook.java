@@ -31,19 +31,20 @@ public class WildcardIdentifiersPlaybook implements IdorPlaybook {
 
     @Override
     public List<IdorRequestVariant> buildVariants(IdorRequestContext context) {
-        if (!context.hasJsonBodyIdentifier()) {
+        if (!context.hasJsonBodyIdentifier() && !context.hasQueryIdentifier()) {
             return List.of();
         }
 
         HttpRequest targetRequest = context.targetRequest();
         List<IdorRequestVariant> variants = new ArrayList<>();
-        IdorPlaybookSupport.addBodyIdentifierValueVariants(
+        IdorPlaybookSupport.addQueryAndBodyIdentifierValueVariants(
             context,
             variants,
             targetRequest,
             PAYLOADS,
             true,
-            label -> "wildcard " + label
+            (parameter, candidate) ->
+                parameter.location().name().toLowerCase() + " wildcard " + parameter.path() + " -> " + candidate
         );
         return variants;
     }
