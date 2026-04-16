@@ -73,10 +73,12 @@ public class JsonBatchIdentifiersPlaybook implements IdorPlaybook {
             addBracketKeyVariant(variants, targetRequest, name, name + "[0]", tScalar, "id[0]");
             addBracketKeyVariant(variants, targetRequest, name, name + "[1]", tScalar, "id[1]");
             // Mixed: id[0]=authorized, id[1]=target
+            String mixedReplacement = java.util.regex.Matcher.quoteReplacement(
+                "\"" + name + "[0]\":" + aScalar + ",\"" + name + "[1]\":" + tScalar);
             String mixedBody = targetRequest.bodyToString()
                 .replaceFirst(
-                    "\"" + java.util.regex.Pattern.quote(name) + "\"\\s*:\\s*" + tScalar,
-                    "\"" + name + "[0]\":" + aScalar + ",\"" + name + "[1]\":" + tScalar
+                    "\"" + java.util.regex.Pattern.quote(name) + "\"\\s*:\\s*" + java.util.regex.Pattern.quote(tScalar),
+                    mixedReplacement
                 );
             if (!mixedBody.equals(targetRequest.bodyToString())) {
                 variants.add(new IdorRequestVariant(

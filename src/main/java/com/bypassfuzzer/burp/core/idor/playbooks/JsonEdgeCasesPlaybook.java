@@ -162,9 +162,12 @@ public class JsonEdgeCasesPlaybook implements IdorPlaybook {
                                            String currentValue,
                                            String newValue,
                                            String label) {
+        // Matcher.quoteReplacement prevents $ and \ in newValue from being
+        // interpreted as regex group references (e.g. ${ID} env var payloads).
+        String replacement = java.util.regex.Matcher.quoteReplacement("\"" + paramName + "\":" + newValue);
         String updated = body.replaceFirst(
             "\"" + java.util.regex.Pattern.quote(paramName) + "\"\\s*:\\s*" + java.util.regex.Pattern.quote(currentValue),
-            "\"" + paramName + "\":" + newValue
+            replacement
         );
         if (!updated.equals(body)) {
             variants.add(new IdorRequestVariant(label, request.withBody(updated)));
