@@ -78,6 +78,43 @@ public class ContentTypeAttack implements AttackStrategy {
             return;
         }
 
+        count = maybeExecuteHeaderOnly(api, "*/*", "Content-Type: */*",
+            requestToModify, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
+        if (count < 0) {
+            return;
+        }
+
+        count = maybeExecuteHeaderOnly(api, "application/*", "Content-Type: application/*",
+            requestToModify, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
+        if (count < 0) {
+            return;
+        }
+
+        count = maybeExecuteHeaderOnly(api, "text/*", "Content-Type: text/*",
+            requestToModify, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
+        if (count < 0) {
+            return;
+        }
+
+        count = maybeExecuteHeaderOnly(api, "application/json;", "Content-Type: application/json;",
+            requestToModify, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
+        if (count < 0) {
+            return;
+        }
+
+        count = maybeExecuteHeaderOnly(api, "application/json;charset=", "Content-Type: application/json;charset=",
+            requestToModify, count, resultCallback, shouldContinue, rateLimiter, attackExecutor);
+        if (count < 0) {
+            return;
+        }
+
+        count = maybeExecuteHeaderOnly(api, "multipart/form-data", "Content-Type: multipart/form-data",
+            requestToModify.withUpdatedHeader("Content-Type", "multipart/form-data"), count, resultCallback, shouldContinue, rateLimiter, attackExecutor,
+            "boundary=");
+        if (count < 0) {
+            return;
+        }
+
         AttackExecutionSupport.logOutput(api, "Content-Type Attack completed: " + count + " results sent");
     }
 
@@ -113,6 +150,44 @@ public class ContentTypeAttack implements AttackStrategy {
             return count + 1;
         } catch (Exception e) {
             if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error converting payload '" + payload + "': ", e)) {
+                return -1;
+            }
+            return count;
+        }
+    }
+
+    private int maybeExecuteHeaderOnly(MontoyaApi api, String skipIfContains, String payload,
+                                       HttpRequest requestToModify, int count,
+                                       Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
+                                       RateLimiter rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
+
+        String currentContentType = requestToModify.headerValue("Content-Type");
+        currentContentType = currentContentType == null ? "" : currentContentType;
+        if (currentContentType.contains(skipIfContains)) {
+            return count;
+        }
+        for (String additionalSkip : additionalSkips) {
+            if (currentContentType.contains(additionalSkip)) {
+                return count;
+            }
+        }
+
+        if (AttackExecutionSupport.stopIfRequested(
+            api,
+            shouldContinue,
+            "Content-Type Attack stopped by user (" + count + " completed)"
+        )) {
+            return -1;
+        }
+
+        try {
+            HttpRequest request = requestToModify.withUpdatedHeader("Content-Type", payload.substring("Content-Type: ".length()));
+            if (!attackExecutor.execute(getAttackType(), payload, request, resultCallback, shouldContinue, rateLimiter)) {
+                return -1;
+            }
+            return count + 1;
+        } catch (Exception e) {
+            if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Error applying payload '" + payload + "': ", e)) {
                 return -1;
             }
             return count;

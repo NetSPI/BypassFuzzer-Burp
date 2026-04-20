@@ -67,6 +67,34 @@ public class ContentTypeTamperingPlaybook implements IdorPlaybook {
                 nestedMultipartUrlEncoded(targetRequest, method, parameterName, target)
             ));
         }
+
+        if (hasOriginalBody(targetRequest)) {
+            HttpRequest bodyCarrier = prepareBodyCarrier(targetRequest, method);
+            variants.add(new IdorRequestVariant(
+                "mismatch declared */* for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "*/*")
+            ));
+            variants.add(new IdorRequestVariant(
+                "mismatch declared application/* for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "application/*")
+            ));
+            variants.add(new IdorRequestVariant(
+                "mismatch declared text/* for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "text/*")
+            ));
+            variants.add(new IdorRequestVariant(
+                "mismatch declared application/json; for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "application/json;")
+            ));
+            variants.add(new IdorRequestVariant(
+                "mismatch declared application/json;charset= for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "application/json;charset=")
+            ));
+            variants.add(new IdorRequestVariant(
+                "mismatch declared multipart/form-data without boundary for original body",
+                bodyCarrier.withUpdatedHeader("Content-Type", "multipart/form-data")
+            ));
+        }
         return variants;
     }
 
