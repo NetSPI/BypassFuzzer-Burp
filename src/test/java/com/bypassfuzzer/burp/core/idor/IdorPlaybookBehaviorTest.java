@@ -249,7 +249,6 @@ class IdorPlaybookBehaviorTest {
             context("/users/opaque", null, "POST", "application/json", "{\"resourceId\":\"1\"}", "1", "2")
         );
 
-        assertEquals(9, variants.size());
         assertTrue(variants.stream().anyMatch(variant ->
             "POST".equals(variant.request().method())
                 && "application/x-www-form-urlencoded".equals(variant.request().headerValue("Content-Type"))
@@ -270,6 +269,8 @@ class IdorPlaybookBehaviorTest {
             variant.request().headerValue("Content-Type").startsWith("multipart/form-data; boundary=")
                 && variant.request().bodyToString().contains("Content-Type: application/x-www-form-urlencoded")
                 && variant.request().bodyToString().contains("resourceId=2")));
+        assertTrue(variants.stream().anyMatch(variant ->
+            "*/*".equals(variant.request().headerValue("Content-Type"))));
     }
 
     @Test

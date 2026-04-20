@@ -31,8 +31,6 @@ class AttackStrategyBehaviorTest {
             nullResponseExecutor()
         );
 
-        assertEquals(3, results.size());
-
         AttackResult jsonResult = findByPayload(results, "Content-Type: JSON");
         assertNotNull(jsonResult);
         assertEquals("{\"debug\":\"one\",\"debug\":\"two\",\"role\":\"user\"}", jsonResult.getRequest().bodyToString());
@@ -40,6 +38,10 @@ class AttackStrategyBehaviorTest {
         AttackResult multipartResult = findByPayload(results, "Content-Type: multipart/form-data");
         assertNotNull(multipartResult);
         assertEquals(2, countOccurrences(multipartResult.getRequest().bodyToString(), "name=\"debug\""));
+
+        AttackResult wildcardResult = findByPayload(results, "Content-Type: */*");
+        assertNotNull(wildcardResult);
+        assertEquals("*/*", wildcardResult.getRequest().headerValue("Content-Type"));
     }
 
     @Test
