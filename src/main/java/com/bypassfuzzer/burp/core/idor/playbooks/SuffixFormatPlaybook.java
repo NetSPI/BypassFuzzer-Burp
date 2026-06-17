@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.core.idor.playbooks;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.idor.IdorRequestContext;
+import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 import com.bypassfuzzer.burp.http.LocatedParameter;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
@@ -17,8 +18,9 @@ import java.util.Set;
  */
 public class SuffixFormatPlaybook implements IdorPlaybook {
 
-    private static final List<String> IDENTIFIER_SUFFIXES = List.of(".json", ".html");
-    private static final List<String> VERSION_SUFFIXES = List.of(".json");
+    private static final List<String> FORMAT_SUFFIXES = List.of(".json", ".html");
+    private static final List<String> PATH_IDENTIFIER_SUFFIXES = pathIdentifierSuffixes();
+    private static final List<String> VERSION_SUFFIXES = pathVersionSuffixes();
 
     @Override
     public String id() {
@@ -32,7 +34,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
 
     @Override
     public String description() {
-        return "Try .json/.html suffixes on discovered identifier locations and on the terminal version segment when the identifier lives in the path.";
+        return "Try format and matrix-extension suffixes on discovered path identifiers, plus lightweight .json/.html suffixes in query and body locations.";
     }
 
     @Override
@@ -65,7 +67,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
 
         Set<String> seenPaths = new LinkedHashSet<>();
 
-        for (String suffix : IDENTIFIER_SUFFIXES) {
+        for (String suffix : PATH_IDENTIFIER_SUFFIXES) {
             addDistinctPathVariant(
                 variants,
                 seenPaths,
@@ -101,7 +103,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
         }
 
         for (LocatedParameter parameter : context.queryIdentifiers()) {
-            for (String suffix : IDENTIFIER_SUFFIXES) {
+            for (String suffix : FORMAT_SUFFIXES) {
                 String value = targetIdentifier + suffix;
                 String updatedPath = com.bypassfuzzer.burp.http.QueryStringUtils.upsertDecodedParameter(
                     targetRequest.path(), parameter.name(), value
@@ -122,7 +124,7 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
         }
 
         for (LocatedParameter parameter : context.bodyIdentifiers()) {
-            for (String suffix : IDENTIFIER_SUFFIXES) {
+            for (String suffix : FORMAT_SUFFIXES) {
                 String candidate = parameter.value() + suffix;
                 HttpRequest updated = RequestParameterSupport.replaceParameterValue(targetRequest, parameter, candidate);
                 if (!updated.bodyToString().equals(targetRequest.bodyToString())) {
@@ -158,5 +160,44 @@ public class SuffixFormatPlaybook implements IdorPlaybook {
             return;
         }
         IdorPlaybookSupport.addPathVariant(variants, targetRequest, updatedPath, label);
+    }
+
+    private static List<String> pathIdentifierSuffixes() {
+        Set<String> suffixes = new LinkedHashSet<>(FORMAT_SUFFIXES);
+        suffixes.addAll(matrixFormatSuffixes());
+        return new ArrayList<>(suffixes);
+    }
+
+    private static List<String> pathVersionSuffixes() {
+        Set<String> suffixes = new LinkedHashSet<>(List.of(".json"));
+        suffixes.addAll(matrixFormatSuffixes());
+        return new ArrayList<>(suffixes);
+    }
+
+    private static List<String> matrixFormatSuffixes() {
+        Set<String> suffixes = new LinkedHashSet<>();
+        for (String extension : loadExtensionSuffixes()) {
+            suffixes.add(";" + extension);
+            suffixes.add("%3b" + extension);
+            suffixes.add(extension + ";");
+            suffixes.add(extension + ";jsessionid=1");
+            suffixes.add(extension + ";foo=bar");
+        }
+        return new ArrayList<>(suffixes);
+    }
+
+    private static List<String> loadExtensionSuffixes() {
+        Set<String> extensions = new LinkedHashSet<>();
+        try {
+            PayloadLoader.loadPayloads("extension_payloads.txt").stream()
+                .filter(extension -> extension != null && !extension.isBlank())
+                .map(String::trim)
+                .map(extension -> extension.startsWith(".") ? extension : "." + extension)
+                .forEach(extensions::add);
+        } catch (RuntimeException e) {
+            extensions.addAll(List.of(".json", ".html", ".xml", ".txt", ".php"));
+        }
+        extensions.addAll(List.of(".jpeg", ".jpg", ".png", ".gif", ".css", ".js"));
+        return new ArrayList<>(extensions);
     }
 }

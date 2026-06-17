@@ -28,6 +28,7 @@ import com.bypassfuzzer.burp.core.idor.playbooks.UnexpectedDataTypesPlaybook;
 import com.bypassfuzzer.burp.core.idor.playbooks.UuidNeighborEditsPlaybook;
 import com.bypassfuzzer.burp.core.idor.playbooks.UuidVersionVariantsPlaybook;
 import com.bypassfuzzer.burp.core.idor.playbooks.WildcardIdentifiersPlaybook;
+import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 import com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory;
 import org.junit.jupiter.api.Test;
 
@@ -184,10 +185,41 @@ class IdorPlaybookBehaviorTest {
             context("/ecm-service/resellers/EWZ/children/RA1/", null, "GET", null, "", "RA1", "BAC")
         ).stream().map(variant -> variant.request().path()).toList();
 
-        assertEquals(3, paths.size());
         assertEquals(1, paths.stream().filter(path -> path.equals("/ecm-service/resellers/EWZ/children/BAC.json/")).count());
         assertTrue(paths.contains("/ecm-service/resellers/EWZ/children/BAC.html/"), paths.toString());
         assertTrue(paths.contains("/ecm-service/resellers/EWZ/children/BAC.json.json/"), paths.toString());
+    }
+
+    @Test
+    void suffixFormatsPlaybookCoversMatrixExtensionPathIdorMiss() {
+        SuffixFormatPlaybook playbook = new SuffixFormatPlaybook();
+
+        List<String> paths = playbook.buildVariants(
+            context("/tenants/acme/users/alice", null, "GET", null, "", "alice", "bob")
+        ).stream().map(variant -> variant.request().path()).toList();
+
+        assertTrue(paths.contains("/tenants/acme/users/bob;.json"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob;.html"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob;.bak"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob;.tar.gz"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob%3b.json"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob.json;"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob.json;jsessionid=1"), paths.toString());
+        assertTrue(paths.contains("/tenants/acme/users/bob.tar.gz;foo=bar"), paths.toString());
+    }
+
+    @Test
+    void suffixFormatsPlaybookBuildsMatrixSuffixesForEveryExtensionPayload() {
+        SuffixFormatPlaybook playbook = new SuffixFormatPlaybook();
+
+        Set<String> paths = playbook.buildVariants(
+            context("/tenants/acme/users/alice", null, "GET", null, "", "alice", "bob")
+        ).stream().map(variant -> variant.request().path()).collect(java.util.stream.Collectors.toSet());
+
+        for (String extension : PayloadLoader.loadPayloads("extension_payloads.txt")) {
+            assertTrue(paths.contains("/tenants/acme/users/bob;" + extension),
+                "expected IDOR matrix suffix for extension payload " + extension);
+        }
     }
 
     @Test
