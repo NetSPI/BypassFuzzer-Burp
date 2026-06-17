@@ -28,9 +28,12 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
+import java.awt.GraphicsEnvironment;
+import java.awt.HeadlessException;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -371,7 +374,7 @@ public class SessionResultsPanel extends JPanel {
 
     private void configureCopyAction() {
         // Cross-platform accelerator: Cmd+C on macOS, Ctrl+C on Windows/Linux.
-        int menuShortcut = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        int menuShortcut = menuShortcutMask();
         KeyStroke copyKey = KeyStroke.getKeyStroke(KeyEvent.VK_C, menuShortcut);
         String actionKey = "bypassfuzzer-copy-rows";
         resultsTable.getInputMap(JComponent.WHEN_FOCUSED).put(copyKey, actionKey);
@@ -410,9 +413,29 @@ public class SessionResultsPanel extends JPanel {
             sb.append(System.lineSeparator());
         }
 
-        Toolkit.getDefaultToolkit()
-            .getSystemClipboard()
-            .setContents(new StringSelection(sb.toString()), null);
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
+
+        try {
+            Toolkit.getDefaultToolkit()
+                .getSystemClipboard()
+                .setContents(new StringSelection(sb.toString()), null);
+        } catch (HeadlessException e) {
+            // Headless test/build environments do not expose a system clipboard.
+        }
+    }
+
+    private int menuShortcutMask() {
+        if (GraphicsEnvironment.isHeadless()) {
+            return InputEvent.CTRL_DOWN_MASK;
+        }
+
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException e) {
+            return InputEvent.CTRL_DOWN_MASK;
+        }
     }
 
     private void configurePopupHandling() {
