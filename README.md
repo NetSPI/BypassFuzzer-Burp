@@ -10,9 +10,10 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
   - [Building from source (optional)](#building-from-source-optional)
 - [Usage](#usage)
   - [Basic Workflow](#basic-workflow)
+  - [Sweep Tab](#sweep-tab)
   - [Bypass Tab](#bypass-tab)
   - [URL Validation tab](#url-validation-tab)
-   - [Smoke Testing](#smoke-testing)
+  - [Smoke Testing](#smoke-testing)
 - [Vulnerable Lab](#vulnerable-lab)
 - [Documentation](#documentation)
 - [Custom Payloads](#custom-payloads)
@@ -20,7 +21,21 @@ A Burp Suite extension for testing authorization bypass vulnerabilities (401/403
 - [Credits](#credits)
 
 ## Features
-Currently, there are 2 main bypasses we can attempt: **Authorization** bypasses & **URL validation** bypasses. When you send a request to Bypass Fuzzer, they are organized between 2 tabs. 
+BypassFuzzer has four main testing areas:
+
+- **Sweep** for broad, bounded coverage of in-scope Proxy-history responses such as `401` and `403`.
+- **Bypass** for targeted authorization bypass testing against a request you send to BypassFuzzer.
+- **IDOR** for object identifier and BOLA-style request mutation.
+- **URL Validation** for marker-driven URL validation and SSRF-style allow-list bypass testing.
+
+- **Sweep Mode:**
+  - Available immediately when the extension loads
+  - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
+  - Deduplicates endpoint shapes before sending probes
+  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 30 probes per endpoint
+  - Includes a preview table and exact probe preview before sending requests
+  - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
+  - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals
 
 - **AuthZ Bypass Attack Types:**
   - Header-based attacks (283+ bypass headers)
@@ -81,9 +96,48 @@ Currently, there are 2 main bypasses we can attempt: **Authorization** bypasses 
    - Select "Send to BypassFuzzer"
 ![](images/image1.png)
 2. **Choose Attack Mode:**
+   - `Sweep` for broad coverage of blocked endpoints found in Proxy history
    - `Bypass` for the core AuthZ bypass playbooks
+   - `IDOR` for object identifier and BOLA-style mutations
    - `URL Validation` for marker-driven URL validation testing
 ![](images/image2.png)
+
+### Sweep Tab
+
+The `Sweep` tab is available as soon as the extension loads. It is intended for broad, bounded coverage when you want to check many blocked endpoints without running the full Bypass playbooks against every request.
+
+**Workflow**
+
+1. Select which Proxy history responses to load:
+   - `401` and `403` are selected by default
+   - `3xx` and `4xx` can be included when you intentionally want broader coverage
+2. Click **Load from Proxy History**
+3. Review the deduped candidate table
+4. Uncheck candidates you do not want to probe
+5. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
+6. Click **Start Sweep**
+
+**What Sweep sends**
+
+Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 30 probes per endpoint by default. The bundled wordlist focuses on:
+
+- matrix and extension normalization such as `;.json`, `;.html`, `.json;`, and `.html;`
+- trailing slash and dot-segment normalization
+- double and triple slash variants
+- segment-level case variants such as `/ADMIN/users` and `/admin/USERS`
+- deterministic mixed-case variants
+- selected URL-encoded path-character variants
+- selected debug parameters such as `debug=true`, `debug=1`, `test=true`, and `admin=true`
+- selected lightweight header probes such as `X-Forwarded-For` and placeholder `Authorization` values
+
+Sweep results show all responses. The `Signal` column is reserved for concrete interesting changes, such as:
+
+- `403 -> 200`
+- `401 -> 302`
+- `Content-Type text/html -> application/json`
+- `Length +347`
+
+Probe responses with `4xx` status codes are still shown, but they are not marked with a signal.
 
 ### Bypass Tab
 
@@ -178,6 +232,7 @@ Wiki-style project documentation lives under [`wiki/`](wiki/), including:
 
 - [`wiki/Home.md`](wiki/Home.md)
 - [`wiki/Playbooks-Overview.md`](wiki/Playbooks-Overview.md)
+- [`wiki/Coverage-Sweep-Mode.md`](wiki/Coverage-Sweep-Mode.md)
 - [`wiki/AuthZ-Bypass-Playbooks.md`](wiki/AuthZ-Bypass-Playbooks.md)
 - [`wiki/URL-Validation-Playbooks.md`](wiki/URL-Validation-Playbooks.md)
 - [`wiki/IDOR-BOLA-Playbooks.md`](wiki/IDOR-BOLA-Playbooks.md)
@@ -194,6 +249,20 @@ The script clones or updates `../BypassFuzzer-Burp.wiki`, syncs the Markdown pag
 ## Custom Payloads
 
 You can edit the payload files before building. UI config for this will be added in a future release.
+
+Sweep uses an explicit build-time probe wordlist:
+
+- `src/main/resources/payloads/sweep_probes.txt`
+
+Each Sweep row is either a `PATH` or `HEADER` template:
+
+```text
+PATH|Path Normalization|Uppercase first segment|{PATH_FIRST_SEGMENT_UPPERCASE}
+PATH|Debug Params|Append debug=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=true
+HEADER|Header|Authorization bearer placeholder|Authorization: Bearer A
+```
+
+The file documents all supported placeholders at the top. Edit it before building if you want to change the default Sweep probes shipped in the extension.
 
 1. **Header Templates:** One template per line, use placeholders:
    - `{IP PAYLOAD}` - Replaced with IP addresses from ip_payloads.txt

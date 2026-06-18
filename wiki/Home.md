@@ -12,6 +12,7 @@ The goal is to make it easy to answer four questions:
 ## Sections
 
 - [Playbooks Overview](Playbooks-Overview)
+- [Coverage Sweep Mode](Coverage-Sweep-Mode)
 - [AuthZ Bypass Playbooks](AuthZ-Bypass-Playbooks)
 - [URL Validation Playbooks](URL-Validation-Playbooks)
 - [IDOR-BOLA Playbooks](IDOR-BOLA-Playbooks)
@@ -19,8 +20,10 @@ The goal is to make it easy to answer four questions:
 
 ## Current Model
 
-BypassFuzzer currently has three main testing areas:
+BypassFuzzer currently has four main testing areas:
 
+- `Sweep`
+  Broad, bounded coverage for in-scope blocked endpoints pulled from Burp Proxy history, driven by `src/main/java/com/bypassfuzzer/burp/core/coverage/CoverageSweepEngine.java`.
 - `Bypass`
   AuthZ and access-control bypass testing driven by the attack registry in `src/main/java/com/bypassfuzzer/burp/core/attacks/AttackRegistry.java`.
 - `URL Validation`
@@ -34,6 +37,8 @@ The docs use the same naming model as the code:
 
 - `AttackType`
   Top-level AuthZ bypass techniques.
+- `CoverageSweepProbe`
+  Bounded Sweep probe templates generated from `src/main/resources/payloads/sweep_probes.txt`.
 - `UrlValidationContext` and `UrlValidationAttackSetting`
   Payload families and payload categories for URL validation.
 - `IdorPlaybook`

@@ -28,6 +28,26 @@ This part of the codebase is best thought of as:
 - a shared execution layer
 - a curated set of authorization bypass technique families
 
+## Coverage Sweep
+
+The Sweep tab is a broad, bounded coverage mode for blocked endpoints found in Burp Proxy history.
+
+It differs from the Bypass tab in three important ways:
+
+- it starts from many in-scope history items rather than one request sent from the context menu
+- it deduplicates endpoint shapes before probing
+- it uses a small explicit probe wordlist instead of the full AuthZ bypass playbooks
+
+The core implementation lives under `src/main/java/com/bypassfuzzer/burp/core/coverage`.
+
+The default probe inventory lives in:
+
+```text
+src/main/resources/payloads/sweep_probes.txt
+```
+
+See [Coverage Sweep Mode](Coverage-Sweep-Mode) for details.
+
 ## URL Validation
 
 The URL validation tab is marker-driven.
