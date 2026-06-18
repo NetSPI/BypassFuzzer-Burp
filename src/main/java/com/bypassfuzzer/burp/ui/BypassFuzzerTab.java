@@ -4,6 +4,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import com.bypassfuzzer.burp.session.SessionRegistry;
+import com.bypassfuzzer.burp.ui.session.CoverageSweepPanel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -17,6 +18,7 @@ public class BypassFuzzerTab extends JPanel {
     private final MontoyaApi api;
     private final JTabbedPane tabbedPane;
     private final SessionRegistry sessionRegistry;
+    private CoverageSweepPanel sweepPanel;
 
     public BypassFuzzerTab(MontoyaApi api) {
         this.api = api;
@@ -31,6 +33,8 @@ public class BypassFuzzerTab extends JPanel {
         // Welcome tab
         JPanel welcomePanel = createWelcomePanel();
         tabbedPane.addTab("Welcome", welcomePanel);
+        sweepPanel = new CoverageSweepPanel(api);
+        tabbedPane.addTab("Sweep", sweepPanel);
 
         add(tabbedPane, BorderLayout.CENTER);
     }
@@ -38,75 +42,78 @@ public class BypassFuzzerTab extends JPanel {
     private JPanel createWelcomePanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        JPanel centerPanel = new JPanel();
-        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
-        centerPanel.setBorder(BorderFactory.createEmptyBorder(50, 50, 50, 50));
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(36, 48, 36, 48));
+
+        JPanel centerPanel = new JPanel(new BorderLayout(0, 24));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
         JLabel titleLabel = new JLabel("BypassFuzzer for Burp Suite");
         titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
-        titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         JLabel subtitleLabel = new JLabel("Access Control Bypass Testing Tool");
         subtitleLabel.setFont(new Font("Arial", Font.PLAIN, 16));
-        subtitleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        subtitleLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        JTextArea instructions = new JTextArea();
-        instructions.setText(
-            "Getting Started:\n\n" +
-            "1. Right-click any HTTP request in Burp (Proxy, Repeater, Target, etc.)\n" +
-            "2. Select \"Send to BypassFuzzer\"\n" +
-            "3. A new tab will open for that request\n" +
-            "4. Select which attack types to run (or use Check All)\n" +
-            "5. Configure options: Collaborator payloads, rate limiting, auto-throttle\n" +
-            "6. Click \"Start Fuzzing\"\n" +
-            "7. Review results in real-time with dynamic filtering\n\n" +
-            "11 Attack Types Available:\n" +
-            "• Header - 283+ bypass headers (X-Forwarded-For, X-Original-URL, etc.)\n" +
-            "• Path - 367+ URL/path manipulations (../, .;/, %2e, etc.)\n" +
-            "• Verb - 11 HTTP methods + method override techniques\n" +
-            "• Debug Params - 31+ debug parameters with case variations\n" +
-            "• Trailing Dot - Absolute domain bypass (example.com.)\n" +
-            "• Trailing Slash - Tests with/without trailing slash and /. pattern\n" +
-            "• Extension - 75+ file extensions (.json, .html, .php, .bak, etc.)\n" +
-            "• Content-Type - Converts between URL-encoded, JSON, XML, multipart\n" +
-            "• Encoding - URL/unicode/unicode-overflow on paths & params\n" +
-            "• Protocol - HTTP/1.0 and HTTP/0.9 downgrades\n" +
-            "• Case Variation - Random capitalizations with smart limits\n\n" +
-            "Features:\n" +
-            "• Smart filtering to reduce noise and highlight interesting responses\n" +
-            "• Rate limiting with configurable requests/second (default: unlimited)\n" +
-            "• Auto-throttle: automatically slows down when 429/503 detected\n" +
-            "• Dynamic Burp Collaborator payload generation (Pro only)\n" +
-            "• Color-code results for easy identification\n" +
-            "• Send findings directly to Repeater or Intruder\n" +
-            "• Multiple concurrent fuzzing sessions (each in its own tab)\n\n" +
-            "Tips:\n" +
-            "• Set requests/second to 5-10 to avoid overwhelming targets\n" +
-            "• Auto-throttle will reduce speed if rate limiting is detected\n" +
-            "• Path, Trailing Slash, and Extension attacks skip root paths (/)\n" +
-            "• Use filters to show only specific status codes or content types\n" +
-            "• Right-click results to colorize interesting findings"
-        );
-        instructions.setEditable(false);
-        instructions.setBackground(panel.getBackground());
-        instructions.setFont(new Font("Arial", Font.PLAIN, 12));
-        instructions.setAlignmentX(Component.CENTER_ALIGNMENT);
-        instructions.setLineWrap(true);
-        instructions.setWrapStyleWord(true);
+        JPanel headerPanel = new JPanel();
+        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
+        headerPanel.add(titleLabel);
+        headerPanel.add(Box.createVerticalStrut(8));
+        headerPanel.add(subtitleLabel);
 
-        centerPanel.add(titleLabel);
-        centerPanel.add(Box.createVerticalStrut(10));
-        centerPanel.add(subtitleLabel);
-        centerPanel.add(Box.createVerticalStrut(30));
+        JPanel sectionGrid = new JPanel(new GridLayout(0, 2, 24, 18));
+        sectionGrid.add(welcomeSection("Targeted testing",
+            "1. Right-click a request in Burp\n"
+                + "2. Select \"Send to BypassFuzzer\"\n"
+                + "3. Select attack types and options\n"
+                + "4. Click \"Start Fuzzing\"\n"
+                + "5. Review results with filters and highlights"));
+        sectionGrid.add(welcomeSection("Sweep",
+            "1. Open the Sweep tab\n"
+                + "2. Load in-scope Proxy history responses\n"
+                + "3. Review and uncheck candidates\n"
+                + "4. Preview exact probes\n"
+                + "5. Start the bounded broad coverage check"));
+        sectionGrid.add(welcomeSection("Targeted playbooks",
+            "Header, Path, Verb, Debug Params, Trailing Dot,\n"
+                + "Trailing Slash, Extension, Content-Type,\n"
+                + "Encoding, Protocol, and Case Variation."));
+        sectionGrid.add(welcomeSection("Workflow notes",
+            "Sweep is mile-wide and inch-deep.\n"
+                + "Targeted request tabs run deeper playbooks.\n"
+                + "Use rate limits and auto-throttle for fragile targets.\n"
+                + "Send interesting results to Burp tools for follow-up."));
 
-        JScrollPane scrollPane = new JScrollPane(instructions);
+        centerPanel.add(headerPanel, BorderLayout.NORTH);
+        centerPanel.add(sectionGrid, BorderLayout.CENTER);
+        contentPanel.add(centerPanel, BorderLayout.NORTH);
+
+        JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
-        scrollPane.setMaximumSize(new Dimension(800, 450));
-        centerPanel.add(scrollPane);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-        panel.add(centerPanel, BorderLayout.CENTER);
+        panel.add(scrollPane, BorderLayout.CENTER);
 
         return panel;
+    }
+
+    private JPanel welcomeSection(String title, String body) {
+        JPanel section = new JPanel(new BorderLayout(0, 8));
+        section.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createTitledBorder(title),
+            BorderFactory.createEmptyBorder(8, 10, 10, 10)
+        ));
+
+        JTextArea text = new JTextArea(body);
+        text.setEditable(false);
+        text.setFocusable(false);
+        text.setOpaque(false);
+        text.setFont(new Font("Arial", Font.PLAIN, 13));
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        section.add(text, BorderLayout.CENTER);
+        return section;
     }
 
     /**
@@ -147,6 +154,9 @@ public class BypassFuzzerTab extends JPanel {
                 sessionTab.cleanup();
             }
         }
+        if (sweepPanel != null) {
+            sweepPanel.cleanup();
+        }
 
         sessionRegistry.closeAllSessions();
 
@@ -167,8 +177,8 @@ public class BypassFuzzerTab extends JPanel {
         JLabel tabLabel = new JLabel(title);
         tabPanel.add(tabLabel);
 
-        // Close button (only for non-welcome tabs)
-        if (tabIndex > 0) {
+        // Close button (only for per-request session tabs)
+        if (tabIndex > 1) {
             JButton closeButton = new JButton("×");
             closeButton.setPreferredSize(new Dimension(17, 17));
             closeButton.setMargin(new Insets(0, 0, 0, 0));

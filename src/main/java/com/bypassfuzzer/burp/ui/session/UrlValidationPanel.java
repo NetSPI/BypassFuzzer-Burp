@@ -81,7 +81,6 @@ public class UrlValidationPanel extends JPanel {
         requestEditor = api.userInterface().createHttpRequestEditor();
         requestEditor.setRequest(originalRequest);
         optionsPanel = new UrlValidationOptionsPanel(originalRequest, isCollaboratorAvailable());
-        configDialog = buildConfigDialog();
 
         add(buildHeaderPanel(), BorderLayout.NORTH);
         add(buildCenterPanel(), BorderLayout.CENTER);
@@ -372,7 +371,7 @@ public class UrlValidationPanel extends JPanel {
 
     private void openConfigDialog() {
         if (configDialog == null) {
-            return;
+            configDialog = buildConfigDialog();
         }
 
         configDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());

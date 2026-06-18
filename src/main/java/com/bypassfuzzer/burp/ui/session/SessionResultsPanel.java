@@ -63,7 +63,8 @@ public class SessionResultsPanel extends JPanel {
     public enum TableLayout {
         DEFAULT,
         IDOR,
-        URL_VALIDATION
+        URL_VALIDATION,
+        COVERAGE_SWEEP
     }
 
     private final ResultHighlighter highlighter;
@@ -276,7 +277,7 @@ public class SessionResultsPanel extends JPanel {
     }
 
     private void configureColumns() {
-        if (tableLayout == TableLayout.URL_VALIDATION) {
+        if (tableLayout == TableLayout.URL_VALIDATION || tableLayout == TableLayout.COVERAGE_SWEEP) {
             resultsTable.getColumnModel().getColumn(0).setPreferredWidth(30);
             resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);
             resultsTable.getColumnModel().getColumn(1).setPreferredWidth(120);
@@ -320,7 +321,7 @@ public class SessionResultsPanel extends JPanel {
     private void initializeRowSorter() {
         TableRowSorter<FuzzerResultsTableModel> sorter = new TableRowSorter<>(tableModel);
         sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));
-        if (tableLayout == TableLayout.URL_VALIDATION) {
+        if (tableLayout == TableLayout.URL_VALIDATION || tableLayout == TableLayout.COVERAGE_SWEEP) {
             sorter.setComparator(5, Comparator.comparingInt(o -> (Integer) o));
             sorter.setComparator(6, Comparator.comparingInt(o -> (Integer) o));
         } else if (tableLayout == TableLayout.IDOR) {
@@ -495,6 +496,7 @@ public class SessionResultsPanel extends JPanel {
     private FuzzerResultsTableModel.TableLayout toModelLayout(TableLayout tableLayout) {
         return switch (tableLayout) {
             case URL_VALIDATION -> FuzzerResultsTableModel.TableLayout.URL_VALIDATION;
+            case COVERAGE_SWEEP -> FuzzerResultsTableModel.TableLayout.COVERAGE_SWEEP;
             case IDOR -> FuzzerResultsTableModel.TableLayout.IDOR;
             case DEFAULT -> FuzzerResultsTableModel.TableLayout.DEFAULT;
         };

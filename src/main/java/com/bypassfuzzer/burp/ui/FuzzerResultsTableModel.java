@@ -26,6 +26,10 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
         URL_VALIDATION(
             new String[]{"#", "Target", "Family", "Encoding", "Payload", "Status", "Length", "Content-Type"},
             new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
+        ),
+        COVERAGE_SWEEP(
+            new String[]{"#", "Target", "Family", "Signal", "Payload", "Status", "Length", "Content-Type"},
+            new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
         );
 
         private final String[] columnNames;
@@ -103,7 +107,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 6 -> truncatePayload(result.getContentType(), 40);
                 default -> "";
             };
-            case URL_VALIDATION -> switch (columnIndex) {
+            case URL_VALIDATION, COVERAGE_SWEEP -> switch (columnIndex) {
                 case 0 -> resultIds.getOrDefault(result, 0);
                 case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 28);
                 case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);

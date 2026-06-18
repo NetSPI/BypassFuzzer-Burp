@@ -43,6 +43,25 @@ class SessionResultsPanelTest {
     }
 
     @Test
+    void coverageSweepTableLabelsInterestingMarkerAsSignal() throws Exception {
+        SessionResultsPanel panel = new SessionResultsPanel(
+            api(),
+            new ResultHighlighter(),
+            () -> { },
+            SessionResultsPanel.ViewerLayout.BELOW_TABLE,
+            SessionResultsPanel.TableLayout.COVERAGE_SWEEP
+        );
+
+        panel.addResult(new AttackResult("Coverage Sweep", "payload", "target", "family", "403 -> 200", null, null), true);
+
+        JTable table = resultsTable(panel);
+
+        assertEquals("Signal", table.getColumnName(3));
+        assertEquals("403 -> 200", table.getValueAt(0, 3));
+    }
+
+
+    @Test
     void idorTableSortsStringMetadataColumnsWithoutTypeErrors() throws Exception {
         SessionResultsPanel panel = new SessionResultsPanel(
             api(),

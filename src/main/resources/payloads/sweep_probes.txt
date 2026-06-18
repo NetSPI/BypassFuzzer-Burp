@@ -1,0 +1,54 @@
+# kind|family|label|value
+#
+# Build-time curated probe set for the Sweep tab.
+# Edit this file to adjust the default probes shipped with the extension.
+# Supported kinds:
+# - PATH: replace the request path with an explicit path template
+# - HEADER: add/replace an explicit header, optionally with "path=/; header=Name: value"
+#
+# Template placeholders:
+# - {PATH}: original path without query
+# - {QUERY}: original query with leading ? when present, otherwise blank
+# - {PATH_NO_LEADING_SLASH}: original path without leading slashes
+# - {PATH_TRAILING_SLASH_TOGGLE}: original path with trailing slash added or removed
+# - {PATH_DUPLICATE_SLASH_ONCE}: original path with one extra slash at the first segment boundary
+# - {PATH_DUPLICATE_SLASH_TWICE}: original path with two extra slashes at the first segment boundary
+# - {PATH_FIRST_SEGMENT_UPPERCASE}: original path with the first segment uppercased
+# - {PATH_LAST_SEGMENT_UPPERCASE}: original path with the last segment uppercased
+# - {PATH_CAPITALIZED}: original path with each segment capitalized
+# - {PATH_MIXED_CASE_1}: deterministic mixed-case path, starting uppercase
+# - {PATH_MIXED_CASE_2}: deterministic mixed-case path, starting lowercase
+# - {PATH_URL_ENCODE_CHAR_1}: original path with the first encodable character URL encoded
+# - {PATH_URL_ENCODE_CHAR_2}: original path with the second encodable character URL encoded
+# - {PATH_URL_ENCODE_CHAR_3}: original path with the third encodable character URL encoded
+# - {QUERY_APPEND_SEPARATOR}: ? when no query exists, otherwise &
+
+PATH|Matrix / Extension|Path suffix ;.json|{PATH};.json{QUERY}
+PATH|Matrix / Extension|Path suffix ;.html|{PATH};.html{QUERY}
+PATH|Matrix / Extension|Path suffix %3b.json|{PATH}%3b.json{QUERY}
+PATH|Matrix / Extension|Path suffix .json;|{PATH}.json;{QUERY}
+PATH|Matrix / Extension|Path suffix .html;|{PATH}.html;{QUERY}
+PATH|Extension / Negotiation|Path suffix .json|{PATH}.json{QUERY}
+PATH|Extension / Negotiation|Path suffix .html|{PATH}.html{QUERY}
+PATH|Path Normalization|Trailing slash toggle|{PATH_TRAILING_SLASH_TOGGLE}{QUERY}
+PATH|Path Normalization|Append /.|{PATH}/.{QUERY}
+PATH|Path Normalization|Append /%2e|{PATH}/%2e{QUERY}
+PATH|Path Normalization|Prefix double slash|//{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Prefix triple slash|///{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Duplicate slash once|{PATH_DUPLICATE_SLASH_ONCE}
+PATH|Path Normalization|Duplicate slash twice|{PATH_DUPLICATE_SLASH_TWICE}
+PATH|Path Normalization|Uppercase first segment|{PATH_FIRST_SEGMENT_UPPERCASE}
+PATH|Path Normalization|Uppercase last segment|{PATH_LAST_SEGMENT_UPPERCASE}
+PATH|Path Normalization|Capitalized path segments|{PATH_CAPITALIZED}
+PATH|Path Normalization|Mixed case variant 1|{PATH_MIXED_CASE_1}
+PATH|Path Normalization|Mixed case variant 2|{PATH_MIXED_CASE_2}
+PATH|Path Normalization|URL encode path character 1|{PATH_URL_ENCODE_CHAR_1}
+PATH|Path Normalization|URL encode path character 2|{PATH_URL_ENCODE_CHAR_2}
+PATH|Path Normalization|URL encode path character 3|{PATH_URL_ENCODE_CHAR_3}
+PATH|Debug Params|Append debug=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=true
+PATH|Debug Params|Append debug=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=1
+PATH|Debug Params|Append test=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}test=true
+PATH|Debug Params|Append admin=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}admin=true
+HEADER|Header|X-Forwarded-For localhost|X-Forwarded-For: 127.0.0.1
+HEADER|Header|Authorization bearer placeholder|Authorization: Bearer A
+HEADER|Header|Authorization basic placeholder|Authorization: Basic A

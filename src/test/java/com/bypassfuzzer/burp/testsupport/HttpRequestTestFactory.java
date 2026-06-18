@@ -2,11 +2,14 @@ package com.bypassfuzzer.burp.testsupport;
 
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.HttpService;
+import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 
@@ -39,11 +42,16 @@ public final class HttpRequestTestFactory {
                 case "query" -> query;
                 case "method" -> method;
                 case "headerValue" -> headerValue(headers, (String) args[0]);
+                case "hasHeader" -> headerValue(headers, (String) args[0]) != null;
+                case "headers" -> headers(headers);
                 case "bodyToString" -> body;
                 case "body" -> byteArray;
                 case "url" -> "https://example.com" + pathWithQuery;
                 case "withMethod" -> requestWithHeaders(path, query, (String) args[0], headers, body);
                 case "withUpdatedHeader" -> requestWithHeaders(path, query, method, updatedHeaders(headers, (String) args[0], (String) args[1]), body);
+                case "withAddedHeader" -> requestWithHeaders(path, query, method, addedHeader(headers, (String) args[0], (String) args[1]), body);
+                case "withHeader" -> requestWithHeaders(path, query, method, updatedHeaders(headers, (String) args[0], (String) args[1]), body);
+                case "withRemovedHeader" -> requestWithHeaders(path, query, method, removedHeader(headers, (String) args[0]), body);
                 case "withBody" -> requestWithHeaders(path, query, method, headers, (String) args[0]);
                 case "withPath" -> {
                     String updatedPath = (String) args[0];
@@ -148,6 +156,50 @@ public final class HttpRequestTestFactory {
         }
         updated.put(name, value);
         return updated;
+    }
+
+    private static Map<String, String> addedHeader(Map<String, String> headers, String name, String value) {
+        Map<String, String> updated = new LinkedHashMap<>(headers);
+        updated.put(name, value);
+        return updated;
+    }
+
+    private static Map<String, String> removedHeader(Map<String, String> headers, String name) {
+        Map<String, String> updated = new LinkedHashMap<>(headers);
+        String existingKey = null;
+        for (String key : updated.keySet()) {
+            if (key.equalsIgnoreCase(name)) {
+                existingKey = key;
+                break;
+            }
+        }
+        if (existingKey != null) {
+            updated.remove(existingKey);
+        }
+        return updated;
+    }
+
+    private static List<HttpHeader> headers(Map<String, String> headers) {
+        List<HttpHeader> result = new ArrayList<>();
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            result.add(header(entry.getKey(), entry.getValue()));
+        }
+        return result;
+    }
+
+    private static HttpHeader header(String name, String value) {
+        return (HttpHeader) Proxy.newProxyInstance(
+            HttpHeader.class.getClassLoader(),
+            new Class<?>[]{HttpHeader.class},
+            (proxy, invokedMethod, args) -> switch (invokedMethod.getName()) {
+                case "name" -> name;
+                case "value" -> value;
+                case "toString" -> name + ": " + value;
+                case "hashCode" -> java.util.Objects.hash(name, value);
+                case "equals" -> proxy == args[0];
+                default -> defaultValue(invokedMethod.getReturnType());
+            }
+        );
     }
 
     private static ByteArray byteArray(int length) {
