@@ -44,4 +44,15 @@ class VersionCheckerTest {
         assertEquals("1.0.9", result.currentVersion());
         assertFalse(result.updateAvailable());
     }
+
+    @Test
+    void updatePopupMessageIncludesCurrentAndLatestVersions() {
+        String message = VersionChecker.updateMessage(
+            new VersionCheckResult("1.0.9", "1.0.10", true)
+        );
+
+        assertTrue(message.contains("Current version: 1.0.9"));
+        assertTrue(message.contains("Latest version: 1.0.10"));
+        assertTrue(message.contains("bypassfuzzer.jar"));
+    }
 }

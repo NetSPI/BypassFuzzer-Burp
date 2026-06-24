@@ -7,6 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 
 public class VersionChecker {
 
@@ -39,6 +41,7 @@ public class VersionChecker {
                 if (result.updateAvailable()) {
                     logOutput(api, "BypassFuzzer update available: " + result.latestVersion()
                         + " (current " + result.currentVersion() + ")");
+                    showUpdatePopup(api, result);
                 } else {
                     logOutput(api, "BypassFuzzer is up to date (" + result.currentVersion() + ")");
                 }
@@ -142,6 +145,28 @@ public class VersionChecker {
         } catch (Exception e) {
             // Ignore logging failures during load/unload races.
         }
+    }
+
+    private static void showUpdatePopup(MontoyaApi api, VersionCheckResult result) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                JOptionPane.showMessageDialog(
+                    api.userInterface().swingUtils().suiteFrame(),
+                    updateMessage(result),
+                    "BypassFuzzer Update Available",
+                    JOptionPane.INFORMATION_MESSAGE
+                );
+            } catch (Exception e) {
+                logError(api, "BypassFuzzer update popup failed: " + e.getMessage());
+            }
+        });
+    }
+
+    static String updateMessage(VersionCheckResult result) {
+        return "A new BypassFuzzer release is available.\n\n"
+            + "Current version: " + result.currentVersion() + "\n"
+            + "Latest version: " + result.latestVersion() + "\n\n"
+            + "Download the latest bypassfuzzer.jar from the GitHub releases page.";
     }
 
     @FunctionalInterface
