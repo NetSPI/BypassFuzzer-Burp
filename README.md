@@ -86,6 +86,8 @@ BypassFuzzer has four main testing areas:
 # build/libs/bypassfuzzer.jar
 ```
 
+Builds embed the public S3 version manifest URL by default so BypassFuzzer can notify users when a newer release is available. Override it for custom release channels with `-PupdateManifestUrl=...`.
+
 # Usage
 
 ## Basic Workflow

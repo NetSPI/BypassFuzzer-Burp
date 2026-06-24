@@ -33,7 +33,8 @@ java {
 }
 
 def generatedBuildInfoDir = layout.buildDirectory.dir('generated/resources/buildInfo')
-def updateManifestUrlProvider = providers.gradleProperty('updateManifestUrl').orElse('')
+def defaultUpdateManifestUrl = 'https://wapen-tools-1.s3.us-east-1.amazonaws.com/bypassfuzzer_version.txt'
+def updateManifestUrlProvider = providers.gradleProperty('updateManifestUrl').orElse(defaultUpdateManifestUrl)
 
 tasks.register('generateBuildInfo', WriteProperties) {
     destinationFile = generatedBuildInfoDir.map { it.file('bypassfuzzer-build.properties') }
