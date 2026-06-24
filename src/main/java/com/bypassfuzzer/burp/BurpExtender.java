@@ -2,9 +2,9 @@ package com.bypassfuzzer.burp;
 
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
-import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.ui.BypassFuzzerTab;
 import com.bypassfuzzer.burp.menu.ContextMenuFactory;
+import com.bypassfuzzer.burp.update.VersionChecker;
 
 /**
  * Main entry point for the BypassFuzzer Burp Suite extension.
@@ -33,6 +33,7 @@ public class BurpExtender implements BurpExtension {
             // Register context menu
             ContextMenuFactory contextMenu = new ContextMenuFactory(api, mainTab);
             api.userInterface().registerContextMenuItemsProvider(contextMenu);
+            VersionChecker.checkAsync(api);
 
             // Register unload handler
             api.extension().registerUnloadingHandler(this::cleanup);

@@ -1,0 +1,100 @@
+name: Build release and update S3 version manifest
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      EXTENSION_ID: bypassfuzzer
+      UPDATE_MANIFEST_URL: ${{ secrets.UPDATE_MANIFEST_URL }}
+      S3_VERSION_MANIFEST_URI: s3://wapen-tools-1/bypassfuzzer_version.txt
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Make Gradle wrapper executable
+        shell: bash
+        run: chmod +x gradlew
+
+      - name: Read project version
+        id: version
+        shell: bash
+        run: |
+          version="$(./gradlew properties -q | awk '/^version:/ {print $2; exit}')"
+          if [ -z "$version" ]; then
+            echo "Unable to read project version from Gradle" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release configuration
+        shell: bash
+        run: |
+          test -n "$UPDATE_MANIFEST_URL" || {
+            echo "Missing UPDATE_MANIFEST_URL secret, e.g. https://wapen-tools-1.s3.us-east-1.amazonaws.com/bypassfuzzer_version.txt" >&2
+            exit 1
+          }
+          test -n "$S3_VERSION_MANIFEST_URI" || {
+            echo "Missing S3_VERSION_MANIFEST_URI, e.g. s3://wapen-tools-1/bypassfuzzer_version.txt" >&2
+            exit 1
+          }
+          test -n "$AWS_REGION" || {
+            echo "Missing AWS_REGION secret" >&2
+            exit 1
+          }
+          test -n "$AWS_ROLE_TO_ASSUME" || {
+            echo "Missing AWS_ROLE_TO_ASSUME secret" >&2
+            exit 1
+          }
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build release JAR
+        shell: bash
+        run: |
+          ./gradlew clean build -PupdateManifestUrl="$UPDATE_MANIFEST_URL"
+          test -f "build/libs/bypassfuzzer.jar"
+          unzip -p "build/libs/bypassfuzzer.jar" META-INF/MANIFEST.MF
+          unzip -p "build/libs/bypassfuzzer.jar" bypassfuzzer-build.properties
+
+      - name: Upload JAR to GitHub release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG_NAME" "build/libs/bypassfuzzer.jar" --clobber
+
+      - name: Update manifest
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          printf '%s\n' "$VERSION" > bypassfuzzer_version.txt
+          aws s3 cp bypassfuzzer_version.txt "$S3_VERSION_MANIFEST_URI" \
+            --content-type text/plain \
+            --cache-control "no-cache" \
+            --acl public-read
+
+          echo "Updated $S3_VERSION_MANIFEST_URI: $VERSION"

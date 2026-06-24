@@ -32,17 +32,50 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+def generatedBuildInfoDir = layout.buildDirectory.dir('generated/resources/buildInfo')
+def updateManifestUrlProvider = providers.gradleProperty('updateManifestUrl').orElse('')
+
+tasks.register('generateBuildInfo', WriteProperties) {
+    destinationFile = generatedBuildInfoDir.map { it.file('bypassfuzzer-build.properties') }
+    property('version', project.version.toString())
+    property('updateManifestUrl', updateManifestUrlProvider.get())
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDir generatedBuildInfoDir
+        }
+    }
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('generateBuildInfo')
+}
+
+tasks.withType(Jar).configureEach {
+    manifest {
+        attributes(
+            'Implementation-Title': 'BypassFuzzer',
+            'Implementation-Version': project.version.toString()
+        )
+    }
+}
+
 // Create fat JAR with dependencies
 tasks.register('cleanShadowJarArtifacts', Delete) {
     delete fileTree(layout.buildDirectory.dir('libs')) {
         include 'bypassfuzzer-burp-*.jar'
+        include 'bypassfuzzer-burp.jar'
+        include 'bypassfuzzer.jar'
     }
 }
 
 shadowJar {
     dependsOn tasks.named('cleanShadowJarArtifacts')
     archiveClassifier.set('')
-    archiveBaseName.set('bypassfuzzer-burp')
+    archiveBaseName.set('bypassfuzzer')
+    archiveVersion.set('')
     minimize()
 }
 

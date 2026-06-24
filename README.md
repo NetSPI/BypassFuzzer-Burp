@@ -73,7 +73,7 @@ BypassFuzzer has four main testing areas:
 1. Download latest JAR from the [releases page](https://github.com/intrudir/BypassFuzzer-Burp/releases)
 2. In Burp, go to **Extensions** → **Installed**
 3. Click **Add**
-4. Select **Extension file**: `bypassfuzzer-burp-1.0.9.jar`
+4. Select **Extension file**: `bypassfuzzer.jar`
 5. The extension will load and a "BypassFuzzer" tab will appear
 
 ### Building from source (optional)
@@ -83,7 +83,7 @@ BypassFuzzer has four main testing areas:
 ./gradlew clean shadowJar
 
 # The compiled JAR will be at:
-# build/libs/bypassfuzzer-burp-1.0.9.jar
+# build/libs/bypassfuzzer.jar
 ```
 
 # Usage
