@@ -9,6 +9,7 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
@@ -53,7 +54,6 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox status3xxCheckBox;
     private JCheckBox status4xxCheckBox;
     private JTextField concurrencyField;
-    private JTextField requestsPerSecondField;
     private JTextField throttleStatusCodesField;
     private JLabel statusLabel;
     private JLabel estimateLabel;
@@ -83,7 +83,10 @@ public class CoverageSweepPanel extends JPanel {
 
     private JPanel buildTopPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel controls = new JPanel();
+        controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         status401CheckBox = new JCheckBox("401", true);
         status403CheckBox = new JCheckBox("403", true);
@@ -96,20 +99,18 @@ public class CoverageSweepPanel extends JPanel {
 
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
-        requestsPerSecondField = new JTextField(String.valueOf(defaults.requestsPerSecond()), 4);
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
 
-        controls.add(new JLabel("Pull responses:"));
-        controls.add(status401CheckBox);
-        controls.add(status403CheckBox);
-        controls.add(status3xxCheckBox);
-        controls.add(status4xxCheckBox);
-        controls.add(new JLabel("Concurrency:"));
-        controls.add(concurrencyField);
-        controls.add(new JLabel("Requests/sec:"));
-        controls.add(requestsPerSecondField);
-        controls.add(new JLabel("Throttle codes:"));
-        controls.add(throttleStatusCodesField);
+        statusRow.add(new JLabel("Pull responses:"));
+        statusRow.add(status401CheckBox);
+        statusRow.add(status403CheckBox);
+        statusRow.add(status3xxCheckBox);
+        statusRow.add(status4xxCheckBox);
+
+        executionRow.add(new JLabel("Concurrency:"));
+        executionRow.add(concurrencyField);
+        executionRow.add(new JLabel("Throttle codes:"));
+        executionRow.add(throttleStatusCodesField);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
@@ -130,13 +131,16 @@ public class CoverageSweepPanel extends JPanel {
         exportButton.setEnabled(false);
         exportButton.addActionListener(e -> exportResultsWithChooser());
 
-        controls.add(loadButton);
-        controls.add(importButton);
-        controls.add(previewProbesButton);
-        controls.add(startButton);
-        controls.add(stopButton);
-        controls.add(clearButton);
-        controls.add(exportButton);
+        statusRow.add(loadButton);
+        statusRow.add(importButton);
+        statusRow.add(previewProbesButton);
+        statusRow.add(startButton);
+        statusRow.add(stopButton);
+        statusRow.add(clearButton);
+        statusRow.add(exportButton);
+
+        controls.add(statusRow);
+        controls.add(executionRow);
 
         statusLabel = new JLabel("Load in-scope Proxy history responses to preview sweep candidates.");
         estimateLabel = new JLabel("No candidates loaded.");
@@ -341,7 +345,7 @@ public class CoverageSweepPanel extends JPanel {
             defaults.maxCandidates(),
             defaults.maxProbesPerCandidate(),
             parsePositiveInt(concurrencyField, defaults.concurrency()),
-            parseNonNegativeInt(requestsPerSecondField, defaults.requestsPerSecond()),
+            defaults.requestsPerSecond(),
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
         );
     }
@@ -375,21 +379,12 @@ public class CoverageSweepPanel extends JPanel {
         status3xxCheckBox.setEnabled(enabled);
         status4xxCheckBox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
-        requestsPerSecondField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
     }
 
     private int parsePositiveInt(JTextField field, int fallback) {
         try {
             return Math.max(1, Integer.parseInt(field.getText().trim()));
-        } catch (Exception e) {
-            return fallback;
-        }
-    }
-
-    private int parseNonNegativeInt(JTextField field, int fallback) {
-        try {
-            return Math.max(0, Integer.parseInt(field.getText().trim()));
         } catch (Exception e) {
             return fallback;
         }

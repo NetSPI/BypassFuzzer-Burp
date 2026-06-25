@@ -80,12 +80,11 @@ When multiple history items match the same dedupe key, Sweep keeps the most rece
 Sweep runs one candidate sequentially, but can run multiple candidates concurrently.
 
 - `Concurrency` controls how many endpoints can be swept at the same time; the default is `1`.
-- `Requests/sec` is a global request rate cap shared by all concurrent workers; `0` means unlimited.
 - `Throttle codes` defaults to `429,503`; repeated matching responses trigger auto-throttling.
 
 ## Probe Budget
 
-Sweep uses a bounded probe set with a default cap of 100 unique probes per endpoint.
+Sweep uses a bounded probe set with a default cap of 120 unique probes per endpoint.
 
 Generated requests are deduplicated before sending. This matters for short paths such as `/admin`, where some templates collapse to the same effective request:
 
@@ -119,7 +118,9 @@ Examples:
 PATH|Matrix / Extension|Path suffix ;.json|{PATH};.json{QUERY}
 PATH|Path Normalization|Uppercase first segment|{PATH_FIRST_SEGMENT_UPPERCASE}
 PATH|Path Normalization|Uppercase last segment|{PATH_LAST_SEGMENT_UPPERCASE}
+PATH|Encoding|Double URL encode path character 1|{PATH_DOUBLE_URL_ENCODE_CHAR_1}
 PATH|Debug Params|Append debug=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=true
+HEADER|Content-Type|Content-Type application/json|Content-Type: application/json
 HEADER|Header|Authorization bearer placeholder|Authorization: Bearer A
 ```
 
@@ -140,7 +141,10 @@ The default Sweep probes focus on:
 - first-segment and last-segment uppercase variants
 - capitalized and mixed-case path variants
 - selected URL-encoded path characters
+- selected double URL-encoded path characters
+- selected encoded path separators and fully encoded segments
 - selected debug parameters
+- selected `Content-Type` header mutations
 - selected lightweight header probes
 
 ## Preview

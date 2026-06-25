@@ -11,7 +11,7 @@ public class RunOptionsPanel extends JPanel {
 
     private final JCheckBox collaboratorCheckbox;
     private final JCheckBox fuzzExistingCookiesCheckbox;
-    private final JTextField requestsPerSecondField;
+    private final JTextField concurrencyField;
     private final JTextField throttleStatusCodesField;
 
     public RunOptionsPanel(FuzzerConfig config, boolean collaboratorAvailable) {
@@ -43,11 +43,15 @@ public class RunOptionsPanel extends JPanel {
         fuzzCookiesRow.add(fuzzExistingCookiesCheckbox);
         add(fuzzCookiesRow);
 
-        JPanel rateRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        rateRow.add(new JLabel("Requests/second (0 = unlimited):"));
-        requestsPerSecondField = new JTextField(String.valueOf(config.getRequestsPerSecond()), 5);
-        rateRow.add(requestsPerSecondField);
-        add(rateRow);
+        JPanel concurrencyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        concurrencyRow.add(new JLabel("Concurrency:"));
+        concurrencyField = new JTextField(String.valueOf(config.getConcurrency()), 5);
+        concurrencyRow.add(concurrencyField);
+        JLabel concurrencyHelp = new JLabel("(parallel attack families)");
+        concurrencyHelp.setFont(concurrencyHelp.getFont().deriveFont(Font.ITALIC, 11f));
+        concurrencyHelp.setForeground(Color.GRAY);
+        concurrencyRow.add(concurrencyHelp);
+        add(concurrencyRow);
 
         JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
@@ -72,8 +76,8 @@ public class RunOptionsPanel extends JPanel {
         return fuzzExistingCookiesCheckbox.isSelected();
     }
 
-    public String requestsPerSecondText() {
-        return requestsPerSecondField.getText();
+    public String concurrencyText() {
+        return concurrencyField.getText();
     }
 
     public String throttleStatusCodesText() {
@@ -82,7 +86,7 @@ public class RunOptionsPanel extends JPanel {
 
     public void setControlsEnabled(boolean enabled, boolean collaboratorAvailable) {
         fuzzExistingCookiesCheckbox.setEnabled(enabled);
-        requestsPerSecondField.setEnabled(enabled);
+        concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         collaboratorCheckbox.setEnabled(enabled && collaboratorAvailable);
     }

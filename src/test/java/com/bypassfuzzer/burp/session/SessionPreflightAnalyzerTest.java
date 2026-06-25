@@ -26,7 +26,7 @@ class SessionPreflightAnalyzerTest {
 
         SessionRunOptions options = new SessionRunOptions(
             false, true, false, false, false, true, true, false, true, false, false,
-            false, false, false, 0, Set.of()
+            false, false, false, 0, 1, Set.of()
         );
 
         assertEquals(
@@ -45,7 +45,7 @@ class SessionPreflightAnalyzerTest {
 
         SessionRunOptions options = new SessionRunOptions(
             false, false, false, false, false, false, false, true, false, false, false,
-            false, false, false, 0, Set.of()
+            false, false, false, 0, 1, Set.of()
         );
 
         assertEquals(

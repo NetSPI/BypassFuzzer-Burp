@@ -7,7 +7,11 @@ import com.bypassfuzzer.burp.core.attacks.*;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
 /**
@@ -148,37 +152,101 @@ public class FuzzerEngine {
         List<RegisteredAttack> attacks = attackRegistry.buildEnabledAttacks(config, targetUrl);
         AttackExecutor attackExecutor = new AttackExecutor(new MontoyaRequestSender(api));
         safeLog("Built " + attacks.size() + " attack strategies");
+        int concurrency = Math.max(1, config.getConcurrency());
+        safeLog("Concurrency: " + concurrency + " attack " + (concurrency == 1 ? "family" : "families"));
 
+        if (concurrency > 1 && attacks.size() > 1) {
+            executeAttacksConcurrently(request, targetUrl, resultCallback, attacks, attackExecutor, concurrency);
+        } else {
+            executeAttacksSequentially(request, targetUrl, resultCallback, attacks, attackExecutor);
+        }
+
+        safeLog("\n=== BypassFuzzer Completed ===");
+    }
+
+    private void executeAttacksSequentially(HttpRequest request,
+                                            String targetUrl,
+                                            Consumer<AttackResult> resultCallback,
+                                            List<RegisteredAttack> attacks,
+                                            AttackExecutor attackExecutor) {
         for (RegisteredAttack attack : attacks) {
             if (!running) {
                 safeLog("Fuzzer stopped during execution");
                 break;
             }
 
-            safeLog("\n=== Executing " + attack.type().displayName() + " Attack ===");
+            executeAttack(request, targetUrl, resultCallback, attack, attackExecutor);
+        }
+    }
 
-            try {
-                // Pass callback and running check to strategy - results sent immediately as they're generated
-                attack.strategy().execute(api, request, targetUrl, result -> {
-                    if (running) {
-                        try {
-                            resultCallback.accept(result);
-                            // Report response to rate limiter for auto-throttling
-                            if (rateLimiter != null) {
-                                rateLimiter.reportResponse(result.getStatusCode());
-                            }
-                        } catch (Exception callbackEx) {
-                            safeLogError("Error sending result to UI callback: " + callbackEx.getMessage());
-                        }
-                    }
-                }, () -> running, rateLimiter, attackExecutor);
-
-            } catch (Exception e) {
-                safeLogError("Error in " + attack.type().displayName() + " attack: " + e.getMessage());
+    private void executeAttacksConcurrently(HttpRequest request,
+                                            String targetUrl,
+                                            Consumer<AttackResult> resultCallback,
+                                            List<RegisteredAttack> attacks,
+                                            AttackExecutor attackExecutor,
+                                            int concurrency) {
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(concurrency, attacks.size()), runnable -> {
+            Thread thread = new Thread(runnable, "bypassfuzzer-attack-worker");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (RegisteredAttack attack : attacks) {
+                futures.add(executor.submit(() -> executeAttack(request, targetUrl, resultCallback, attack, attackExecutor)));
             }
+
+            for (Future<?> future : futures) {
+                if (!running) {
+                    break;
+                }
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    running = false;
+                    break;
+                } catch (Exception e) {
+                    safeLogError("Concurrent attack worker error: " + e.getMessage());
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private void executeAttack(HttpRequest request,
+                               String targetUrl,
+                               Consumer<AttackResult> resultCallback,
+                               RegisteredAttack attack,
+                               AttackExecutor attackExecutor) {
+        if (!running) {
+            return;
         }
 
-        safeLog("\n=== BypassFuzzer Completed ===");
+        safeLog("\n=== Executing " + attack.type().displayName() + " Attack ===");
+
+        try {
+            attack.strategy().execute(api, request, targetUrl, result -> {
+                if (running) {
+                    handleResult(result, resultCallback);
+                }
+            }, () -> running, rateLimiter, attackExecutor);
+        } catch (Exception e) {
+            safeLogError("Error in " + attack.type().displayName() + " attack: " + e.getMessage());
+        }
+    }
+
+    private void handleResult(AttackResult result, Consumer<AttackResult> resultCallback) {
+        try {
+            resultCallback.accept(result);
+            // Report response to rate limiter for auto-throttling
+            if (rateLimiter != null) {
+                rateLimiter.reportResponse(result.getStatusCode());
+            }
+        } catch (Exception callbackEx) {
+            safeLogError("Error sending result to UI callback: " + callbackEx.getMessage());
+        }
     }
 
     /**

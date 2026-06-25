@@ -11,11 +11,11 @@ public final class SessionRunOptionsSupport {
     }
 
     public static SessionRunOptions collect(AttackSelectionPanel attackSelectionPanel, RunOptionsPanel runOptionsPanel) {
-        int requestsPerSecond;
+        int concurrency;
         try {
-            requestsPerSecond = Math.max(0, Integer.parseInt(runOptionsPanel.requestsPerSecondText().trim()));
+            concurrency = Math.max(1, Integer.parseInt(runOptionsPanel.concurrencyText().trim()));
         } catch (NumberFormatException e) {
-            requestsPerSecond = 0;
+            concurrency = 1;
         }
 
         return new SessionRunOptions(
@@ -33,7 +33,8 @@ public final class SessionRunOptionsSupport {
             runOptionsPanel.isCollaboratorEnabled(),
             attackSelectionPanel.isCookieParamAttackEnabled(),
             runOptionsPanel.isFuzzExistingCookiesEnabled(),
-            requestsPerSecond,
+            0,
+            concurrency,
             SessionInputParsers.parseStatusCodes(runOptionsPanel.throttleStatusCodesText())
         );
     }

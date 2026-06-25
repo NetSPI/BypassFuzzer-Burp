@@ -136,7 +136,7 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(100, probes.size());
+        assertEquals(120, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
@@ -163,6 +163,14 @@ class CoverageSweepEngineTest {
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/Admin/Users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/AdMiN/uSeRs")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/%61dmin/users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Encoding")
+            && probe.request().path().equals("/adm%69n/users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Encoding")
+            && probe.request().path().equals("/%2561dmin/users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Encoding")
+            && probe.request().path().equals("/admin%2fusers")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Encoding")
+            && probe.request().path().equals("/%61%64%6d%69%6e/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users/")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?debug=true")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?admin=true")));
@@ -170,6 +178,10 @@ class CoverageSweepEngineTest {
         assertTrue(probes.stream().allMatch(probe -> "GET".equals(probe.request().method())));
         assertFalse(probes.stream().anyMatch(probe -> probe.request().hasHeader("X-Original-URL")));
         assertFalse(probes.stream().anyMatch(probe -> probe.request().hasHeader("X-Rewrite-URL")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Content-Type")
+            && "application/json".equals(probe.request().headerValue("Content-Type"))));
+        assertTrue(probes.stream().anyMatch(probe -> probe.family().equals("Content-Type")
+            && "application/x-www-form-urlencoded".equals(probe.request().headerValue("Content-Type"))));
         assertTrue(probes.stream().anyMatch(probe -> "Bearer A".equals(probe.request().headerValue("Authorization"))));
         assertTrue(probes.stream().anyMatch(probe -> "Basic A".equals(probe.request().headerValue("Authorization"))));
         assertFalse(probes.stream().anyMatch(probe -> probe.request().hasHeader("X-Custom-IP-Authorization")));

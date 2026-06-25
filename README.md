@@ -33,8 +33,8 @@ BypassFuzzer has four main testing areas:
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
   - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
-  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 100 probes per endpoint
-  - Supports endpoint-level concurrency and global request-per-second throttling
+  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 120 probes per endpoint
+  - Supports endpoint-level concurrency and auto-throttle status-code controls
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
   - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals
@@ -118,24 +118,26 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 2. Click **Load from Proxy History**, or click **Import Targets** and choose a `.txt` file with one absolute URL per line
 3. Review the deduped candidate table
 4. Uncheck candidates you do not want to probe
-5. Adjust concurrency, requests/second, and throttle status codes if needed
+5. Adjust concurrency and throttle status codes if needed
 6. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
 7. Click **Start Sweep**
 
 **What Sweep sends**
 
-Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 100 probes per endpoint by default. The bundled wordlist focuses on:
+Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 120 probes per endpoint by default. The bundled wordlist focuses on:
 
 - matrix and extension normalization such as `;.json`, `;.html`, `.json;`, and `.html;`
 - lightweight content negotiation query probes such as `?.json` and `?format=json`
-- framework and extension fallback suffixes such as `.php`, `.aspx`, `.jsp`, `.action`, and `.swagger.json`
+- framework and extension fallback suffixes such as `.php`, `.aspx`, `.jsp`, `.map`, `.bak`, `.old`, and `.config`
 - trailing slash and dot-segment normalization
 - encoded and double-encoded dot-segment probes
 - double and triple slash variants
 - segment-level case variants such as `/ADMIN/users` and `/admin/USERS`
 - deterministic mixed-case variants
-- selected URL-encoded path-character variants
-- selected debug parameters such as `debug=true`, `debug=1`, `test=true`, and `admin=true`
+- selected URL-encoded and double URL-encoded path-character variants
+- selected fully encoded segment and encoded path-separator variants
+- selected debug parameters such as `debug=true`, `debug=1`, `admin=1`, `isAdmin=true`, `role=admin`, and `user=admin`
+- selected `Content-Type` probes such as `application/json`, `application/x-www-form-urlencoded`, `multipart/form-data`, and XML/text variants
 - selected lightweight header probes such as `X-Forwarded-For` and placeholder `Authorization` values
 
 Sweep results show all responses. The `Signal` column is reserved for concrete interesting changes, such as:
@@ -155,8 +157,7 @@ Probe responses with `4xx` status codes are still shown, but they are not marked
 
 2) Optionally:
    - Enable Collaborator payloads (Burp Professional only)
-   - Configure rate limiting:
-   - Set requests/second (0 = unlimited, default)
+   - Configure concurrency for parallel attack-family execution
    - Configure auto-throttle status codes (default: 429, 503)
 
 3) Manual & Smart filter

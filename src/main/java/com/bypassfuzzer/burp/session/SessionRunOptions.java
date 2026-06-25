@@ -22,6 +22,7 @@ public record SessionRunOptions(
     boolean cookieParamAttack,
     boolean fuzzExistingCookies,
     int requestsPerSecond,
+    int concurrency,
     Set<Integer> throttleStatusCodes
 ) {
 
@@ -63,6 +64,7 @@ public record SessionRunOptions(
             cookieParamAttack,
             fuzzExistingCookies,
             requestsPerSecond,
+            concurrency,
             throttleStatusCodes
         );
     }
@@ -83,6 +85,7 @@ public record SessionRunOptions(
         config.setEnableCookieParamAttack(cookieParamAttack);
         config.setEnableFuzzExistingCookies(fuzzExistingCookies);
         config.setRequestsPerSecond(requestsPerSecond);
+        config.setConcurrency(concurrency);
         config.setThrottleStatusCodes(throttleStatusCodes);
         config.setEnableAutoThrottle(!throttleStatusCodes.isEmpty());
     }

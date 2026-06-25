@@ -16,7 +16,7 @@ class SessionRunOptionsTest {
     void exposesEnabledAttackTypesAndAppliesThemToConfig() {
         SessionRunOptions options = new SessionRunOptions(
             true, false, true, false, false, true, false, true, false, true, false,
-            true, false, true, 7, Set.of(429, 503)
+            true, false, true, 0, 4, Set.of(429, 503)
         );
 
         assertEquals(Set.of(
@@ -38,7 +38,8 @@ class SessionRunOptionsTest {
         assertTrue(config.isEnableProtocolAttack());
         assertTrue(config.isEnableCollaboratorPayloads());
         assertTrue(config.isEnableFuzzExistingCookies());
-        assertEquals(7, config.getRequestsPerSecond());
+        assertEquals(0, config.getRequestsPerSecond());
+        assertEquals(4, config.getConcurrency());
         assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
     }
 }

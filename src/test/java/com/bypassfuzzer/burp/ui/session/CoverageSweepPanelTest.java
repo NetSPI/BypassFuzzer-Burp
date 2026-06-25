@@ -155,7 +155,7 @@ class CoverageSweepPanelTest {
 
         String preview = panel.renderProbePreview(candidate, probes);
 
-        assertTrue(preview.contains("Probe count: 100"));
+        assertTrue(preview.contains("Probe count: 120"));
         assertTrue(preview.contains("Matrix / Extension - Path suffix ;.json"));
         assertTrue(preview.contains("GET /admin/users;.json HTTP/1.1"));
         assertTrue(preview.contains("GET /admin/users?format=json HTTP/1.1"));
@@ -166,7 +166,11 @@ class CoverageSweepPanelTest {
         assertTrue(preview.contains("GET /admin/USERS HTTP/1.1"));
         assertTrue(preview.contains("GET /AdMiN/uSeRs HTTP/1.1"));
         assertTrue(preview.contains("GET /%61dmin/users HTTP/1.1"));
+        assertTrue(preview.contains("Encoding - Double URL encode path character 1"));
+        assertTrue(preview.contains("GET /%2561dmin/users HTTP/1.1"));
         assertTrue(preview.contains("GET /admin/users?debug=true HTTP/1.1"));
+        assertTrue(preview.contains("Content-Type - Content-Type application/json"));
+        assertTrue(preview.contains("Content-Type: application/json"));
     }
 
     @Test
@@ -180,7 +184,6 @@ class CoverageSweepPanelTest {
         assertFalse(button(panel, "startButton").isEnabled());
         assertTrue(button(panel, "stopButton").isEnabled());
         assertFalse(field(panel, "concurrencyField", JTextField.class).isEnabled());
-        assertFalse(field(panel, "requestsPerSecondField", JTextField.class).isEnabled());
         assertFalse(field(panel, "throttleStatusCodesField", JTextField.class).isEnabled());
 
         button(panel, "stopButton").doClick();
@@ -196,7 +199,7 @@ class CoverageSweepPanelTest {
         button(panel, "startButton").doClick();
 
         SessionResultsWorkspace workspace = field(panel, "resultsWorkspace", SessionResultsWorkspace.class);
-        for (int i = 0; i < 50 && workspace.allResultsCount() == 0; i++) {
+        for (int i = 0; i < 50 && (workspace.allResultsCount() == 0 || !button(panel, "exportButton").isEnabled()); i++) {
             Thread.sleep(20);
         }
 

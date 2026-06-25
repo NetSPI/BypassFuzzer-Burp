@@ -229,9 +229,75 @@ public class CoverageSweepProbeGenerator {
             .replace("{PATH_URL_ENCODE_CHAR_1}", encodePathCharacterWithQuery(pathWithQuery, 1))
             .replace("{PATH_URL_ENCODE_CHAR_2}", encodePathCharacterWithQuery(pathWithQuery, 2))
             .replace("{PATH_URL_ENCODE_CHAR_3}", encodePathCharacterWithQuery(pathWithQuery, 3))
+            .replace("{PATH_URL_ENCODE_CHAR_4}", encodePathCharacterWithQuery(pathWithQuery, 4))
+            .replace("{PATH_URL_ENCODE_CHAR_5}", encodePathCharacterWithQuery(pathWithQuery, 5))
+            .replace("{PATH_DOUBLE_URL_ENCODE_CHAR_1}", doubleEncodePathCharacterWithQuery(pathWithQuery, 1))
+            .replace("{PATH_DOUBLE_URL_ENCODE_CHAR_2}", doubleEncodePathCharacterWithQuery(pathWithQuery, 2))
+            .replace("{PATH_DOUBLE_URL_ENCODE_CHAR_3}", doubleEncodePathCharacterWithQuery(pathWithQuery, 3))
+            .replace("{PATH_ENCODE_FIRST_SEPARATOR}", encodeFirstSeparator(pathWithQuery, false))
+            .replace("{PATH_DOUBLE_ENCODE_FIRST_SEPARATOR}", encodeFirstSeparator(pathWithQuery, true))
+            .replace("{PATH_FIRST_SEGMENT_FULLY_URL_ENCODED}", fullyEncodeSegment(pathWithQuery, true, false))
+            .replace("{PATH_FIRST_SEGMENT_FULLY_DOUBLE_URL_ENCODED}", fullyEncodeSegment(pathWithQuery, true, true))
+            .replace("{PATH_LAST_SEGMENT_FULLY_URL_ENCODED}", fullyEncodeSegment(pathWithQuery, false, false))
             .replace("{QUERY_APPEND_SEPARATOR}", queryAppendSeparator)
             .replace("{QUERY}", queryWithPrefix)
             .replace("{PATH}", path);
+    }
+
+    private String doubleEncodePathCharacterWithQuery(String pathWithQuery, int ordinal) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        return RequestPathUtils.replaceQuery(encodePathCharacter(path, ordinal, true), query);
+    }
+
+    private String encodePathCharacter(String path, int ordinal, boolean doubleEncode) {
+        int seen = 0;
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (isEncodable(c)) {
+                seen++;
+                if (seen == ordinal) {
+                    return path.substring(0, i) + encodedChar(c, doubleEncode) + path.substring(i + 1);
+                }
+            }
+        }
+        return path;
+    }
+
+    private String encodeFirstSeparator(String pathWithQuery, boolean doubleEncode) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        int separator = path.indexOf('/', 1);
+        if (separator < 0) {
+            return pathWithQuery;
+        }
+        String encodedSlash = doubleEncode ? "%252f" : "%2f";
+        return RequestPathUtils.replaceQuery(path.substring(0, separator) + encodedSlash + path.substring(separator + 1), query);
+    }
+
+    private String fullyEncodeSegment(String pathWithQuery, boolean firstSegment, boolean doubleEncode) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        String[] parts = path.split("/", -1);
+        int target = firstSegment ? firstNonEmptySegment(parts) : lastNonEmptySegment(parts);
+        if (target < 0) {
+            return pathWithQuery;
+        }
+        parts[target] = fullyEncode(parts[target], doubleEncode);
+        return RequestPathUtils.replaceQuery(String.join("/", parts), query);
+    }
+
+    private String fullyEncode(String segment, boolean doubleEncode) {
+        StringBuilder encoded = new StringBuilder(segment.length() * 3);
+        for (int i = 0; i < segment.length(); i++) {
+            char c = segment.charAt(i);
+            encoded.append(isEncodable(c) ? encodedChar(c, doubleEncode) : c);
+        }
+        return encoded.toString();
+    }
+
+    private String encodedChar(char c, boolean doubleEncode) {
+        return String.format(doubleEncode ? "%%25%02x" : "%%%02x", (int) c);
     }
 
     private String toggleTrailingSlash(String path) {

@@ -21,6 +21,16 @@
 # - {PATH_URL_ENCODE_CHAR_1}: original path with the first encodable character URL encoded
 # - {PATH_URL_ENCODE_CHAR_2}: original path with the second encodable character URL encoded
 # - {PATH_URL_ENCODE_CHAR_3}: original path with the third encodable character URL encoded
+# - {PATH_URL_ENCODE_CHAR_4}: original path with the fourth encodable character URL encoded
+# - {PATH_URL_ENCODE_CHAR_5}: original path with the fifth encodable character URL encoded
+# - {PATH_DOUBLE_URL_ENCODE_CHAR_1}: original path with the first encodable character double URL encoded
+# - {PATH_DOUBLE_URL_ENCODE_CHAR_2}: original path with the second encodable character double URL encoded
+# - {PATH_DOUBLE_URL_ENCODE_CHAR_3}: original path with the third encodable character double URL encoded
+# - {PATH_ENCODE_FIRST_SEPARATOR}: original path with the first between-segment slash URL encoded
+# - {PATH_DOUBLE_ENCODE_FIRST_SEPARATOR}: original path with the first between-segment slash double URL encoded
+# - {PATH_FIRST_SEGMENT_FULLY_URL_ENCODED}: original path with the first segment fully URL encoded
+# - {PATH_FIRST_SEGMENT_FULLY_DOUBLE_URL_ENCODED}: original path with the first segment fully double URL encoded
+# - {PATH_LAST_SEGMENT_FULLY_URL_ENCODED}: original path with the last segment fully URL encoded
 # - {QUERY_APPEND_SEPARATOR}: ? when no query exists, otherwise &
 
 PATH|Matrix / Extension|Path suffix ;.json|{PATH};.json{QUERY}
@@ -111,6 +121,16 @@ PATH|Path Normalization|Mixed case variant 2|{PATH_MIXED_CASE_2}
 PATH|Path Normalization|URL encode path character 1|{PATH_URL_ENCODE_CHAR_1}
 PATH|Path Normalization|URL encode path character 2|{PATH_URL_ENCODE_CHAR_2}
 PATH|Path Normalization|URL encode path character 3|{PATH_URL_ENCODE_CHAR_3}
+PATH|Encoding|URL encode path character 4|{PATH_URL_ENCODE_CHAR_4}
+PATH|Encoding|URL encode path character 5|{PATH_URL_ENCODE_CHAR_5}
+PATH|Encoding|Double URL encode path character 1|{PATH_DOUBLE_URL_ENCODE_CHAR_1}
+PATH|Encoding|Double URL encode path character 2|{PATH_DOUBLE_URL_ENCODE_CHAR_2}
+PATH|Encoding|Double URL encode path character 3|{PATH_DOUBLE_URL_ENCODE_CHAR_3}
+PATH|Encoding|URL encode first path separator|{PATH_ENCODE_FIRST_SEPARATOR}
+PATH|Encoding|Double URL encode first path separator|{PATH_DOUBLE_ENCODE_FIRST_SEPARATOR}
+PATH|Encoding|Fully URL encode first path segment|{PATH_FIRST_SEGMENT_FULLY_URL_ENCODED}
+PATH|Encoding|Fully double URL encode first path segment|{PATH_FIRST_SEGMENT_FULLY_DOUBLE_URL_ENCODED}
+PATH|Encoding|Fully URL encode last path segment|{PATH_LAST_SEGMENT_FULLY_URL_ENCODED}
 PATH|Debug Params|Append debug=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=true
 PATH|Debug Params|Append debug=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=1
 PATH|Debug Params|Append test=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}test=true
@@ -119,6 +139,16 @@ PATH|Debug Params|Append admin=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}admin=1
 PATH|Debug Params|Append isAdmin=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}isAdmin=true
 PATH|Debug Params|Append role=admin|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}role=admin
 PATH|Debug Params|Append user=admin|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}user=admin
+HEADER|Content-Type|Content-Type application/json|Content-Type: application/json
+HEADER|Content-Type|Content-Type JSON charset|Content-Type: application/json; charset=utf-8
+HEADER|Content-Type|Content-Type form urlencoded|Content-Type: application/x-www-form-urlencoded
+HEADER|Content-Type|Content-Type multipart|Content-Type: multipart/form-data
+HEADER|Content-Type|Content-Type text/plain|Content-Type: text/plain
+HEADER|Content-Type|Content-Type application/xml|Content-Type: application/xml
+HEADER|Content-Type|Content-Type text/xml|Content-Type: text/xml
+HEADER|Content-Type|Content-Type wildcard all|Content-Type: */*
+HEADER|Content-Type|Content-Type wildcard application|Content-Type: application/*
+HEADER|Content-Type|Content-Type json patch|Content-Type: application/json-patch+json
 HEADER|Header|X-Forwarded-For localhost|X-Forwarded-For: 127.0.0.1
 HEADER|Header|Authorization bearer placeholder|Authorization: Bearer A
 HEADER|Header|Authorization basic placeholder|Authorization: Basic A
