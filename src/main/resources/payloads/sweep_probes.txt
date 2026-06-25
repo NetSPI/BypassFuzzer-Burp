@@ -25,14 +25,34 @@
 
 PATH|Matrix / Extension|Path suffix ;.json|{PATH};.json{QUERY}
 PATH|Matrix / Extension|Path suffix ;.html|{PATH};.html{QUERY}
+PATH|Matrix / Extension|Path suffix ;|{PATH};{QUERY}
+PATH|Matrix / Extension|Path suffix %3b|{PATH}%3b{QUERY}
 PATH|Matrix / Extension|Path suffix %3b.json|{PATH}%3b.json{QUERY}
 PATH|Matrix / Extension|Path suffix .json;|{PATH}.json;{QUERY}
 PATH|Matrix / Extension|Path suffix .html;|{PATH}.html;{QUERY}
+PATH|Matrix / Extension|Path suffix ;/|{PATH};/{QUERY}
+PATH|Matrix / Extension|Path suffix ;.json/|{PATH};.json/{QUERY}
+PATH|Matrix / Extension|Path suffix ;.html/|{PATH};.html/{QUERY}
 PATH|Extension / Negotiation|Path suffix .json|{PATH}.json{QUERY}
 PATH|Extension / Negotiation|Path suffix .html|{PATH}.html{QUERY}
+PATH|Extension / Negotiation|Path suffix .txt|{PATH}.txt{QUERY}
+PATH|Extension / Negotiation|Path suffix .xml|{PATH}.xml{QUERY}
+PATH|Extension / Negotiation|Path suffix .js|{PATH}.js{QUERY}
+PATH|Extension / Negotiation|Path suffix .css|{PATH}.css{QUERY}
+PATH|Extension / Negotiation|Query .json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}.json
+PATH|Extension / Negotiation|Query .html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}.html
+PATH|Extension / Negotiation|Query format=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=json
+PATH|Extension / Negotiation|Query format=html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=html
 PATH|Path Normalization|Trailing slash toggle|{PATH_TRAILING_SLASH_TOGGLE}{QUERY}
 PATH|Path Normalization|Append /.|{PATH}/.{QUERY}
 PATH|Path Normalization|Append /%2e|{PATH}/%2e{QUERY}
+PATH|Path Normalization|Append /..|{PATH}/..{QUERY}
+PATH|Path Normalization|Append /../|{PATH}/../{QUERY}
+PATH|Path Normalization|Append /%2e%2e|{PATH}/%2e%2e{QUERY}
+PATH|Path Normalization|Append /%252e|{PATH}/%252e{QUERY}
+PATH|Path Normalization|Append /%252e%252e|{PATH}/%252e%252e{QUERY}
+PATH|Path Normalization|Prefix encoded dot segment|/%2e/{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Prefix double-encoded dot segment|/%252e/{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix double slash|//{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix triple slash|///{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Duplicate slash once|{PATH_DUPLICATE_SLASH_ONCE}

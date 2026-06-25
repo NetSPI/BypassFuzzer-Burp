@@ -32,7 +32,7 @@ BypassFuzzer has four main testing areas:
   - Available immediately when the extension loads
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
   - Deduplicates endpoint shapes before sending probes
-  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 30 probes per endpoint
+  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 50 probes per endpoint
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
   - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals
@@ -121,10 +121,12 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 
 **What Sweep sends**
 
-Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 30 probes per endpoint by default. The bundled wordlist focuses on:
+Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 50 probes per endpoint by default. The bundled wordlist focuses on:
 
 - matrix and extension normalization such as `;.json`, `;.html`, `.json;`, and `.html;`
+- lightweight content negotiation query probes such as `?.json` and `?format=json`
 - trailing slash and dot-segment normalization
+- encoded and double-encoded dot-segment probes
 - double and triple slash variants
 - segment-level case variants such as `/ADMIN/users` and `/admin/USERS`
 - deterministic mixed-case variants

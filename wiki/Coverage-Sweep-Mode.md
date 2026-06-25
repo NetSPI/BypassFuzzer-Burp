@@ -67,7 +67,7 @@ When multiple history items match the same dedupe key, Sweep keeps the most rece
 
 ## Probe Budget
 
-Sweep uses a bounded probe set with a default cap of 30 unique probes per endpoint.
+Sweep uses a bounded probe set with a default cap of 50 unique probes per endpoint.
 
 Generated requests are deduplicated before sending. This matters for short paths such as `/admin`, where some templates collapse to the same effective request:
 
@@ -112,8 +112,10 @@ The supported placeholders are documented at the top of the wordlist.
 The default Sweep probes focus on:
 
 - matrix and extension normalization
+- lightweight content negotiation query probes
 - trailing slash toggle
 - dot-segment and encoded-dot suffixes
+- encoded and double-encoded dot-segment prefixes and suffixes
 - prefix double and triple slash variants
 - internal duplicate slash variants
 - first-segment and last-segment uppercase variants

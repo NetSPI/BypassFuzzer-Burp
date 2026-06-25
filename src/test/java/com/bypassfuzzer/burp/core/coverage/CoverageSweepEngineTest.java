@@ -99,15 +99,21 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(30, probes.size());
+        assertEquals(50, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users%3b")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users%3b.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users.json;")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?.json")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?format=json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("//admin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("///admin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin//users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin///users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users/..")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/%2e/admin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/ADMIN/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/USERS")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/Admin/Users")));
