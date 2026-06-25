@@ -7,6 +7,7 @@ public record CoverageSweepOptions(
     boolean inScopeOnly,
     int maxCandidates,
     int maxProbesPerCandidate,
+    int concurrency,
     int requestsPerSecond,
     Set<Integer> throttleStatusCodes
 ) {
@@ -16,7 +17,8 @@ public record CoverageSweepOptions(
             Set.of(401, 403),
             true,
             100,
-            50,
+            100,
+            1,
             0,
             Set.of(429, 503)
         );

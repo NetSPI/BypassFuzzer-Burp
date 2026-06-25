@@ -8,6 +8,10 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.SwingUtilities;
 import java.awt.Dimension;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.function.Consumer;
 
 /**
@@ -66,6 +70,14 @@ public class SessionResultsWorkspace {
 
     public int allResultsCount() {
         return resultsPanel.allResultsCount();
+    }
+
+    public String visibleResultsAsTsv() {
+        return resultsPanel.visibleRowsAsTsv();
+    }
+
+    public void writeVisibleResultsTsv(Path path) throws IOException {
+        Files.writeString(path, visibleResultsAsTsv(), StandardCharsets.UTF_8);
     }
 
     private JSplitPane buildSplitPane(boolean borderlessSidebar) {

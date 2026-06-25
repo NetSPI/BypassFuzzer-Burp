@@ -31,8 +31,10 @@ BypassFuzzer has four main testing areas:
 - **Sweep Mode:**
   - Available immediately when the extension loads
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
+  - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
-  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 50 probes per endpoint
+  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 100 probes per endpoint
+  - Supports endpoint-level concurrency and global request-per-second throttling
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
   - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals
@@ -106,25 +108,27 @@ Builds embed the public S3 version manifest URL by default so BypassFuzzer can n
 
 ### Sweep Tab
 
-The `Sweep` tab is available as soon as the extension loads. It is intended for broad, bounded coverage when you want to check many blocked endpoints without running the full Bypass playbooks against every request.
+The `Sweep` tab is available as soon as the extension loads. It is intended for broad, bounded coverage when you want to check many blocked endpoints or an imported target list without running the full Bypass playbooks against every request.
 
 **Workflow**
 
 1. Select which Proxy history responses to load:
    - `401` and `403` are selected by default
    - `3xx` and `4xx` can be included when you intentionally want broader coverage
-2. Click **Load from Proxy History**
+2. Click **Load from Proxy History**, or click **Import Targets** and choose a `.txt` file with one absolute URL per line
 3. Review the deduped candidate table
 4. Uncheck candidates you do not want to probe
-5. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
-6. Click **Start Sweep**
+5. Adjust concurrency, requests/second, and throttle status codes if needed
+6. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
+7. Click **Start Sweep**
 
 **What Sweep sends**
 
-Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 50 probes per endpoint by default. The bundled wordlist focuses on:
+Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 100 probes per endpoint by default. The bundled wordlist focuses on:
 
 - matrix and extension normalization such as `;.json`, `;.html`, `.json;`, and `.html;`
 - lightweight content negotiation query probes such as `?.json` and `?format=json`
+- framework and extension fallback suffixes such as `.php`, `.aspx`, `.jsp`, `.action`, and `.swagger.json`
 - trailing slash and dot-segment normalization
 - encoded and double-encoded dot-segment probes
 - double and triple slash variants

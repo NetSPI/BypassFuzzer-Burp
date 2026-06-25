@@ -140,6 +140,15 @@ public class SessionResultsPanel extends JPanel {
         return tableModel.getAllResultsCount();
     }
 
+    public String visibleRowsAsTsv() {
+        StringBuilder sb = new StringBuilder(Math.max(256, resultsTable.getRowCount() * 96));
+        appendHeader(sb);
+        for (int viewRow = 0; viewRow < resultsTable.getRowCount(); viewRow++) {
+            appendRow(sb, viewRow);
+        }
+        return sb.toString();
+    }
+
     private void initializeUi() {
         resultsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         initializeRowSorter();
@@ -393,25 +402,11 @@ public class SessionResultsPanel extends JPanel {
         if (viewRows.length == 0) {
             return;
         }
-        int columnCount = resultsTable.getColumnCount();
         StringBuilder sb = new StringBuilder(256);
-
-        for (int c = 0; c < columnCount; c++) {
-            if (c > 0) sb.append('\t');
-            sb.append(resultsTable.getColumnName(c));
-        }
-        sb.append(System.lineSeparator());
+        appendHeader(sb);
 
         for (int viewRow : viewRows) {
-            for (int c = 0; c < columnCount; c++) {
-                if (c > 0) sb.append('\t');
-                Object value = resultsTable.getValueAt(viewRow, c);
-                String cell = value == null ? "" : value.toString();
-                // Keep the TSV line-delimited — scrub embedded newlines/tabs so one row == one line.
-                cell = cell.replace('\t', ' ').replace("\r\n", " ").replace('\n', ' ').replace('\r', ' ');
-                sb.append(cell);
-            }
-            sb.append(System.lineSeparator());
+            appendRow(sb, viewRow);
         }
 
         if (GraphicsEnvironment.isHeadless()) {
@@ -425,6 +420,36 @@ public class SessionResultsPanel extends JPanel {
         } catch (HeadlessException e) {
             // Headless test/build environments do not expose a system clipboard.
         }
+    }
+
+    private void appendHeader(StringBuilder sb) {
+        int columnCount = resultsTable.getColumnCount();
+        for (int c = 0; c < columnCount; c++) {
+            if (c > 0) {
+                sb.append('\t');
+            }
+            sb.append(tsvCell(resultsTable.getColumnName(c)));
+        }
+        sb.append(System.lineSeparator());
+    }
+
+    private void appendRow(StringBuilder sb, int viewRow) {
+        int columnCount = resultsTable.getColumnCount();
+        for (int c = 0; c < columnCount; c++) {
+            if (c > 0) {
+                sb.append('\t');
+            }
+            sb.append(tsvCell(resultsTable.getValueAt(viewRow, c)));
+        }
+        sb.append(System.lineSeparator());
+    }
+
+    private String tsvCell(Object value) {
+        String cell = value == null ? "" : value.toString();
+        return cell.replace('\t', ' ')
+            .replace("\r\n", " ")
+            .replace('\n', ' ')
+            .replace('\r', ' ');
     }
 
     private int menuShortcutMask() {

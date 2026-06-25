@@ -2,13 +2,14 @@
 
 The `Sweep` tab is the broad coverage mode for BypassFuzzer.
 
-It is designed for the case where an assessment has many blocked endpoints in Burp Proxy history and the tester wants a bounded, high-signal check across them. It is not a full scanner and it does not run the full Bypass playbooks against every endpoint.
+It is designed for the case where an assessment has many blocked endpoints in Burp Proxy history, or a curated text file of target URLs, and the tester wants a bounded, high-signal check across them. It is not a full scanner and it does not run the full Bypass playbooks against every endpoint.
 
 ## When To Use It
 
 Use Sweep when:
 
 - Proxy history contains in-scope `401` or `403` responses
+- you have a `.txt` file with one absolute target URL per line
 - you want a quick coverage pass across many blocked endpoints
 - you want to check common path-normalization and lightweight header cases without sending thousands of requests per endpoint
 
@@ -37,7 +38,7 @@ Targeted request tabs contain:
 
 ## Candidate Collection
 
-Sweep loads candidates from Burp Proxy history.
+Sweep loads candidates from Burp Proxy history or an imported target list.
 
 By default it selects:
 
@@ -50,6 +51,15 @@ The UI also allows opt-in loading of:
 - `4xx`
 
 Only in-scope Proxy history items are loaded.
+
+Imported target files use one absolute URL per line:
+
+```text
+https://victim.com/admin/users
+https://victim.com/admin/info
+```
+
+Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests.
 
 ## Deduplication
 
@@ -65,9 +75,17 @@ The dedupe key includes:
 
 When multiple history items match the same dedupe key, Sweep keeps the most recent request.
 
+## Execution Controls
+
+Sweep runs one candidate sequentially, but can run multiple candidates concurrently.
+
+- `Concurrency` controls how many endpoints can be swept at the same time; the default is `1`.
+- `Requests/sec` is a global request rate cap shared by all concurrent workers; `0` means unlimited.
+- `Throttle codes` defaults to `429,503`; repeated matching responses trigger auto-throttling.
+
 ## Probe Budget
 
-Sweep uses a bounded probe set with a default cap of 50 unique probes per endpoint.
+Sweep uses a bounded probe set with a default cap of 100 unique probes per endpoint.
 
 Generated requests are deduplicated before sending. This matters for short paths such as `/admin`, where some templates collapse to the same effective request:
 
@@ -113,6 +131,7 @@ The default Sweep probes focus on:
 
 - matrix and extension normalization
 - lightweight content negotiation query probes
+- framework and extension fallback suffixes
 - trailing slash toggle
 - dot-segment and encoded-dot suffixes
 - encoded and double-encoded dot-segment prefixes and suffixes

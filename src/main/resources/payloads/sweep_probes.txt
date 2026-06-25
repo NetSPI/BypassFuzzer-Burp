@@ -25,24 +25,62 @@
 
 PATH|Matrix / Extension|Path suffix ;.json|{PATH};.json{QUERY}
 PATH|Matrix / Extension|Path suffix ;.html|{PATH};.html{QUERY}
+PATH|Matrix / Extension|Path suffix ;.xml|{PATH};.xml{QUERY}
+PATH|Matrix / Extension|Path suffix ;.txt|{PATH};.txt{QUERY}
+PATH|Matrix / Extension|Path suffix ;.js|{PATH};.js{QUERY}
+PATH|Matrix / Extension|Path suffix ;.css|{PATH};.css{QUERY}
+PATH|Matrix / Extension|Path suffix ;.php|{PATH};.php{QUERY}
+PATH|Matrix / Extension|Path suffix ;.aspx|{PATH};.aspx{QUERY}
+PATH|Matrix / Extension|Path suffix ;.jsp|{PATH};.jsp{QUERY}
 PATH|Matrix / Extension|Path suffix ;|{PATH};{QUERY}
 PATH|Matrix / Extension|Path suffix %3b|{PATH}%3b{QUERY}
 PATH|Matrix / Extension|Path suffix %3b.json|{PATH}%3b.json{QUERY}
+PATH|Matrix / Extension|Path suffix %3b.html|{PATH}%3b.html{QUERY}
+PATH|Matrix / Extension|Path suffix %3b.xml|{PATH}%3b.xml{QUERY}
+PATH|Matrix / Extension|Path suffix %3b.txt|{PATH}%3b.txt{QUERY}
+PATH|Matrix / Extension|Path suffix %3b/|{PATH}%3b/{QUERY}
 PATH|Matrix / Extension|Path suffix .json;|{PATH}.json;{QUERY}
+PATH|Matrix / Extension|Path suffix .json%3b|{PATH}.json%3b{QUERY}
 PATH|Matrix / Extension|Path suffix .html;|{PATH}.html;{QUERY}
 PATH|Matrix / Extension|Path suffix ;/|{PATH};/{QUERY}
 PATH|Matrix / Extension|Path suffix ;.json/|{PATH};.json/{QUERY}
 PATH|Matrix / Extension|Path suffix ;.html/|{PATH};.html/{QUERY}
 PATH|Extension / Negotiation|Path suffix .json|{PATH}.json{QUERY}
 PATH|Extension / Negotiation|Path suffix .html|{PATH}.html{QUERY}
+PATH|Extension / Negotiation|Path suffix .json/|{PATH}.json/{QUERY}
+PATH|Extension / Negotiation|Path suffix .html/|{PATH}.html/{QUERY}
+PATH|Extension / Negotiation|Path suffix .xml/|{PATH}.xml/{QUERY}
+PATH|Extension / Negotiation|Path suffix .txt/|{PATH}.txt/{QUERY}
 PATH|Extension / Negotiation|Path suffix .txt|{PATH}.txt{QUERY}
 PATH|Extension / Negotiation|Path suffix .xml|{PATH}.xml{QUERY}
 PATH|Extension / Negotiation|Path suffix .js|{PATH}.js{QUERY}
-PATH|Extension / Negotiation|Path suffix .css|{PATH}.css{QUERY}
+PATH|Extension / Negotiation|Path suffix .php|{PATH}.php{QUERY}
+PATH|Extension / Negotiation|Path suffix .aspx|{PATH}.aspx{QUERY}
+PATH|Extension / Negotiation|Path suffix .jsp|{PATH}.jsp{QUERY}
+PATH|Extension / Negotiation|Path suffix .map|{PATH}.map{QUERY}
+PATH|Extension / Negotiation|Path suffix .bak|{PATH}.bak{QUERY}
+PATH|Extension / Negotiation|Path suffix .old|{PATH}.old{QUERY}
+PATH|Extension / Negotiation|Path suffix .config|{PATH}.config{QUERY}
 PATH|Extension / Negotiation|Query .json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}.json
 PATH|Extension / Negotiation|Query .html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}.html
 PATH|Extension / Negotiation|Query format=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=json
 PATH|Extension / Negotiation|Query format=html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=html
+PATH|Extension / Negotiation|Query format=xml|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=xml
+PATH|Extension / Negotiation|Query format=text|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}format=text
+PATH|Extension / Negotiation|Query output=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}output=json
+PATH|Extension / Negotiation|Query output=xml|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}output=xml
+PATH|Extension / Negotiation|Query response=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}response=json
+PATH|Extension / Negotiation|Query response=xml|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}response=xml
+PATH|Extension / Negotiation|Query view=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}view=json
+PATH|Extension / Negotiation|Query view=html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}view=html
+PATH|Extension / Negotiation|Query accept=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}accept=json
+PATH|Extension / Negotiation|Query content=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}content=json
+PATH|Extension / Negotiation|Query type=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}type=json
+PATH|Extension / Negotiation|Query callback=x|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}callback=x
+PATH|Extension / Negotiation|Query api-version=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}api-version=1
+PATH|Extension / Negotiation|Query v=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}v=1
+PATH|Extension / Negotiation|Query _format=json|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}_format=json
+PATH|Extension / Negotiation|Query _format=html|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}_format=html
 PATH|Path Normalization|Trailing slash toggle|{PATH_TRAILING_SLASH_TOGGLE}{QUERY}
 PATH|Path Normalization|Append /.|{PATH}/.{QUERY}
 PATH|Path Normalization|Append /%2e|{PATH}/%2e{QUERY}
@@ -51,8 +89,16 @@ PATH|Path Normalization|Append /../|{PATH}/../{QUERY}
 PATH|Path Normalization|Append /%2e%2e|{PATH}/%2e%2e{QUERY}
 PATH|Path Normalization|Append /%252e|{PATH}/%252e{QUERY}
 PATH|Path Normalization|Append /%252e%252e|{PATH}/%252e%252e{QUERY}
+PATH|Path Normalization|Append //|{PATH}//{QUERY}
+PATH|Path Normalization|Append ///|{PATH}///{QUERY}
+PATH|Path Normalization|Append /%2f|{PATH}/%2f{QUERY}
+PATH|Path Normalization|Append /%252f|{PATH}/%252f{QUERY}
+PATH|Path Normalization|Prefix dot segment|/./{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Prefix parent segment|/../{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix encoded dot segment|/%2e/{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix double-encoded dot segment|/%252e/{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Prefix encoded slash|/%2f{PATH_NO_LEADING_SLASH}{QUERY}
+PATH|Path Normalization|Prefix double-encoded slash|/%252f{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix double slash|//{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Prefix triple slash|///{PATH_NO_LEADING_SLASH}{QUERY}
 PATH|Path Normalization|Duplicate slash once|{PATH_DUPLICATE_SLASH_ONCE}
@@ -69,6 +115,10 @@ PATH|Debug Params|Append debug=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=t
 PATH|Debug Params|Append debug=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}debug=1
 PATH|Debug Params|Append test=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}test=true
 PATH|Debug Params|Append admin=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}admin=true
+PATH|Debug Params|Append admin=1|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}admin=1
+PATH|Debug Params|Append isAdmin=true|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}isAdmin=true
+PATH|Debug Params|Append role=admin|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}role=admin
+PATH|Debug Params|Append user=admin|{PATH}{QUERY}{QUERY_APPEND_SEPARATOR}user=admin
 HEADER|Header|X-Forwarded-For localhost|X-Forwarded-For: 127.0.0.1
 HEADER|Header|Authorization bearer placeholder|Authorization: Bearer A
 HEADER|Header|Authorization basic placeholder|Authorization: Basic A

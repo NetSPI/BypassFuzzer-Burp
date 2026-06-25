@@ -23,6 +23,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class CoverageSweepEngine {
@@ -30,10 +34,12 @@ public class CoverageSweepEngine {
     private final MontoyaApi api;
     private final RequestSender requestSender;
     private final CoverageSweepProbeGenerator probeGenerator;
+    private final UrlRequestFactory urlRequestFactory;
     private final TargetUrlResolver targetUrlResolver = new TargetUrlResolver();
 
     private volatile boolean running = false;
     private Thread runnerThread;
+    private ExecutorService executor;
     private RateLimiter rateLimiter;
 
     public CoverageSweepEngine(MontoyaApi api) {
@@ -41,9 +47,17 @@ public class CoverageSweepEngine {
     }
 
     CoverageSweepEngine(MontoyaApi api, RequestSender requestSender, CoverageSweepProbeGenerator probeGenerator) {
+        this(api, requestSender, probeGenerator, CoverageSweepEngine::defaultImportedRequest);
+    }
+
+    CoverageSweepEngine(MontoyaApi api,
+                        RequestSender requestSender,
+                        CoverageSweepProbeGenerator probeGenerator,
+                        UrlRequestFactory urlRequestFactory) {
         this.api = api;
         this.requestSender = requestSender;
         this.probeGenerator = probeGenerator;
+        this.urlRequestFactory = urlRequestFactory == null ? CoverageSweepEngine::defaultImportedRequest : urlRequestFactory;
     }
 
     public CoverageSweepPreview collectPreview(CoverageSweepOptions options) {
@@ -74,6 +88,35 @@ public class CoverageSweepEngine {
         }
 
         return new CoverageSweepPreview(blockedHistory.size(), deduped.size(), List.copyOf(candidates));
+    }
+
+    public CoverageSweepPreview collectPreviewFromUrls(List<String> urls, CoverageSweepOptions options) {
+        if (urls == null || urls.isEmpty()) {
+            return new CoverageSweepPreview(0, 0, List.of());
+        }
+
+        CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
+        Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
+        int parsedTargets = 0;
+
+        for (String url : urls) {
+            CoverageSweepCandidate candidate = toImportedCandidate(url);
+            if (candidate == null) {
+                continue;
+            }
+            parsedTargets++;
+            deduped.putIfAbsent(candidate.dedupeKey(), candidate);
+        }
+
+        List<CoverageSweepCandidate> candidates = new ArrayList<>(deduped.values());
+        candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo)));
+
+        int cap = Math.max(1, effectiveOptions.maxCandidates());
+        if (candidates.size() > cap) {
+            candidates = new ArrayList<>(candidates.subList(0, cap));
+        }
+
+        return new CoverageSweepPreview(parsedTargets, deduped.size(), List.copyOf(candidates));
     }
 
     public List<CoverageSweepProbe> buildProbes(CoverageSweepCandidate candidate, CoverageSweepOptions options) {
@@ -109,6 +152,9 @@ public class CoverageSweepEngine {
 
     public void stop() {
         running = false;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
         if (runnerThread != null) {
             runnerThread.interrupt();
         }
@@ -133,39 +179,65 @@ public class CoverageSweepEngine {
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
         rateLimiter = new RateLimiter(api, options.requestsPerSecond(), safeThrottleCodes(options.throttleStatusCodes()), !safeThrottleCodes(options.throttleStatusCodes()).isEmpty());
+        int concurrency = Math.max(1, options.concurrency());
+        AtomicInteger workerCounter = new AtomicInteger(1);
+        executor = Executors.newFixedThreadPool(concurrency, runnable -> {
+            Thread thread = new Thread(runnable, "bypassfuzzer-coverage-sweep-worker-" + workerCounter.getAndIncrement());
+            thread.setDaemon(true);
+            return thread;
+        });
+
         for (CoverageSweepCandidate candidate : candidates) {
+            if (!canContinue()) {
+                break;
+            }
+            executor.submit(() -> executeCandidate(candidate, options, resultCallback));
+        }
+
+        executor.shutdown();
+        try {
+            while (canContinue() && !executor.awaitTermination(200, TimeUnit.MILLISECONDS)) {
+                // Wait for workers to finish or for stop() to interrupt this runner.
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (!executor.isTerminated()) {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    private void executeCandidate(CoverageSweepCandidate candidate,
+                                  CoverageSweepOptions options,
+                                  Consumer<AttackResult> resultCallback) {
+        HttpResponse controlResponse = null;
+        for (CoverageSweepProbe probe : buildProbes(candidate, options)) {
             if (!canContinue()) {
                 return;
             }
+            if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
+                return;
+            }
 
-            HttpResponse controlResponse = null;
-            for (CoverageSweepProbe probe : buildProbes(candidate, options)) {
-                if (!canContinue()) {
-                    return;
-                }
-                if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
-                    return;
-                }
-
-                HttpResponse response = requestSender.send(probe.request());
-                if ("Control".equals(probe.family())) {
-                    controlResponse = response;
-                }
-                if (rateLimiter != null && response != null) {
-                    rateLimiter.reportResponse(response.statusCode());
-                }
-                if (resultCallback != null) {
-                    String signal = "Control".equals(probe.family()) ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
-                    resultCallback.accept(new AttackResult(
-                        "Coverage Sweep",
-                        probe.label(),
-                        candidate.method() + " " + candidate.path(),
-                        probe.family(),
-                        signal,
-                        probe.request(),
-                        response
-                    ));
-                }
+            HttpResponse response = requestSender.send(probe.request());
+            if ("Control".equals(probe.family())) {
+                controlResponse = response;
+            }
+            if (rateLimiter != null && response != null) {
+                rateLimiter.reportResponse(response.statusCode());
+            }
+            if (resultCallback != null) {
+                String signal = "Control".equals(probe.family()) ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                resultCallback.accept(new AttackResult(
+                    "Coverage Sweep",
+                    probe.label(),
+                    candidate.method() + " " + candidate.path(),
+                    probe.family(),
+                    signal,
+                    probe.request(),
+                    response
+                ));
             }
         }
     }
@@ -210,6 +282,77 @@ public class CoverageSweepEngine {
             contentType(response),
             item.time()
         );
+    }
+
+    private CoverageSweepCandidate toImportedCandidate(String rawUrl) {
+        String displayUrl = normalizeUrl(rawUrl);
+        if (displayUrl == null) {
+            return null;
+        }
+
+        try {
+            URI uri = URI.create(displayUrl);
+            HttpRequest request = urlRequestFactory.create(uri);
+            String path = request.path() == null || request.path().isBlank() ? RequestPathUtils.extractPathAndQuery(displayUrl) : request.path();
+            return new CoverageSweepCandidate(
+                request,
+                null,
+                dedupeKey(request, displayUrl),
+                displayUrl,
+                safe(request.method()),
+                host(request, displayUrl),
+                path,
+                0,
+                0,
+                "",
+                ZonedDateTime.now()
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static HttpRequest defaultImportedRequest(URI uri) {
+        boolean secure = "https".equalsIgnoreCase(uri.getScheme());
+        int port = uri.getPort() > 0 ? uri.getPort() : (secure ? 443 : 80);
+        String path = uri.getRawPath() == null || uri.getRawPath().isBlank() ? "/" : uri.getRawPath();
+        if (uri.getRawQuery() != null && !uri.getRawQuery().isBlank()) {
+            path += "?" + uri.getRawQuery();
+        }
+
+        HttpService service = HttpService.httpService(uri.getHost(), port, secure);
+        String rawRequest = "GET " + path + " HTTP/1.1\r\n"
+            + "Host: " + hostHeader(uri.getHost(), port, secure) + "\r\n"
+            + "\r\n";
+        return HttpRequest.httpRequest(service, rawRequest);
+    }
+
+    private static String hostHeader(String host, int port, boolean secure) {
+        if ((secure && port == 443) || (!secure && port == 80)) {
+            return host;
+        }
+        return host + ":" + port;
+    }
+
+    private String normalizeUrl(String rawUrl) {
+        if (rawUrl == null) {
+            return null;
+        }
+        String trimmed = rawUrl.trim();
+        if (trimmed.isBlank() || trimmed.startsWith("#")) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(trimmed);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (host == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                return null;
+            }
+            return uri.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String dedupeKey(HttpRequest request, String displayUrl) {
@@ -325,5 +468,10 @@ public class CoverageSweepEngine {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    @FunctionalInterface
+    interface UrlRequestFactory {
+        HttpRequest create(URI uri);
     }
 }

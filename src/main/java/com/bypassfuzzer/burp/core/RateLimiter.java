@@ -40,7 +40,7 @@ public class RateLimiter {
     /**
      * Wait before sending the next request according to rate limit.
      */
-    public boolean waitBeforeRequest() {
+    public synchronized boolean waitBeforeRequest() {
         if (delayMs <= 0) {
             return !Thread.currentThread().isInterrupted();
         }

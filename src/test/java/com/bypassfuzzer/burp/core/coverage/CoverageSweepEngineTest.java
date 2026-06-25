@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Proxy;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,6 +63,7 @@ class CoverageSweepEngineTest {
             true,
             100,
             25,
+            1,
             0,
             CoverageSweepOptions.defaults().throttleStatusCodes()
         );
@@ -94,26 +97,67 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void importsTargetUrlsFromLinesAndDedupesEndpointShapes() {
+        CoverageSweepPreview preview = importedEngine()
+            .collectPreviewFromUrls(List.of(
+                "https://victim.example/admin/users/1?debug=true&id=1",
+                "https://victim.example/admin/users/2?id=2&debug=false",
+                "https://victim.example/admin/info",
+                "# comment",
+                "not-a-url"
+            ), CoverageSweepOptions.defaults());
+
+        assertEquals(3, preview.blockedHistoryCount());
+        assertEquals(2, preview.dedupedEndpointCount());
+        assertEquals(2, preview.candidates().size());
+        assertTrue(preview.candidates().stream().anyMatch(candidate -> candidate.displayUrl().equals("https://victim.example/admin/info")));
+        assertTrue(preview.candidates().stream().anyMatch(candidate -> candidate.path().startsWith("/admin/users/")));
+        assertTrue(preview.candidates().stream().allMatch(candidate -> "GET".equals(candidate.method())));
+    }
+
+    @Test
+    void importedTargetPreviewHonorsCandidateCap() {
+        List<String> urls = new ArrayList<>();
+        for (int i = 0; i < 150; i++) {
+            urls.add("https://victim.example/endpoint-" + i);
+        }
+
+        CoverageSweepPreview preview = importedEngine()
+            .collectPreviewFromUrls(urls, CoverageSweepOptions.defaults());
+
+        assertEquals(150, preview.blockedHistoryCount());
+        assertEquals(150, preview.dedupedEndpointCount());
+        assertEquals(100, preview.candidates().size());
+    }
+
+    @Test
     void generatesBoundedHighSignalProbes() {
         CoverageSweepCandidate candidate = candidate(request("/admin/users", "", "GET", null, ""), 403);
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(50, probes.size());
+        assertEquals(100, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users%3b")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users%3b.json")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users%3b.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users.json;")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?role=admin")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?format=json")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?_format=json")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users?api-version=1")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("//admin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("///admin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin//users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin///users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users/..")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/%2e/admin/users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/./admin/users")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/%2fadmin/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/ADMIN/users")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/USERS")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/Admin/Users")));
@@ -200,6 +244,7 @@ class CoverageSweepEngineTest {
             true,
             100,
             2,
+            1,
             0,
             CoverageSweepOptions.defaults().throttleStatusCodes()
         );
@@ -213,6 +258,37 @@ class CoverageSweepEngineTest {
         assertEquals("403 -> 200", results.get(1).getPayloadEncoding());
     }
 
+    @Test
+    void executesCandidatesConcurrentlyWhenConfigured() throws Exception {
+        ConcurrentTrackingSender sender = new ConcurrentTrackingSender(response(403, "text/plain", "blocked"), 120);
+        CoverageSweepEngine engine = new CoverageSweepEngine(
+            api(List.of()),
+            sender,
+            new CoverageSweepProbeGenerator()
+        );
+        List<AttackResult> results = Collections.synchronizedList(new ArrayList<>());
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            CoverageSweepOptions.defaults().statuses(),
+            true,
+            100,
+            1,
+            2,
+            0,
+            CoverageSweepOptions.defaults().throttleStatusCodes()
+        );
+
+        assertTrue(engine.start(List.of(
+            candidate(request("/one", "", "GET", null, ""), 403),
+            candidate(request("/two", "", "GET", null, ""), 403)
+        ), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) {
+            Thread.sleep(20);
+        }
+
+        assertEquals(2, results.size());
+        assertTrue(sender.maxActive.get() > 1);
+    }
+
     private MontoyaApi api(List<ProxyHttpRequestResponse> history) {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         when(api.scope().isInScope(any())).thenAnswer(invocation -> !invocation.getArgument(0, String.class).contains("/out"));
@@ -221,6 +297,21 @@ class CoverageSweepEngineTest {
             return history.stream().filter(filter::matches).toList();
         });
         return api;
+    }
+
+    private CoverageSweepEngine importedEngine() {
+        return new CoverageSweepEngine(
+            api(List.of()),
+            new StaticSender(response(403, "text/plain", "blocked")),
+            new CoverageSweepProbeGenerator(),
+            uri -> request(
+                uri.getRawPath() == null || uri.getRawPath().isBlank() ? "/" : uri.getRawPath(),
+                uri.getRawQuery() == null ? "" : uri.getRawQuery(),
+                "GET",
+                null,
+                ""
+            )
+        );
     }
 
     private ProxyHttpRequestResponse history(String path, int status, boolean inScope, int minutes) {
@@ -316,6 +407,37 @@ class CoverageSweepEngineTest {
         public HttpResponse send(HttpRequest request) {
             HttpResponse response = responses.get(Math.min(index, responses.size() - 1));
             index++;
+            return response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request, long timeout, TimeUnit timeUnit) {
+            return send(request);
+        }
+    }
+
+    private static final class ConcurrentTrackingSender implements RequestSender {
+        private final HttpResponse response;
+        private final long delayMs;
+        private final AtomicInteger active = new AtomicInteger();
+        private final AtomicInteger maxActive = new AtomicInteger();
+
+        private ConcurrentTrackingSender(HttpResponse response, long delayMs) {
+            this.response = response;
+            this.delayMs = delayMs;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request) {
+            int current = active.incrementAndGet();
+            maxActive.accumulateAndGet(current, Math::max);
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                active.decrementAndGet();
+            }
             return response;
         }
 

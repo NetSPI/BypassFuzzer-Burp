@@ -12,19 +12,24 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JDialog;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.WindowConstants;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,14 +42,19 @@ public class CoverageSweepPanel extends JPanel {
     private final CandidateTableModel candidateTableModel = new CandidateTableModel();
 
     private JButton loadButton;
+    private JButton importButton;
     private JButton startButton;
     private JButton stopButton;
     private JButton clearButton;
     private JButton previewProbesButton;
+    private JButton exportButton;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
     private JCheckBox status4xxCheckBox;
+    private JTextField concurrencyField;
+    private JTextField requestsPerSecondField;
+    private JTextField throttleStatusCodesField;
     private JLabel statusLabel;
     private JLabel estimateLabel;
     private JTable candidateTable;
@@ -84,14 +94,27 @@ public class CoverageSweepPanel extends JPanel {
         status3xxCheckBox.addActionListener(e -> updateEstimate());
         status4xxCheckBox.addActionListener(e -> updateEstimate());
 
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
+        requestsPerSecondField = new JTextField(String.valueOf(defaults.requestsPerSecond()), 4);
+        throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
+
         controls.add(new JLabel("Pull responses:"));
         controls.add(status401CheckBox);
         controls.add(status403CheckBox);
         controls.add(status3xxCheckBox);
         controls.add(status4xxCheckBox);
+        controls.add(new JLabel("Concurrency:"));
+        controls.add(concurrencyField);
+        controls.add(new JLabel("Requests/sec:"));
+        controls.add(requestsPerSecondField);
+        controls.add(new JLabel("Throttle codes:"));
+        controls.add(throttleStatusCodesField);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
+        importButton = new JButton("Import Targets");
+        importButton.addActionListener(e -> importTargetsWithChooser());
         startButton = new JButton("Start Sweep");
         startButton.setEnabled(false);
         startButton.addActionListener(e -> startSweep());
@@ -103,12 +126,17 @@ public class CoverageSweepPanel extends JPanel {
         previewProbesButton.addActionListener(e -> openProbePreview());
         clearButton = new JButton("Clear Results");
         clearButton.addActionListener(e -> clearResults());
+        exportButton = new JButton("Export TSV");
+        exportButton.setEnabled(false);
+        exportButton.addActionListener(e -> exportResultsWithChooser());
 
         controls.add(loadButton);
+        controls.add(importButton);
         controls.add(previewProbesButton);
         controls.add(startButton);
         controls.add(stopButton);
         controls.add(clearButton);
+        controls.add(exportButton);
 
         statusLabel = new JLabel("Load in-scope Proxy history responses to preview sweep candidates.");
         estimateLabel = new JLabel("No candidates loaded.");
@@ -144,9 +172,12 @@ public class CoverageSweepPanel extends JPanel {
         resultsWorkspace = new SessionResultsWorkspace(
             api,
             message -> api.logging().logToError(message),
-            workspace -> api.logging().logToOutput(
-                "Coverage sweep filters applied: showing " + workspace.shownResultsCount() + " of " + workspace.allResultsCount() + " results"
-            ),
+            workspace -> {
+                updateExportButton();
+                api.logging().logToOutput(
+                    "Coverage sweep filters applied: showing " + workspace.shownResultsCount() + " of " + workspace.allResultsCount() + " results"
+                );
+            },
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
             SessionResultsPanel.TableLayout.COVERAGE_SWEEP,
             false
@@ -182,6 +213,44 @@ public class CoverageSweepPanel extends JPanel {
             previewProbesButton.setEnabled(false);
         } finally {
             loadButton.setEnabled(true);
+            importButton.setEnabled(true);
+            setStatusControlsEnabled(true);
+        }
+    }
+
+    private void importTargetsWithChooser() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import Sweep Targets");
+        int result = chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame());
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+
+        importTargetsFromFile(chooser.getSelectedFile().toPath());
+    }
+
+    boolean importTargetsFromFile(Path path) {
+        setControlsForLoading();
+        try {
+            List<String> urls = Files.readAllLines(path);
+            CoverageSweepPreview preview = engine.collectPreviewFromUrls(urls, currentOptions());
+            candidateTableModel.setCandidates(preview.candidates());
+            startButton.setEnabled(!preview.candidates().isEmpty());
+            updatePreviewButton();
+            statusLabel.setText("Imported " + preview.blockedHistoryCount()
+                + " valid target URL(s); " + preview.dedupedEndpointCount()
+                + " deduped endpoints; showing " + preview.candidates().size() + ".");
+            updateEstimate();
+            return true;
+        } catch (Exception e) {
+            candidateTableModel.setCandidates(List.of());
+            statusLabel.setText("Unable to import targets: " + e.getMessage());
+            startButton.setEnabled(false);
+            previewProbesButton.setEnabled(false);
+            return false;
+        } finally {
+            loadButton.setEnabled(true);
+            importButton.setEnabled(true);
             setStatusControlsEnabled(true);
         }
     }
@@ -195,6 +264,7 @@ public class CoverageSweepPanel extends JPanel {
 
         stopRequested = false;
         loadButton.setEnabled(false);
+        importButton.setEnabled(false);
         setStatusControlsEnabled(false);
         previewProbesButton.setEnabled(false);
         startButton.setEnabled(false);
@@ -216,12 +286,14 @@ public class CoverageSweepPanel extends JPanel {
 
     private void clearResults() {
         resultsWorkspace.clear();
+        updateExportButton();
         statusLabel.setText("Coverage sweep results cleared.");
     }
 
     private void addResult(AttackResult result) {
         SwingUtilities.invokeLater(() -> {
             resultsWorkspace.addResult(result);
+            updateExportButton();
             statusLabel.setText("Coverage sweep running: " + resultsWorkspace.allResultsCount() + " requests sent.");
         });
     }
@@ -235,6 +307,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private void setControlsForLoading() {
         loadButton.setEnabled(false);
+        importButton.setEnabled(false);
         setStatusControlsEnabled(false);
         previewProbesButton.setEnabled(false);
         startButton.setEnabled(false);
@@ -245,6 +318,7 @@ public class CoverageSweepPanel extends JPanel {
     private void updateIdleUi(String message) {
         statusLabel.setText(message);
         loadButton.setEnabled(true);
+        importButton.setEnabled(true);
         setStatusControlsEnabled(true);
         startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
         stopButton.setEnabled(false);
@@ -266,8 +340,9 @@ public class CoverageSweepPanel extends JPanel {
             defaults.inScopeOnly(),
             defaults.maxCandidates(),
             defaults.maxProbesPerCandidate(),
-            defaults.requestsPerSecond(),
-            defaults.throttleStatusCodes()
+            parsePositiveInt(concurrencyField, defaults.concurrency()),
+            parseNonNegativeInt(requestsPerSecondField, defaults.requestsPerSecond()),
+            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
         );
     }
 
@@ -299,11 +374,90 @@ public class CoverageSweepPanel extends JPanel {
         status403CheckBox.setEnabled(enabled);
         status3xxCheckBox.setEnabled(enabled);
         status4xxCheckBox.setEnabled(enabled);
+        concurrencyField.setEnabled(enabled);
+        requestsPerSecondField.setEnabled(enabled);
+        throttleStatusCodesField.setEnabled(enabled);
+    }
+
+    private int parsePositiveInt(JTextField field, int fallback) {
+        try {
+            return Math.max(1, Integer.parseInt(field.getText().trim()));
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private int parseNonNegativeInt(JTextField field, int fallback) {
+        try {
+            return Math.max(0, Integer.parseInt(field.getText().trim()));
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private String formatStatusCodes(Set<Integer> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return "";
+        }
+        return codes.stream()
+            .sorted()
+            .map(String::valueOf)
+            .collect(java.util.stream.Collectors.joining(","));
     }
 
     private void updatePreviewButton() {
         if (previewProbesButton != null) {
             previewProbesButton.setEnabled(!engine.isRunning() && previewCandidate() != null);
+        }
+    }
+
+    private void updateExportButton() {
+        if (exportButton != null) {
+            exportButton.setEnabled(resultsWorkspace != null && resultsWorkspace.shownResultsCount() > 0);
+        }
+    }
+
+    private void exportResultsWithChooser() {
+        if (resultsWorkspace.shownResultsCount() == 0) {
+            statusLabel.setText("No visible sweep results to export.");
+            return;
+        }
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export Sweep Results TSV");
+        chooser.setSelectedFile(new java.io.File("bypassfuzzer-sweep-results.tsv"));
+        int result = chooser.showSaveDialog(api.userInterface().swingUtils().suiteFrame());
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+
+        exportResultsToTsv(chooser.getSelectedFile().toPath());
+    }
+
+    boolean exportResultsToTsv(Path path) {
+        if (resultsWorkspace.shownResultsCount() == 0) {
+            statusLabel.setText("No visible sweep results to export.");
+            return false;
+        }
+
+        try {
+            resultsWorkspace.writeVisibleResultsTsv(path);
+            statusLabel.setText("Exported " + resultsWorkspace.shownResultsCount()
+                + " visible sweep result(s) to " + path + ".");
+            return true;
+        } catch (Exception e) {
+            statusLabel.setText("Unable to export sweep results: " + e.getMessage());
+            try {
+                JOptionPane.showMessageDialog(
+                    api.userInterface().swingUtils().suiteFrame(),
+                    "Unable to export sweep results:\n" + e.getMessage(),
+                    "Export Failed",
+                    JOptionPane.ERROR_MESSAGE
+                );
+            } catch (Exception ignored) {
+                // Headless tests or Burp shutdown can make dialogs unavailable.
+            }
+            return false;
         }
     }
 
@@ -443,7 +597,7 @@ public class CoverageSweepPanel extends JPanel {
                 case 1 -> candidate.method();
                 case 2 -> candidate.host();
                 case 3 -> candidate.path();
-                case 4 -> candidate.statusCode();
+                case 4 -> candidate.originalResponse() == null ? "Imported" : candidate.statusCode();
                 case 5 -> candidate.contentType();
                 default -> "";
             };
