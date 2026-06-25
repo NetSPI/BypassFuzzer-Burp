@@ -33,7 +33,7 @@ public class BurpExtender implements BurpExtension {
             // Register context menu
             ContextMenuFactory contextMenu = new ContextMenuFactory(api, mainTab);
             api.userInterface().registerContextMenuItemsProvider(contextMenu);
-            VersionChecker.checkAsync(api);
+            VersionChecker.checkAsync(api, mainTab::showUpdateBanner);
 
             // Register unload handler
             api.extension().registerUnloadingHandler(this::cleanup);

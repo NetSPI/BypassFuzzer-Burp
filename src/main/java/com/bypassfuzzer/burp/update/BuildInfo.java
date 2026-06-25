@@ -3,7 +3,7 @@ package com.bypassfuzzer.burp.update;
 import java.io.InputStream;
 import java.util.Properties;
 
-public record BuildInfo(String version, String updateManifestUrl) {
+public record BuildInfo(String version, String updateManifestUrl, String devLatestVersion) {
 
     private static final String RESOURCE_NAME = "/bypassfuzzer-build.properties";
 
@@ -19,12 +19,17 @@ public record BuildInfo(String version, String updateManifestUrl) {
 
         return new BuildInfo(
             valueOrDefault(properties.getProperty("version"), "dev"),
-            valueOrDefault(properties.getProperty("updateManifestUrl"), "")
+            valueOrDefault(properties.getProperty("updateManifestUrl"), ""),
+            valueOrDefault(properties.getProperty("devLatestVersion"), "")
         );
     }
 
     public boolean hasUpdateManifestUrl() {
         return updateManifestUrl != null && !updateManifestUrl.isBlank();
+    }
+
+    public boolean hasDevLatestVersion() {
+        return devLatestVersion != null && !devLatestVersion.isBlank();
     }
 
     private static String valueOrDefault(String value, String fallback) {

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bypassfuzzer'
-version = '1.0.9'
+version = '1.1'
 
 repositories {
     mavenCentral()
@@ -35,11 +35,13 @@ java {
 def generatedBuildInfoDir = layout.buildDirectory.dir('generated/resources/buildInfo')
 def defaultUpdateManifestUrl = 'https://wapen-tools-1.s3.us-east-1.amazonaws.com/bypassfuzzer_version.txt'
 def updateManifestUrlProvider = providers.gradleProperty('updateManifestUrl').orElse(defaultUpdateManifestUrl)
+def devLatestVersionProvider = providers.gradleProperty('devLatestVersion').orElse('')
 
 tasks.register('generateBuildInfo', WriteProperties) {
     destinationFile = generatedBuildInfoDir.map { it.file('bypassfuzzer-build.properties') }
     property('version', project.version.toString())
     property('updateManifestUrl', updateManifestUrlProvider.get())
+    property('devLatestVersion', devLatestVersionProvider.get())
 }
 
 sourceSets {

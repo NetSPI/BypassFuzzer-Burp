@@ -19,7 +19,7 @@ class VersionCheckerTest {
     @Test
     void reportsUpdateAvailableFromManifest() throws Exception {
         VersionChecker checker = new VersionChecker(
-            new BuildInfo("1.0.9", "https://example.test/bypassfuzzer_version.txt"),
+            new BuildInfo("1.0.9", "https://example.test/bypassfuzzer_version.txt", ""),
             uri -> "1.0.10\n"
         );
 
@@ -33,7 +33,7 @@ class VersionCheckerTest {
     @Test
     void disabledWhenManifestUrlIsBlank() throws Exception {
         VersionChecker checker = new VersionChecker(
-            new BuildInfo("1.0.9", ""),
+            new BuildInfo("1.0.9", "", ""),
             uri -> {
                 throw new AssertionError("Fetcher should not run without a manifest URL");
             }
@@ -46,13 +46,18 @@ class VersionCheckerTest {
     }
 
     @Test
-    void updatePopupMessageIncludesCurrentAndLatestVersions() {
-        String message = VersionChecker.updateMessage(
-            new VersionCheckResult("1.0.9", "1.0.10", true)
+    void devLatestVersionReportsUpdateWithoutFetchingManifest() throws Exception {
+        VersionChecker checker = new VersionChecker(
+            new BuildInfo("1.0.9", "https://example.test/bypassfuzzer_version.txt", "1.0.10"),
+            uri -> {
+                throw new AssertionError("Fetcher should not run with devLatestVersion");
+            }
         );
 
-        assertTrue(message.contains("Current version: 1.0.9"));
-        assertTrue(message.contains("Latest version: 1.0.10"));
-        assertTrue(message.contains("bypassfuzzer.jar"));
+        VersionCheckResult result = checker.check();
+
+        assertEquals("1.0.9", result.currentVersion());
+        assertEquals("1.0.10", result.latestVersion());
+        assertTrue(result.updateAvailable());
     }
 }

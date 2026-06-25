@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import com.bypassfuzzer.burp.session.SessionRegistry;
 import com.bypassfuzzer.burp.ui.session.CoverageSweepPanel;
+import com.bypassfuzzer.burp.update.VersionCheckResult;
 
 import javax.swing.*;
 import java.awt.*;
@@ -18,12 +19,14 @@ public class BypassFuzzerTab extends JPanel {
     private final MontoyaApi api;
     private final JTabbedPane tabbedPane;
     private final SessionRegistry sessionRegistry;
+    private final JPanel updateBannerHost;
     private CoverageSweepPanel sweepPanel;
 
     public BypassFuzzerTab(MontoyaApi api) {
         this.api = api;
         this.tabbedPane = new JTabbedPane();
         this.sessionRegistry = new SessionRegistry(api);
+        this.updateBannerHost = new JPanel(new BorderLayout());
         initializeUI();
     }
 
@@ -36,7 +39,60 @@ public class BypassFuzzerTab extends JPanel {
         sweepPanel = new CoverageSweepPanel(api);
         tabbedPane.addTab("Sweep", sweepPanel);
 
+        updateBannerHost.setVisible(false);
+        add(updateBannerHost, BorderLayout.NORTH);
         add(tabbedPane, BorderLayout.CENTER);
+    }
+
+    public void showUpdateBanner(VersionCheckResult result) {
+        Runnable updateUi = () -> {
+            updateBannerHost.removeAll();
+            updateBannerHost.add(createUpdateBanner(result), BorderLayout.CENTER);
+            updateBannerHost.setVisible(true);
+            revalidate();
+            repaint();
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            updateUi.run();
+        } else {
+            SwingUtilities.invokeLater(updateUi);
+        }
+    }
+
+    private JPanel createUpdateBanner(VersionCheckResult result) {
+        JPanel banner = new JPanel(new BorderLayout(12, 0));
+        banner.setName("updateBanner");
+        banner.setBackground(new Color(255, 244, 214));
+        banner.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(214, 173, 82)),
+            BorderFactory.createEmptyBorder(10, 14, 10, 12)
+        ));
+
+        JLabel message = new JLabel(updateBannerMessage(result));
+        message.setName("updateBannerMessage");
+        message.setForeground(new Color(45, 33, 12));
+
+        JButton dismissButton = new JButton("Dismiss");
+        dismissButton.setName("updateBannerDismiss");
+        dismissButton.setFocusable(false);
+        dismissButton.addActionListener(event -> {
+            banner.setVisible(false);
+            updateBannerHost.setVisible(false);
+            updateBannerHost.removeAll();
+            revalidate();
+            repaint();
+        });
+
+        banner.add(message, BorderLayout.CENTER);
+        banner.add(dismissButton, BorderLayout.EAST);
+        return banner;
+    }
+
+    static String updateBannerMessage(VersionCheckResult result) {
+        return "BypassFuzzer " + result.latestVersion()
+            + " is available. You are running " + result.currentVersion()
+            + ". Download the latest bypassfuzzer.jar from GitHub releases.";
     }
 
     private JPanel createWelcomePanel() {
