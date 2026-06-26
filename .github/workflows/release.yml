@@ -43,36 +43,16 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Validate release configuration
-        shell: bash
-        run: |
-          test -n "$UPDATE_MANIFEST_URL" || {
-            echo "Missing UPDATE_MANIFEST_URL secret, e.g. https://wapen-tools-1.s3.us-east-1.amazonaws.com/bypassfuzzer_version.txt" >&2
-            exit 1
-          }
-          test -n "$S3_VERSION_MANIFEST_URI" || {
-            echo "Missing S3_VERSION_MANIFEST_URI, e.g. s3://wapen-tools-1/bypassfuzzer_version.txt" >&2
-            exit 1
-          }
-          test -n "$AWS_REGION" || {
-            echo "Missing AWS_REGION secret" >&2
-            exit 1
-          }
-          test -n "$AWS_ROLE_TO_ASSUME" || {
-            echo "Missing AWS_ROLE_TO_ASSUME secret" >&2
-            exit 1
-          }
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Build release JAR
         shell: bash
         run: |
-          ./gradlew clean build -PupdateManifestUrl="$UPDATE_MANIFEST_URL"
+          gradle_args=(clean build)
+          if [ -n "$UPDATE_MANIFEST_URL" ]; then
+            gradle_args+=("-PupdateManifestUrl=$UPDATE_MANIFEST_URL")
+          else
+            echo "UPDATE_MANIFEST_URL is not set; using the Gradle default."
+          fi
+          ./gradlew "${gradle_args[@]}"
           test -f "build/libs/bypassfuzzer.jar"
           unzip -p "build/libs/bypassfuzzer.jar" META-INF/MANIFEST.MF
           unzip -p "build/libs/bypassfuzzer.jar" bypassfuzzer-build.properties
@@ -86,7 +66,36 @@ jobs:
         run: |
           gh release upload "$TAG_NAME" "build/libs/bypassfuzzer.jar" --clobber
 
+      - name: Check manifest publishing configuration
+        id: manifest_config
+        shell: bash
+        run: |
+          if [ -z "$S3_VERSION_MANIFEST_URI" ]; then
+            echo "Skipping S3 manifest update: S3_VERSION_MANIFEST_URI is not set."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$AWS_REGION" ]; then
+            echo "Skipping S3 manifest update: AWS_REGION secret is not set."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$AWS_ROLE_TO_ASSUME" ]; then
+            echo "Skipping S3 manifest update: AWS_ROLE_TO_ASSUME secret is not set."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        if: steps.manifest_config.outputs.publish == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Update manifest
+        if: steps.manifest_config.outputs.publish == 'true'
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
