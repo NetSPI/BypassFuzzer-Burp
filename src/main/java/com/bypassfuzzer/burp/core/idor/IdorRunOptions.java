@@ -7,6 +7,10 @@ import java.util.Set;
  */
 public record IdorRunOptions(
     int requestsPerSecond,
+    int requestDelayMs,
     Set<Integer> throttleStatusCodes
 ) {
+    public IdorRunOptions(int requestsPerSecond, Set<Integer> throttleStatusCodes) {
+        this(requestsPerSecond, 0, throttleStatusCodes);
+    }
 }

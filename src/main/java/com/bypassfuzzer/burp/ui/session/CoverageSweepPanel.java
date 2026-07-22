@@ -55,6 +55,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox status4xxCheckBox;
     private JTextField concurrencyField;
     private JTextField throttleStatusCodesField;
+    private JTextField requestDelayField;
     private JLabel statusLabel;
     private JLabel estimateLabel;
     private JTable candidateTable;
@@ -100,6 +101,7 @@ public class CoverageSweepPanel extends JPanel {
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
+        requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
 
         statusRow.add(new JLabel("Pull responses:"));
         statusRow.add(status401CheckBox);
@@ -109,6 +111,8 @@ public class CoverageSweepPanel extends JPanel {
 
         executionRow.add(new JLabel("Concurrency:"));
         executionRow.add(concurrencyField);
+        executionRow.add(new JLabel("Delay (ms):"));
+        executionRow.add(requestDelayField);
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
 
@@ -346,6 +350,7 @@ public class CoverageSweepPanel extends JPanel {
             defaults.maxProbesPerCandidate(),
             parsePositiveInt(concurrencyField, defaults.concurrency()),
             defaults.requestsPerSecond(),
+            parseNonNegativeInt(requestDelayField, defaults.requestDelayMs()),
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
         );
     }
@@ -380,11 +385,20 @@ public class CoverageSweepPanel extends JPanel {
         status4xxCheckBox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
+        requestDelayField.setEnabled(enabled);
     }
 
     private int parsePositiveInt(JTextField field, int fallback) {
         try {
             return Math.max(1, Integer.parseInt(field.getText().trim()));
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private int parseNonNegativeInt(JTextField field, int fallback) {
+        try {
+            return Math.max(0, Integer.parseInt(field.getText().trim()));
         } catch (Exception e) {
             return fallback;
         }

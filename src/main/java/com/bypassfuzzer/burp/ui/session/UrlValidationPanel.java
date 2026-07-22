@@ -340,6 +340,7 @@ public class UrlValidationPanel extends JPanel {
             optionsPanel.attackSettings(),
             optionsPanel.encodings(),
             requestsPerSecond,
+            optionsPanel.requestDelayMs(),
             SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText())
         );
     }

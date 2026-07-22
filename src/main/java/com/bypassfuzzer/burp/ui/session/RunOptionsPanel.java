@@ -12,6 +12,7 @@ public class RunOptionsPanel extends JPanel {
     private final JCheckBox collaboratorCheckbox;
     private final JCheckBox fuzzExistingCookiesCheckbox;
     private final JTextField concurrencyField;
+    private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
 
     public RunOptionsPanel(FuzzerConfig config, boolean collaboratorAvailable) {
@@ -53,6 +54,13 @@ public class RunOptionsPanel extends JPanel {
         concurrencyRow.add(concurrencyHelp);
         add(concurrencyRow);
 
+        JPanel delayRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        delayRow.add(new JLabel("Delay between requests (ms):"));
+        requestDelayField = new JTextField(String.valueOf(config.getRequestDelayMs()), 6);
+        delayRow.add(requestDelayField);
+        delayRow.add(new JLabel("(global minimum; 0 = none)"));
+        add(delayRow);
+
         JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
         throttleStatusCodesField = new JTextField(formatStatusCodes(config.getThrottleStatusCodes()), 10);
@@ -80,6 +88,10 @@ public class RunOptionsPanel extends JPanel {
         return concurrencyField.getText();
     }
 
+    public String requestDelayText() {
+        return requestDelayField.getText();
+    }
+
     public String throttleStatusCodesText() {
         return throttleStatusCodesField.getText();
     }
@@ -87,6 +99,7 @@ public class RunOptionsPanel extends JPanel {
     public void setControlsEnabled(boolean enabled, boolean collaboratorAvailable) {
         fuzzExistingCookiesCheckbox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
+        requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         collaboratorCheckbox.setEnabled(enabled && collaboratorAvailable);
     }

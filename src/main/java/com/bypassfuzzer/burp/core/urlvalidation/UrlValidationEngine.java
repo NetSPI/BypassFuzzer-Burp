@@ -74,6 +74,7 @@ public class UrlValidationEngine {
         rateLimiter = new RateLimiter(
             api,
             options.requestsPerSecond(),
+            options.requestDelayMs(),
             throttleCodes,
             !throttleCodes.isEmpty()
         );
@@ -83,9 +84,6 @@ public class UrlValidationEngine {
         attack.execute(api, request, targetUrl, result -> {
             if (running) {
                 resultCallback.accept(result);
-                if (rateLimiter != null) {
-                    rateLimiter.reportResponse(result.getStatusCode());
-                }
             }
         }, () -> running, rateLimiter, attackExecutor);
     }

@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 public class IdorRunOptionsPanel extends JPanel {
 
     private final JTextField requestsPerSecondField;
+    private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
 
     public IdorRunOptionsPanel(IdorRunOptions defaults) {
@@ -30,6 +31,12 @@ public class IdorRunOptionsPanel extends JPanel {
         requestsPerSecondField = new JTextField(String.valueOf(defaults.requestsPerSecond()), 5);
         rateRow.add(requestsPerSecondField);
         add(rateRow);
+
+        JPanel delayRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        delayRow.add(new JLabel("Delay between requests (ms):"));
+        requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
+        delayRow.add(requestDelayField);
+        add(delayRow);
 
         JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
@@ -50,14 +57,22 @@ public class IdorRunOptionsPanel extends JPanel {
             requestsPerSecond = 0;
         }
 
+        int requestDelayMs;
+        try {
+            requestDelayMs = Math.max(0, Integer.parseInt(requestDelayField.getText().trim()));
+        } catch (NumberFormatException e) {
+            requestDelayMs = 0;
+        }
         return new IdorRunOptions(
             requestsPerSecond,
+            requestDelayMs,
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
         );
     }
 
     public void setControlsEnabled(boolean enabled) {
         requestsPerSecondField.setEnabled(enabled);
+        requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
     }
 

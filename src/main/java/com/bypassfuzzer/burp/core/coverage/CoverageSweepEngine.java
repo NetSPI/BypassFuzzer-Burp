@@ -178,7 +178,8 @@ public class CoverageSweepEngine {
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
-        rateLimiter = new RateLimiter(api, options.requestsPerSecond(), safeThrottleCodes(options.throttleStatusCodes()), !safeThrottleCodes(options.throttleStatusCodes()).isEmpty());
+        rateLimiter = new RateLimiter(api, options.requestsPerSecond(), options.requestDelayMs(),
+            safeThrottleCodes(options.throttleStatusCodes()), !safeThrottleCodes(options.throttleStatusCodes()).isEmpty());
         int concurrency = Math.max(1, options.concurrency());
         AtomicInteger workerCounter = new AtomicInteger(1);
         executor = Executors.newFixedThreadPool(concurrency, runnable -> {
@@ -225,7 +226,7 @@ public class CoverageSweepEngine {
                 controlResponse = response;
             }
             if (rateLimiter != null && response != null) {
-                rateLimiter.reportResponse(response.statusCode());
+                rateLimiter.reportResponse(response);
             }
             if (resultCallback != null) {
                 String signal = "Control".equals(probe.family()) ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);

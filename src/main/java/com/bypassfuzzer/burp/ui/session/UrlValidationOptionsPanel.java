@@ -46,6 +46,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JCheckBox encodingSpecialCharsCheckbox;
     private final JCheckBox encodingUnicodeEscapeCheckbox;
     private final JTextField requestsPerSecondField;
+    private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
 
     public UrlValidationOptionsPanel(HttpRequest request, boolean collaboratorAvailable) {
@@ -92,6 +93,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         encodingUnicodeEscapeCheckbox = new JCheckBox(UrlValidationEncoding.UNICODE_ESCAPE.label(), false);
 
         requestsPerSecondField = new JTextField("0", 5);
+        requestDelayField = new JTextField("0", 5);
         throttleStatusCodesField = new JTextField("429,503", 10);
 
         add(createTargetingSection());
@@ -183,6 +185,14 @@ public class UrlValidationOptionsPanel extends JPanel {
         return throttleStatusCodesField.getText();
     }
 
+    public int requestDelayMs() {
+        try {
+            return Math.max(0, Integer.parseInt(requestDelayField.getText().trim()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     public void setControlsEnabled(boolean enabled) {
         markerTextField.setEnabled(enabled);
         allowedHostField.setEnabled(enabled);
@@ -205,6 +215,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         encodingSpecialCharsCheckbox.setEnabled(enabled);
         encodingUnicodeEscapeCheckbox.setEnabled(enabled);
         requestsPerSecondField.setEnabled(enabled);
+        requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
     }
 
@@ -239,6 +250,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private JPanel createExecutionSection() {
         JPanel panel = createSectionPanel("Execution");
         panel.add(formRow("Requests/sec", requestsPerSecondField, "0 = unlimited"));
+        panel.add(formRow("Delay (ms)", requestDelayField, "minimum between requests"));
         panel.add(formRow("Throttle codes", throttleStatusCodesField, "comma-separated"));
         return finalizeSection(panel);
     }

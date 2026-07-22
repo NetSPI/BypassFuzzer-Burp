@@ -34,7 +34,7 @@ BypassFuzzer has four main testing areas:
   - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
   - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 120 probes per endpoint
-  - Supports endpoint-level concurrency and auto-throttle status-code controls
+  - Supports endpoint-level concurrency, fixed inter-request delay, and auto-throttle status-code controls
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
   - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals

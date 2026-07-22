@@ -37,6 +37,9 @@ public class AttackExecutor {
         }
 
         HttpResponse response = requestSender.send(request);
+        if (rateLimiter != null) {
+            rateLimiter.reportResponse(response);
+        }
         resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response));
         return true;
     }
@@ -56,6 +59,10 @@ public class AttackExecutor {
             return shouldContinue.getAsBoolean() && !Thread.currentThread().isInterrupted()
                 ? AttackExecutionResult.timedOut()
                 : AttackExecutionResult.stopped();
+        }
+
+        if (rateLimiter != null) {
+            rateLimiter.reportResponse(response);
         }
 
         resultCallback.accept(new AttackResult(attackType, payload, request, response));

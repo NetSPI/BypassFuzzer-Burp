@@ -30,6 +30,7 @@ public class FuzzerConfig {
 
     // Rate limiting
     private int requestsPerSecond = 0; // 0 = unlimited (default)
+    private int requestDelayMs = 0;
     private int concurrency = 1;
     private Set<Integer> throttleStatusCodes = new java.util.HashSet<>();
     private boolean enableAutoThrottle = true;
@@ -157,7 +158,15 @@ public class FuzzerConfig {
     }
 
     public void setRequestsPerSecond(int requestsPerSecond) {
-        this.requestsPerSecond = requestsPerSecond;
+        this.requestsPerSecond = Math.max(0, requestsPerSecond);
+    }
+
+    public int getRequestDelayMs() {
+        return requestDelayMs;
+    }
+
+    public void setRequestDelayMs(int requestDelayMs) {
+        this.requestDelayMs = Math.max(0, requestDelayMs);
     }
 
     public int getConcurrency() {

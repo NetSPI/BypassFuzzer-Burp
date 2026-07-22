@@ -12,8 +12,19 @@ public record UrlValidationOptions(
     Set<UrlValidationAttackSetting> attackSettings,
     Set<UrlValidationEncoding> encodings,
     int requestsPerSecond,
+    int requestDelayMs,
     Set<Integer> throttleStatusCodes
 ) {
+
+    public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
+                                boolean collaboratorPayloads, String attackerScheme,
+                                Set<UrlValidationContext> payloadFamilies,
+                                Set<UrlValidationAttackSetting> attackSettings,
+                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
+                                Set<Integer> throttleStatusCodes) {
+        this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
+            payloadFamilies, attackSettings, encodings, requestsPerSecond, 0, throttleStatusCodes);
+    }
 
     private static final Set<UrlValidationContext> DEFAULT_PAYLOAD_FAMILIES = Set.of(
         UrlValidationContext.ABSOLUTE_URL,

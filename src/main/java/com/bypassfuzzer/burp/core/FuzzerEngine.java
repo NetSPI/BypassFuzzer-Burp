@@ -131,6 +131,7 @@ public class FuzzerEngine {
         rateLimiter = new RateLimiter(
             api,
             config.getRequestsPerSecond(),
+            config.getRequestDelayMs(),
             config.getThrottleStatusCodes(),
             config.isEnableAutoThrottle()
         );
@@ -143,6 +144,9 @@ public class FuzzerEngine {
             safeLog("Rate limit: " + config.getRequestsPerSecond() + " requests/second");
         } else {
             safeLog("Rate limit: unlimited");
+        }
+        if (config.getRequestDelayMs() > 0) {
+            safeLog("Minimum delay: " + config.getRequestDelayMs() + " ms between request starts");
         }
 
         if (config.isEnableAutoThrottle() && !config.getThrottleStatusCodes().isEmpty()) {
@@ -240,10 +244,6 @@ public class FuzzerEngine {
     private void handleResult(AttackResult result, Consumer<AttackResult> resultCallback) {
         try {
             resultCallback.accept(result);
-            // Report response to rate limiter for auto-throttling
-            if (rateLimiter != null) {
-                rateLimiter.reportResponse(result.getStatusCode());
-            }
         } catch (Exception callbackEx) {
             safeLogError("Error sending result to UI callback: " + callbackEx.getMessage());
         }

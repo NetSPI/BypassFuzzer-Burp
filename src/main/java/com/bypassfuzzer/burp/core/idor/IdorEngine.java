@@ -104,7 +104,8 @@ public class IdorEngine {
         }
 
         Set<Integer> throttleCodes = safeThrottleCodes(options.runOptions().throttleStatusCodes());
-        rateLimiter = new RateLimiter(api, options.runOptions().requestsPerSecond(), throttleCodes, !throttleCodes.isEmpty());
+        rateLimiter = new RateLimiter(api, options.runOptions().requestsPerSecond(),
+            options.runOptions().requestDelayMs(), throttleCodes, !throttleCodes.isEmpty());
 
         AttackExecutor attackExecutor = new AttackExecutor(requestSender);
         Consumer<AttackResult> publishingCallback = result -> {
@@ -112,9 +113,6 @@ public class IdorEngine {
                 return;
             }
             resultCallback.accept(result);
-            if (rateLimiter != null) {
-                rateLimiter.reportResponse(result.getStatusCode());
-            }
         };
 
         if (!attackExecutor.execute(

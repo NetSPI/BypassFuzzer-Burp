@@ -1,160 +1,144 @@
 package com.bypassfuzzer.burp.core;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.responses.HttpResponse;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Rate limiter with auto-throttling capabilities.
- * Controls request rate and automatically slows down when throttle status codes are detected.
- */
+/** Global request pacing and response-driven backoff shared by all workers. */
 public class RateLimiter {
+
+    private static final long INITIAL_BACKOFF_MS = 1000;
+    private static final long MAX_BACKOFF_MS = 60_000;
 
     private final MontoyaApi api;
     private final Set<Integer> throttleStatusCodes;
     private final boolean autoThrottleEnabled;
-
+    private final long fixedDelayMs;
     private volatile int requestsPerSecond;
-    private volatile long delayMs;
+    private volatile long adaptiveDelayMs;
+    private long nextRequestNanos;
+    private long blockedUntilEpochMs;
+    private long nextBackoffAdjustmentEpochMs;
 
-    private AtomicLong lastRequestTime = new AtomicLong(0);
-    private AtomicInteger throttleCount = new AtomicInteger(0);
-    private AtomicInteger requestsSinceLastThrottle = new AtomicInteger(0);
-
-    // Auto-throttle parameters
-    private static final int THROTTLE_DETECTION_WINDOW = 5; // Detect after N throttle responses
-    private static final double THROTTLE_SLOWDOWN_FACTOR = 0.5; // Reduce speed by 50%
-    private static final int MIN_DELAY_MS = 100; // Minimum 100ms between requests when throttled
-    private static final int RESET_AFTER_REQUESTS = 50; // Reset throttle counter after N successful requests
-
-    public RateLimiter(MontoyaApi api, int requestsPerSecond, Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled) {
-        this.api = api;
-        this.requestsPerSecond = requestsPerSecond;
-        this.throttleStatusCodes = throttleStatusCodes;
-        this.autoThrottleEnabled = autoThrottleEnabled;
-        this.delayMs = calculateDelayMs(requestsPerSecond);
+    public RateLimiter(MontoyaApi api, int requestsPerSecond, Set<Integer> throttleStatusCodes,
+                       boolean autoThrottleEnabled) {
+        this(api, requestsPerSecond, 0, throttleStatusCodes, autoThrottleEnabled);
     }
 
-    /**
-     * Wait before sending the next request according to rate limit.
-     */
+    public RateLimiter(MontoyaApi api, int requestsPerSecond, long fixedDelayMs,
+                       Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled) {
+        this.api = api;
+        this.requestsPerSecond = Math.max(0, requestsPerSecond);
+        this.fixedDelayMs = Math.max(0, fixedDelayMs);
+        this.throttleStatusCodes = throttleStatusCodes == null ? Set.of() : Set.copyOf(throttleStatusCodes);
+        this.autoThrottleEnabled = autoThrottleEnabled;
+    }
+
+    /** Reserves the next globally paced request slot. */
     public synchronized boolean waitBeforeRequest() {
-        if (delayMs <= 0) {
-            return !Thread.currentThread().isInterrupted();
-        }
-
-        long currentTime = System.currentTimeMillis();
-        long timeSinceLastRequest = currentTime - lastRequestTime.get();
-
-        if (timeSinceLastRequest < delayMs) {
-            long sleepTime = delayMs - timeSinceLastRequest;
+        while (!Thread.currentThread().isInterrupted()) {
+            long nowNanos = System.nanoTime();
+            long backoffMs = Math.max(0, blockedUntilEpochMs - System.currentTimeMillis());
+            long waitNanos = Math.max(nextRequestNanos - nowNanos, TimeUnit.MILLISECONDS.toNanos(backoffMs));
+            if (waitNanos <= 0) {
+                nextRequestNanos = nowNanos + effectiveDelayNanos();
+                return true;
+            }
             try {
-                Thread.sleep(sleepTime);
+                TimeUnit.NANOSECONDS.timedWait(this, waitNanos);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
         }
-
-        lastRequestTime.set(System.currentTimeMillis());
-        return !Thread.currentThread().isInterrupted();
+        return false;
     }
 
-    /**
-     * Report a response status code for auto-throttling.
-     * @param statusCode The HTTP status code received
-     */
     public void reportResponse(int statusCode) {
-        if (!autoThrottleEnabled || throttleStatusCodes.isEmpty()) {
+        reportResponse(statusCode, null);
+    }
+
+    public void reportResponse(HttpResponse response) {
+        if (response != null) {
+            reportResponse(response.statusCode(), response.headerValue("Retry-After"));
+        }
+    }
+
+    private synchronized void reportResponse(int statusCode, String retryAfter) {
+        if (!autoThrottleEnabled || !throttleStatusCodes.contains(statusCode)) {
             return;
         }
 
-        if (throttleStatusCodes.contains(statusCode)) {
-            int count = throttleCount.incrementAndGet();
-            requestsSinceLastThrottle.set(0);
-
-            // After multiple throttle responses, slow down
-            if (count >= THROTTLE_DETECTION_WINDOW) {
-                applyAutoThrottle();
-                throttleCount.set(0); // Reset counter after applying throttle
-            }
-        } else {
-            // Successful request
-            int successCount = requestsSinceLastThrottle.incrementAndGet();
-
-            // Reset throttle counter after many successful requests
-            if (successCount >= RESET_AFTER_REQUESTS) {
-                if (throttleCount.get() > 0) {
-                    throttleCount.set(0);
-                }
-            }
+        long now = System.currentTimeMillis();
+        long retryAfterMs = parseRetryAfterMs(retryAfter, now);
+        if (retryAfterMs > 0) {
+            blockedUntilEpochMs = Math.max(blockedUntilEpochMs, now + retryAfterMs);
         }
+
+        // React to the first configured status, but do not amplify a burst of
+        // responses that were already in flight before the backoff took effect.
+        if (now >= nextBackoffAdjustmentEpochMs) {
+            long configuredDelay = baseDelayMs();
+            long base = configuredDelay == 0
+                ? INITIAL_BACKOFF_MS
+                : Math.min(MAX_BACKOFF_MS, Math.max(INITIAL_BACKOFF_MS, configuredDelay * 2));
+            adaptiveDelayMs = adaptiveDelayMs == 0 ? base : Math.min(MAX_BACKOFF_MS, adaptiveDelayMs * 2);
+            nextBackoffAdjustmentEpochMs = now + adaptiveDelayMs;
+        }
+        notifyAll();
+        safeLog(String.format("Auto-throttle: HTTP %d; pacing requests at least %d ms apart%s.",
+            statusCode, effectiveDelayMs(), retryAfterMs > 0 ? ", honoring Retry-After" : ""));
     }
 
-    /**
-     * Apply auto-throttling by increasing delay.
-     */
-    private void applyAutoThrottle() {
-        long newDelayMs;
-
-        if (delayMs <= 0) {
-            // No current limit, start with minimum delay
-            newDelayMs = MIN_DELAY_MS;
-        } else {
-            // Increase delay by slowdown factor
-            newDelayMs = (long) (delayMs / THROTTLE_SLOWDOWN_FACTOR);
-        }
-
-        // Update delay
-        delayMs = newDelayMs;
-
-        // Calculate equivalent requests per second
-        int newRps = (int) (1000.0 / newDelayMs);
-        requestsPerSecond = Math.max(1, newRps);
-
+    private long parseRetryAfterMs(String value, long nowEpochMs) {
+        if (value == null || value.isBlank()) return 0;
         try {
-            api.logging().logToOutput(
-                String.format("⚠ Auto-throttle activated: Detected rate limiting (status codes: %s). " +
-                    "Reducing speed to ~%d req/s (%d ms delay between requests).",
-                    throttleStatusCodes, requestsPerSecond, delayMs)
-            );
-        } catch (Exception e) {
-            // Ignore logging errors
+            return TimeUnit.SECONDS.toMillis(Math.max(0, Long.parseLong(value.trim())));
+        } catch (NumberFormatException ignored) {
+            try {
+                return Math.max(0, ZonedDateTime.parse(value.trim(), DateTimeFormatter.RFC_1123_DATE_TIME)
+                    .toInstant().toEpochMilli() - nowEpochMs);
+            } catch (Exception invalidDate) {
+                return 0;
+            }
         }
     }
 
-    /**
-     * Update the rate limit setting.
-     * @param requestsPerSecond New requests per second (0 = unlimited)
-     */
-    public void updateRateLimit(int requestsPerSecond) {
-        this.requestsPerSecond = requestsPerSecond;
-        this.delayMs = calculateDelayMs(requestsPerSecond);
+    public synchronized void updateRateLimit(int requestsPerSecond) {
+        this.requestsPerSecond = Math.max(0, requestsPerSecond);
+        notifyAll();
     }
 
-    /**
-     * Calculate delay in milliseconds from requests per second.
-     */
-    private long calculateDelayMs(int requestsPerSecond) {
-        if (requestsPerSecond <= 0) {
-            return 0; // No limit
-        }
-        return 1000L / requestsPerSecond;
+    private long baseDelayMs() {
+        long rpsDelay = requestsPerSecond <= 0 ? 0 : (long) Math.ceil(1000.0 / requestsPerSecond);
+        return Math.max(fixedDelayMs, rpsDelay);
     }
 
-    /**
-     * Get current effective requests per second.
-     */
+    private long effectiveDelayMs() {
+        return Math.max(baseDelayMs(), adaptiveDelayMs);
+    }
+
+    private long effectiveDelayNanos() {
+        return TimeUnit.MILLISECONDS.toNanos(effectiveDelayMs());
+    }
+
     public int getCurrentRequestsPerSecond() {
-        return requestsPerSecond;
+        long delay = effectiveDelayMs();
+        return delay == 0 ? requestsPerSecond : Math.max(1, (int) (1000 / delay));
     }
 
-    /**
-     * Get current delay in milliseconds.
-     */
     public long getCurrentDelayMs() {
-        return delayMs;
+        return effectiveDelayMs();
+    }
+
+    private void safeLog(String message) {
+        try {
+            if (api != null && api.logging() != null) api.logging().logToOutput(message);
+        } catch (Exception ignored) {
+        }
     }
 }

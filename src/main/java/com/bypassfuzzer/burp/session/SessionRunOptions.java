@@ -22,9 +22,22 @@ public record SessionRunOptions(
     boolean cookieParamAttack,
     boolean fuzzExistingCookies,
     int requestsPerSecond,
+    int requestDelayMs,
     int concurrency,
     Set<Integer> throttleStatusCodes
 ) {
+
+    public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
+                             boolean paramAttack, boolean trailingDotAttack, boolean trailingSlashAttack,
+                             boolean extensionAttack, boolean contentTypeAttack, boolean encodingAttack,
+                             boolean protocolAttack, boolean caseAttack, boolean collaboratorPayloads,
+                             boolean cookieParamAttack, boolean fuzzExistingCookies, int requestsPerSecond,
+                             int concurrency, Set<Integer> throttleStatusCodes) {
+        this(headerAttack, pathAttack, verbAttack, paramAttack, trailingDotAttack, trailingSlashAttack,
+            extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
+            collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond, 0,
+            concurrency, throttleStatusCodes);
+    }
 
     public Set<AttackType> enabledAttackTypes() {
         Set<AttackType> types = EnumSet.noneOf(AttackType.class);
@@ -64,6 +77,7 @@ public record SessionRunOptions(
             cookieParamAttack,
             fuzzExistingCookies,
             requestsPerSecond,
+            requestDelayMs,
             concurrency,
             throttleStatusCodes
         );
@@ -85,6 +99,7 @@ public record SessionRunOptions(
         config.setEnableCookieParamAttack(cookieParamAttack);
         config.setEnableFuzzExistingCookies(fuzzExistingCookies);
         config.setRequestsPerSecond(requestsPerSecond);
+        config.setRequestDelayMs(requestDelayMs);
         config.setConcurrency(concurrency);
         config.setThrottleStatusCodes(throttleStatusCodes);
         config.setEnableAutoThrottle(!throttleStatusCodes.isEmpty());
