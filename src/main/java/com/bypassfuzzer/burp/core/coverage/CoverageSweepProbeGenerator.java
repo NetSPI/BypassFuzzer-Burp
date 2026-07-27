@@ -25,6 +25,10 @@ public class CoverageSweepProbeGenerator {
     }
 
     public List<CoverageSweepProbe> buildProbes(HttpRequest request, CoverageSweepOptions options) {
+        return buildProbes(request, options, true);
+    }
+
+    public List<CoverageSweepProbe> buildProbes(HttpRequest request, CoverageSweepOptions options, boolean includeControl) {
         if (request == null) {
             return List.of();
         }
@@ -32,7 +36,9 @@ public class CoverageSweepProbeGenerator {
         int limit = Math.max(1, options.maxProbesPerCandidate());
         List<CoverageSweepProbe> probes = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        add(probes, seen, limit, new CoverageSweepProbe("Control: original blocked request", "Control", request));
+        if (includeControl) {
+            add(probes, seen, limit, new CoverageSweepProbe("Control: original blocked request", "Control", request));
+        }
 
         String path = safePath(request.path());
         for (CoverageSweepProbeTemplate template : templates) {

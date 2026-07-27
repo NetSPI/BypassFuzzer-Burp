@@ -14,17 +14,24 @@ public class AttackResult {
     private final String payloadEncoding;
     private final HttpRequest request;
     private final HttpResponse response;
+    private final HttpResponse originalResponse;
     private final int statusCode;
     private final int contentLength;
     private final String contentType;
     private final long timestamp;
 
     public AttackResult(String attackType, String payload, HttpRequest request, HttpResponse response) {
-        this(attackType, payload, null, null, null, request, response);
+        this(attackType, payload, null, null, null, request, response, null);
     }
 
     public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
                         String payloadEncoding, HttpRequest request, HttpResponse response) {
+        this(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response, null);
+    }
+
+    public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
+                        String payloadEncoding, HttpRequest request, HttpResponse response,
+                        HttpResponse originalResponse) {
         this.attackType = attackType;
         this.payload = payload;
         this.targetLabel = targetLabel == null ? "" : targetLabel;
@@ -32,6 +39,7 @@ public class AttackResult {
         this.payloadEncoding = payloadEncoding == null ? "" : payloadEncoding;
         this.request = request;
         this.response = response;
+        this.originalResponse = originalResponse;
         this.statusCode = response != null ? response.statusCode() : 0;
         this.contentLength = response != null ? response.body().length() : 0;
         this.contentType = response != null ? extractContentType(response) : "";
@@ -72,6 +80,10 @@ public class AttackResult {
 
     public HttpResponse getResponse() {
         return response;
+    }
+
+    public HttpResponse getOriginalResponse() {
+        return originalResponse;
     }
 
     public int getStatusCode() {

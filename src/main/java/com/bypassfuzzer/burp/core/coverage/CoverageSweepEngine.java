@@ -62,10 +62,12 @@ public class CoverageSweepEngine {
 
     public CoverageSweepPreview collectPreview(CoverageSweepOptions options) {
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
-        List<ProxyHttpRequestResponse> blockedHistory = api.proxy().history(item -> eligible(item, effectiveOptions));
+        List<ProxyHttpRequestResponse> matchingHistory = api.proxy().history(item -> eligible(item, effectiveOptions));
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
+        Set<String> discoveredHeaders = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        Set<String> discoveredCookies = new TreeSet<>();
 
-        for (ProxyHttpRequestResponse item : blockedHistory) {
+        for (ProxyHttpRequestResponse item : matchingHistory) {
             CoverageSweepCandidate candidate = toCandidate(item);
             if (candidate == null) {
                 continue;
@@ -75,6 +77,9 @@ public class CoverageSweepEngine {
             if (existing == null || newer(candidate.time(), existing.time())) {
                 deduped.put(candidate.dedupeKey(), candidate);
             }
+            if (effectiveOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+                collectAuthIdentifiers(candidate.request(), discoveredHeaders, discoveredCookies);
+            }
         }
 
         List<CoverageSweepCandidate> candidates = new ArrayList<>(deduped.values());
@@ -83,11 +88,12 @@ public class CoverageSweepEngine {
             .thenComparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo)));
 
         int cap = Math.max(1, effectiveOptions.maxCandidates());
-        if (candidates.size() > cap) {
+        if (effectiveOptions.mode() == CoverageSweepMode.BLOCKED_RESPONSES && candidates.size() > cap) {
             candidates = new ArrayList<>(candidates.subList(0, cap));
         }
 
-        return new CoverageSweepPreview(blockedHistory.size(), deduped.size(), List.copyOf(candidates));
+        return new CoverageSweepPreview(matchingHistory.size(), deduped.size(), List.copyOf(candidates),
+            Set.copyOf(discoveredHeaders), Set.copyOf(discoveredCookies));
     }
 
     public CoverageSweepPreview collectPreviewFromUrls(List<String> urls, CoverageSweepOptions options) {
@@ -123,7 +129,11 @@ public class CoverageSweepEngine {
         if (candidate == null) {
             return List.of();
         }
-        return probeGenerator.buildProbes(candidate.request(), options == null ? CoverageSweepOptions.defaults() : options);
+        CoverageSweepOptions effective = options == null ? CoverageSweepOptions.defaults() : options;
+        if (effective.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            return probeGenerator.buildProbes(stripAuthentication(candidate.request(), effective.authSelection()), effective, false);
+        }
+        return probeGenerator.buildProbes(candidate.request(), effective, true);
     }
 
     public boolean start(List<CoverageSweepCandidate> candidates,
@@ -229,15 +239,17 @@ public class CoverageSweepEngine {
                 rateLimiter.reportResponse(response);
             }
             if (resultCallback != null) {
-                String signal = "Control".equals(probe.family()) ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                String signal = options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC || "Control".equals(probe.family())
+                    ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
                 resultCallback.accept(new AttackResult(
-                    "Coverage Sweep",
+                    options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC ? "Authenticated Coverage Sweep" : "Coverage Sweep",
                     probe.label(),
                     candidate.method() + " " + candidate.path(),
                     probe.family(),
                     signal,
                     probe.request(),
-                    response
+                    response,
+                    candidate.originalResponse()
                 ));
             }
         }
@@ -247,7 +259,12 @@ public class CoverageSweepEngine {
         if (item == null || !item.hasResponse() || item.response() == null || item.request() == null) {
             return false;
         }
-        if (!options.statuses().contains((int) item.response().statusCode())) {
+        if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            int status = item.response().statusCode();
+            if (status < 200 || status >= 300) {
+                return false;
+            }
+        } else if (!options.statuses().contains((int) item.response().statusCode())) {
             return false;
         }
         if (!options.inScopeOnly()) {
@@ -260,6 +277,71 @@ public class CoverageSweepEngine {
             return false;
         }
     }
+
+    public boolean matchesAuthSelection(CoverageSweepCandidate candidate, CoverageSweepAuthSelection selection) {
+        if (candidate == null || candidate.request() == null || selection == null) {
+            return false;
+        }
+        for (String headerName : selection.headerNames()) {
+            if (headerName != null && !headerName.isBlank() && candidate.request().hasHeader(headerName.trim())) {
+                return true;
+            }
+        }
+        String cookieHeader = candidate.request().headerValue("Cookie");
+        if (cookieHeader == null) {
+            return false;
+        }
+        Set<String> presentCookies = cookieNames(cookieHeader);
+        return selection.cookieNames().stream().anyMatch(presentCookies::contains);
+    }
+
+    HttpRequest stripAuthentication(HttpRequest request, CoverageSweepAuthSelection selection) {
+        HttpRequest stripped = request.withRemovedHeader("Cookie")
+            .withRemovedHeader("Authorization")
+            .withRemovedHeader("Proxy-Authorization");
+        if (selection != null) {
+            for (String headerName : selection.headerNames()) {
+                if (headerName != null && !headerName.isBlank()) {
+                    stripped = stripped.withRemovedHeader(headerName.trim());
+                }
+            }
+        }
+        return stripped;
+    }
+
+    private void collectAuthIdentifiers(HttpRequest request, Set<String> headers, Set<String> cookies) {
+        try {
+            for (HttpHeader header : request.headers()) {
+                String name = header.name();
+                if (looksLikeAuthHeader(name)) {
+                    headers.add(name);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        cookies.addAll(cookieNames(request.headerValue("Cookie")));
+    }
+
+    private boolean looksLikeAuthHeader(String name) {
+        String lower = safe(name).toLowerCase(Locale.ROOT);
+        return lower.equals("authorization") || lower.equals("proxy-authorization")
+            || lower.contains("auth") || lower.contains("token") || lower.contains("api-key")
+            || lower.contains("apikey") || lower.contains("session");
+    }
+
+    private Set<String> cookieNames(String cookieHeader) {
+        if (cookieHeader == null || cookieHeader.isBlank()) {
+            return Set.of();
+        }
+        Set<String> names = new TreeSet<>();
+        for (String cookie : cookieHeader.split(";")) {
+            int separator = cookie.indexOf('=');
+            String name = (separator >= 0 ? cookie.substring(0, separator) : cookie).trim();
+            if (!name.isBlank()) names.add(name);
+        }
+        return names;
+    }
+
 
     private CoverageSweepCandidate toCandidate(ProxyHttpRequestResponse item) {
         HttpRequest request = item.finalRequest() != null ? item.finalRequest() : item.request();

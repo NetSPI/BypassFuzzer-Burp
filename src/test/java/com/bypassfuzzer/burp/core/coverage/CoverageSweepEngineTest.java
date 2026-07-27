@@ -16,10 +16,13 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
+import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.requestWithHeaders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +31,86 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class CoverageSweepEngineTest {
+
+    @Test
+    void authenticatedDiscoveryIsPassiveAndInventoriesIdentifiers() {
+        HttpRequest get = requestWithHeaders("/account", "", "GET", Map.of(
+            "Authorization", "Bearer secret",
+            "Cookie", "theme=dark; JSESSIONID=secret"
+        ), "");
+        HttpRequest post = requestWithHeaders("/account", "", "POST", Map.of("X-Api-Key", "secret"), "");
+        List<ProxyHttpRequestResponse> history = List.of(history(get, 200, 2), history(post, 204, 1));
+        AtomicInteger sends = new AtomicInteger();
+        RequestSender sender = new RequestSender() {
+            public HttpResponse send(HttpRequest request) { sends.incrementAndGet(); return response(200, "text/plain", "ok"); }
+            public HttpResponse send(HttpRequest request, long timeout, TimeUnit unit) { return send(request); }
+        };
+        CoverageSweepOptions options = CoverageSweepOptions.defaults().withAuthenticatedTraffic(
+            CoverageSweepAuthSelection.defaults());
+
+        CoverageSweepPreview preview = new CoverageSweepEngine(api(history), sender, new CoverageSweepProbeGenerator())
+            .collectPreview(options);
+
+        assertEquals(2, preview.candidates().size());
+        assertTrue(preview.discoveredHeaderNames().contains("Authorization"));
+        assertTrue(preview.discoveredHeaderNames().contains("X-Api-Key"));
+        assertEquals(Set.of("theme", "JSESSIONID"), preview.discoveredCookieNames());
+        assertEquals(0, sends.get());
+    }
+
+    @Test
+    void selectedCookieIdentifiesCandidateButAttacksRemoveEntireCookieAndAuthHeaders() {
+        HttpRequest original = requestWithHeaders("/account", "", "GET", Map.of(
+            "Cookie", "theme=dark; JSESSIONID=secret",
+            "Authorization", "Bearer secret",
+            "Proxy-Authorization", "Basic secret",
+            "X-Api-Key", "secret",
+            "X-Keep", "value"
+        ), "");
+        CoverageSweepAuthSelection selection = new CoverageSweepAuthSelection(
+            Set.of("Authorization", "X-Api-Key"), Set.of("JSESSIONID"), false);
+        CoverageSweepOptions options = CoverageSweepOptions.defaults().withAuthenticatedTraffic(selection);
+        CoverageSweepCandidate candidate = candidate(original, 200);
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(200, "text/plain", "ok")), new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.matchesAuthSelection(candidate, selection));
+        List<CoverageSweepProbe> probes = engine.buildProbes(candidate, options);
+
+        assertTrue(probes.size() > 100 && probes.size() <= 120);
+        assertTrue(probes.stream().noneMatch(probe -> "Control".equals(probe.family())));
+        HttpRequest first = probes.get(0).request();
+        assertFalse(first.hasHeader("Cookie"));
+        assertFalse(first.hasHeader("Authorization"));
+        assertFalse(first.hasHeader("Proxy-Authorization"));
+        assertFalse(first.hasHeader("X-Api-Key"));
+        assertEquals("value", first.headerValue("X-Keep"));
+        assertEquals("theme=dark; JSESSIONID=secret", original.headerValue("Cookie"));
+    }
+
+    @Test
+    void authenticatedExecutionLeavesSignalBlankAndCarriesHistoryResponse() throws Exception {
+        HttpResponse originalResponse = response(200, "application/json", "authenticated");
+        HttpRequest originalRequest = requestWithHeaders("/account", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest, originalResponse, "key",
+            originalRequest.url(), "GET", "example.com", "/account", 200, 13,
+            "application/json", ZonedDateTime.now());
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 2, 1, 0, 0,
+            Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false));
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(200, "application/json", "probe")), new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.start(List.of(candidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(2, results.size());
+        assertTrue(results.stream().allMatch(result -> result.getPayloadEncoding().isBlank()));
+        assertTrue(results.stream().allMatch(result -> result.getOriginalResponse() == originalResponse));
+        assertTrue(results.stream().noneMatch(result -> "Control".equals(result.getPayloadFamily())));
+    }
 
     @Test
     void collectsOnlyInScopeBlockedProxyHistoryWithResponses() {
@@ -329,13 +412,21 @@ class CoverageSweepEngineTest {
     private ProxyHttpRequestResponse history(String path, int status, boolean inScope, int minutes) {
         ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
         HttpRequest request = request(path, "", "GET", null, "");
+        return history(item, request, status, minutes);
+    }
+
+    private ProxyHttpRequestResponse history(HttpRequest request, int status, int minutes) {
+        return history(mock(ProxyHttpRequestResponse.class), request, status, minutes);
+    }
+
+    private ProxyHttpRequestResponse history(ProxyHttpRequestResponse item, HttpRequest request, int status, int minutes) {
         HttpResponse response = response(status, "text/plain", "blocked");
         when(item.request()).thenReturn(request);
         when(item.finalRequest()).thenReturn(request);
         when(item.response()).thenReturn(response);
         when(item.hasResponse()).thenReturn(true);
         when(item.time()).thenReturn(ZonedDateTime.now().plusMinutes(minutes));
-        if (!inScope) {
+        if (request.path().equals("/out")) {
             when(item.request()).thenReturn(request("/out", "", "GET", null, ""));
             when(item.finalRequest()).thenReturn(request("/out", "", "GET", null, ""));
         }

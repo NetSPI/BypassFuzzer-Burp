@@ -73,6 +73,7 @@ public class SessionResultsPanel extends JPanel {
     private final JTable resultsTable;
     private final HttpRequestEditor requestViewer;
     private final HttpResponseEditor responseViewer;
+    private final HttpResponseEditor originalResponseViewer;
     private JPopupMenu tablePopupMenu;
     private AttackResult displayedResult;
 
@@ -98,6 +99,8 @@ public class SessionResultsPanel extends JPanel {
         this.resultsTable = new JTable(tableModel);
         this.requestViewer = api.userInterface().createHttpRequestEditor();
         this.responseViewer = api.userInterface().createHttpResponseEditor();
+        this.originalResponseViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
+            ? api.userInterface().createHttpResponseEditor() : null;
         initializeUi();
     }
 
@@ -130,6 +133,7 @@ public class SessionResultsPanel extends JPanel {
         displayedResult = null;
         requestViewer.setRequest(null);
         responseViewer.setResponse(null);
+        if (originalResponseViewer != null) originalResponseViewer.setResponse(null);
     }
 
     public int shownResultsCount() {
@@ -164,6 +168,9 @@ public class SessionResultsPanel extends JPanel {
         JTabbedPane viewerTabs = new JTabbedPane();
         viewerTabs.addTab("Request", requestViewer.uiComponent());
         viewerTabs.addTab("Response", responseViewer.uiComponent());
+        if (originalResponseViewer != null) {
+            viewerTabs.addTab("Original Response", originalResponseViewer.uiComponent());
+        }
 
         int splitOrientation = viewerLayout == ViewerLayout.RIGHT_OF_TABLE
             ? JSplitPane.HORIZONTAL_SPLIT
@@ -360,6 +367,9 @@ public class SessionResultsPanel extends JPanel {
         }
         if (result.getResponse() != null) {
             responseViewer.setResponse(result.getResponse());
+        }
+        if (originalResponseViewer != null) {
+            originalResponseViewer.setResponse(result.getOriginalResponse());
         }
     }
 

@@ -31,6 +31,7 @@ BypassFuzzer has four main testing areas:
 - **Sweep Mode:**
   - Available immediately when the extension loads
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
+  - Can identify authenticated `2xx` history by selected auth headers/cookies and attack credential-stripped request copies
   - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
   - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 120 probes per endpoint

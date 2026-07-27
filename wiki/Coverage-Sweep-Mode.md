@@ -40,6 +40,11 @@ Targeted request tabs contain:
 
 Sweep loads candidates from Burp Proxy history or an imported target list.
 
+Sweep has two Proxy-history workflows:
+
+- `Blocked responses` loads the configured blocked/error status codes and compares probes with a live control request.
+- `Authenticated traffic` passively loads in-scope `2xx` history, identifies requests using user-selected auth header or cookie names, strips authentication, and sends only mutated probes.
+
 By default it selects:
 
 - `401`
@@ -60,6 +65,22 @@ https://victim.com/admin/info
 ```
 
 Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests.
+Imported targets are unavailable in authenticated-traffic mode because they have no stored authenticated request or response.
+
+## Authenticated Traffic
+
+Authenticated-traffic discovery does not send requests. It inspects Proxy history and inventories likely authentication header names and cookie names without displaying their values. `Authorization` and session/auth/token-like identifiers are selected automatically; the tester can change the selection and add custom auth header names.
+
+A `2xx` history request is included when it contains at least one selected identifier. `GET` and `HEAD` are included by default. State-changing methods require the explicit `Include state-changing methods` option.
+
+Cookie selections are identifiers only. Before attacks are generated, Sweep removes:
+
+- the entire `Cookie` header
+- `Authorization`
+- `Proxy-Authorization`
+- additional auth headers selected by the tester
+
+Sweep does not replay the authenticated request and does not send an unmodified anonymous control. It applies the existing bounded probe inventory to the stripped request and displays every response without labeling it a bypass. The results viewer includes an `Original Response` tab containing the stored authenticated response for manual comparison.
 
 ## Deduplication
 

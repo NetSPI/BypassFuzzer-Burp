@@ -3,7 +3,9 @@ package com.bypassfuzzer.burp.ui.session;
 import burp.api.montoya.MontoyaApi;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepCandidate;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepAuthSelection;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepEngine;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepMode;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
@@ -12,6 +14,7 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -49,6 +52,9 @@ public class CoverageSweepPanel extends JPanel {
     private JButton clearButton;
     private JButton previewProbesButton;
     private JButton exportButton;
+    private JButton authIdentifiersButton;
+    private JComboBox<String> modeComboBox;
+    private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -61,6 +67,12 @@ public class CoverageSweepPanel extends JPanel {
     private JTable candidateTable;
     private SessionResultsWorkspace resultsWorkspace;
     private volatile boolean stopRequested = false;
+    private List<CoverageSweepCandidate> cachedHistoryCandidates = List.of();
+    private Set<String> discoveredAuthHeaders = Set.of();
+    private Set<String> discoveredCookieNames = Set.of();
+    private Set<String> selectedAuthHeaders = new LinkedHashSet<>(Set.of("Authorization"));
+    private Set<String> selectedCookieNames = new LinkedHashSet<>();
+    private boolean authDefaultsInitialized;
 
     public CoverageSweepPanel(MontoyaApi api) {
         this(api, new CoverageSweepEngine(api));
@@ -89,6 +101,9 @@ public class CoverageSweepPanel extends JPanel {
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
+        modeComboBox = new JComboBox<>(new String[]{"Blocked responses", "Authenticated traffic"});
+        modeComboBox.addActionListener(e -> handleModeChange());
+
         status401CheckBox = new JCheckBox("401", true);
         status403CheckBox = new JCheckBox("403", true);
         status3xxCheckBox = new JCheckBox("3xx", false);
@@ -103,11 +118,18 @@ public class CoverageSweepPanel extends JPanel {
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
 
+        statusRow.add(new JLabel("Mode:"));
+        statusRow.add(modeComboBox);
         statusRow.add(new JLabel("Pull responses:"));
         statusRow.add(status401CheckBox);
         statusRow.add(status403CheckBox);
         statusRow.add(status3xxCheckBox);
         statusRow.add(status4xxCheckBox);
+
+        includeUnsafeMethodsCheckBox = new JCheckBox("Include state-changing methods", false);
+        includeUnsafeMethodsCheckBox.addActionListener(e -> refilterAuthenticatedCandidates());
+        authIdentifiersButton = new JButton("Auth Identifiers...");
+        authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
         executionRow.add(new JLabel("Concurrency:"));
         executionRow.add(concurrencyField);
@@ -115,6 +137,8 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(requestDelayField);
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
+        executionRow.add(includeUnsafeMethodsCheckBox);
+        executionRow.add(authIdentifiersButton);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
@@ -155,6 +179,7 @@ public class CoverageSweepPanel extends JPanel {
 
         panel.add(controls, BorderLayout.NORTH);
         panel.add(labels, BorderLayout.CENTER);
+        updateModeControls();
         return panel;
     }
 
@@ -199,7 +224,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private void loadCandidates() {
         CoverageSweepOptions currentOptions = currentOptions();
-        if (currentOptions.statuses().isEmpty()) {
+        if (currentOptions.mode() == CoverageSweepMode.BLOCKED_RESPONSES && currentOptions.statuses().isEmpty()) {
             statusLabel.setText("Select at least one response status group before loading Proxy history.");
             startButton.setEnabled(false);
             return;
@@ -208,12 +233,26 @@ public class CoverageSweepPanel extends JPanel {
         setControlsForLoading();
         try {
             CoverageSweepPreview preview = engine.collectPreview(currentOptions);
-            candidateTableModel.setCandidates(preview.candidates());
-            startButton.setEnabled(!preview.candidates().isEmpty());
+            cachedHistoryCandidates = preview.candidates();
+            discoveredAuthHeaders = preview.discoveredHeaderNames();
+            discoveredCookieNames = preview.discoveredCookieNames();
+            if (currentOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+                if (!authDefaultsInitialized) {
+                    selectObviousIdentifiers();
+                    authDefaultsInitialized = true;
+                }
+                refilterAuthenticatedCandidates();
+            } else {
+                candidateTableModel.setCandidates(preview.candidates());
+            }
+            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
             updatePreviewButton();
             statusLabel.setText("Found " + preview.blockedHistoryCount()
                 + " matching history items; " + preview.dedupedEndpointCount()
                 + " deduped endpoints; showing " + preview.candidates().size() + ".");
+            if (currentOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+                updateAuthenticatedStatus(preview.blockedHistoryCount(), preview.dedupedEndpointCount());
+            }
             updateEstimate();
         } catch (Exception e) {
             statusLabel.setText("Unable to load Proxy history: " + e.getMessage());
@@ -227,6 +266,10 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void importTargetsWithChooser() {
+        if (currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            statusLabel.setText("Authenticated traffic mode uses Proxy history and cannot import bare URLs.");
+            return;
+        }
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import Sweep Targets");
         int result = chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame());
@@ -351,7 +394,9 @@ public class CoverageSweepPanel extends JPanel {
             parsePositiveInt(concurrencyField, defaults.concurrency()),
             defaults.requestsPerSecond(),
             parseNonNegativeInt(requestDelayField, defaults.requestDelayMs()),
-            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
+            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
+            currentMode(),
+            currentAuthSelection()
         );
     }
 
@@ -386,6 +431,130 @@ public class CoverageSweepPanel extends JPanel {
         concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
+        modeComboBox.setEnabled(enabled);
+        updateModeControls();
+    }
+
+    private CoverageSweepMode currentMode() {
+        return modeComboBox != null && modeComboBox.getSelectedIndex() == 1
+            ? CoverageSweepMode.AUTHENTICATED_TRAFFIC : CoverageSweepMode.BLOCKED_RESPONSES;
+    }
+
+    private CoverageSweepAuthSelection currentAuthSelection() {
+        return new CoverageSweepAuthSelection(selectedAuthHeaders, selectedCookieNames,
+            includeUnsafeMethodsCheckBox != null && includeUnsafeMethodsCheckBox.isSelected());
+    }
+
+    private void handleModeChange() {
+        cachedHistoryCandidates = List.of();
+        candidateTableModel.setCandidates(List.of());
+        startButton.setEnabled(false);
+        updateModeControls();
+        statusLabel.setText(currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
+            ? "Load in-scope 2xx Proxy history and choose identifiers used to recognize authenticated requests."
+            : "Load in-scope Proxy history responses to preview sweep candidates.");
+        updateEstimate();
+    }
+
+    private void updateModeControls() {
+        if (modeComboBox == null) return;
+        boolean idle = !engine.isRunning() && modeComboBox.isEnabled();
+        boolean authenticated = currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC;
+        status401CheckBox.setEnabled(idle && !authenticated);
+        status403CheckBox.setEnabled(idle && !authenticated);
+        status3xxCheckBox.setEnabled(idle && !authenticated);
+        status4xxCheckBox.setEnabled(idle && !authenticated);
+        importButton.setEnabled(idle && !authenticated);
+        includeUnsafeMethodsCheckBox.setEnabled(idle && authenticated);
+        authIdentifiersButton.setEnabled(idle && authenticated);
+        loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
+    }
+
+    private void selectObviousIdentifiers() {
+        selectedAuthHeaders.add("Authorization");
+        for (String header : discoveredAuthHeaders) {
+            if (looksLikeAuthIdentifier(header)) selectedAuthHeaders.add(header);
+        }
+        for (String cookie : discoveredCookieNames) {
+            if (looksLikeAuthIdentifier(cookie)) selectedCookieNames.add(cookie);
+        }
+    }
+
+    private boolean looksLikeAuthIdentifier(String name) {
+        String lower = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("auth") || lower.contains("session") || lower.contains("token")
+            || lower.contains("jwt") || lower.equals("sid") || lower.endsWith("sid")
+            || lower.contains("api-key") || lower.contains("apikey");
+    }
+
+    private void refilterAuthenticatedCandidates() {
+        if (currentMode() != CoverageSweepMode.AUTHENTICATED_TRAFFIC) return;
+        CoverageSweepAuthSelection selection = currentAuthSelection();
+        List<CoverageSweepCandidate> filtered = cachedHistoryCandidates.stream()
+            .filter(candidate -> selection.includeUnsafeMethods()
+                || "GET".equalsIgnoreCase(candidate.method()) || "HEAD".equalsIgnoreCase(candidate.method()))
+            .filter(candidate -> engine.matchesAuthSelection(candidate, selection))
+            .limit(Math.max(1, CoverageSweepOptions.defaults().maxCandidates()))
+            .toList();
+        candidateTableModel.setCandidates(filtered);
+        startButton.setEnabled(!filtered.isEmpty() && !engine.isRunning());
+        updateAuthenticatedStatus(cachedHistoryCandidates.size(), cachedHistoryCandidates.size());
+        updateEstimate();
+        updatePreviewButton();
+    }
+
+    private void updateAuthenticatedStatus(int historyCount, int dedupedCount) {
+        statusLabel.setText("Inspected " + historyCount + " in-scope 2xx history item(s); "
+            + dedupedCount + " deduped; " + candidateTableModel.getRowCount()
+            + " match the selected auth identifiers.");
+    }
+
+    private void openAuthIdentifiersDialog() {
+        JPanel choices = new JPanel();
+        choices.setLayout(new BoxLayout(choices, BoxLayout.Y_AXIS));
+        choices.add(new JLabel("Headers used to identify authenticated requests:"));
+        List<JCheckBox> headerBoxes = new ArrayList<>();
+        Set<String> headers = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        headers.add("Authorization");
+        headers.addAll(discoveredAuthHeaders);
+        headers.addAll(selectedAuthHeaders);
+        for (String name : headers) {
+            JCheckBox box = new JCheckBox(name, selectedAuthHeaders.stream().anyMatch(name::equalsIgnoreCase));
+            box.putClientProperty("identifier", name);
+            headerBoxes.add(box);
+            choices.add(box);
+        }
+        choices.add(new JLabel("Additional auth header names (comma-separated):"));
+        JTextField customHeaders = new JTextField(30);
+        choices.add(customHeaders);
+        choices.add(new JLabel("Cookie names used only to identify authenticated requests:"));
+        List<JCheckBox> cookieBoxes = new ArrayList<>();
+        for (String name : new java.util.TreeSet<>(discoveredCookieNames)) {
+            JCheckBox box = new JCheckBox(name, selectedCookieNames.contains(name));
+            box.putClientProperty("identifier", name);
+            cookieBoxes.add(box);
+            choices.add(box);
+        }
+        choices.add(new JLabel("The entire Cookie header is removed from every attack request."));
+        JScrollPane scroll = new JScrollPane(choices);
+        scroll.setPreferredSize(new Dimension(520, 420));
+        int result = JOptionPane.showConfirmDialog(this, scroll, "Authenticated Traffic Identifiers",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) return;
+        selectedAuthHeaders = selectedIdentifiers(headerBoxes);
+        for (String value : customHeaders.getText().split(",")) {
+            if (!value.isBlank()) selectedAuthHeaders.add(value.trim());
+        }
+        selectedCookieNames = selectedIdentifiers(cookieBoxes);
+        refilterAuthenticatedCandidates();
+    }
+
+    private Set<String> selectedIdentifiers(List<JCheckBox> boxes) {
+        Set<String> selected = new LinkedHashSet<>();
+        for (JCheckBox box : boxes) {
+            if (box.isSelected()) selected.add(String.valueOf(box.getClientProperty("identifier")));
+        }
+        return selected;
     }
 
     private int parsePositiveInt(JTextField field, int fallback) {

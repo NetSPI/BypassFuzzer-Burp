@@ -22,6 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -31,8 +32,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
+import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.requestWithHeaders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -45,6 +48,27 @@ class CoverageSweepPanelTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void authenticatedModePassivelyFiltersBySelectedIdentifiersAndSafeMethods() throws Exception {
+        HttpRequest get = requestWithHeaders("/account", "", "GET",
+            Map.of("Cookie", "theme=dark; JSESSIONID=secret"), "");
+        HttpRequest post = requestWithHeaders("/update", "", "POST",
+            Map.of("Authorization", "Bearer secret"), "");
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(history(get, 200), history(post, 200))));
+        JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
+
+        mode.setSelectedIndex(1);
+        button(panel, "loadButton").doClick();
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/account", table.getValueAt(0, 3));
+        assertFalse(button(panel, "importButton").isEnabled());
+
+        checkbox(panel, "includeUnsafeMethodsCheckBox").doClick();
+        assertEquals(2, table.getRowCount());
+    }
 
     @Test
     void previewTableUpdatesAfterLoadingProxyHistory() throws Exception {
@@ -264,8 +288,12 @@ class CoverageSweepPanelTest {
     }
 
     private ProxyHttpRequestResponse history(String path, int status) {
-        ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
         HttpRequest request = request(path, "", "GET", null, "");
+        return history(request, status);
+    }
+
+    private ProxyHttpRequestResponse history(HttpRequest request, int status) {
+        ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
         HttpResponse response = response(status, "text/plain", "blocked");
         when(item.request()).thenReturn(request);
         when(item.finalRequest()).thenReturn(request);
