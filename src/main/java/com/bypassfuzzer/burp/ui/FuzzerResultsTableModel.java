@@ -29,7 +29,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
         ),
         COVERAGE_SWEEP(
             new String[]{"#", "Target", "Family", "Signal", "Payload", "Status", "Length", "Content-Type"},
-            new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Integer.class, Integer.class, String.class}
+            new Class<?>[]{Integer.class, String.class, String.class, String.class, String.class, Object.class, Integer.class, String.class}
         );
 
         private final String[] columnNames;
@@ -107,13 +107,24 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 6 -> truncatePayload(result.getContentType(), 40);
                 default -> "";
             };
-            case URL_VALIDATION, COVERAGE_SWEEP -> switch (columnIndex) {
+            case URL_VALIDATION -> switch (columnIndex) {
                 case 0 -> resultIds.getOrDefault(result, 0);
                 case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 28);
                 case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);
                 case 3 -> truncatePayload(emptyToDash(result.getPayloadEncoding()), 18);
                 case 4 -> truncatePayload(result.getPayload(), 64);
                 case 5 -> result.getStatusCode();
+                case 6 -> result.getContentLength();
+                case 7 -> truncatePayload(result.getContentType(), 40);
+                default -> "";
+            };
+            case COVERAGE_SWEEP -> switch (columnIndex) {
+                case 0 -> resultIds.getOrDefault(result, 0);
+                case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 28);
+                case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);
+                case 3 -> truncatePayload(emptyToDash(result.getPayloadEncoding()), 18);
+                case 4 -> truncatePayload(result.getPayload(), 64);
+                case 5 -> result.getResponse() == null ? "No response" : result.getStatusCode();
                 case 6 -> result.getContentLength();
                 case 7 -> truncatePayload(result.getContentType(), 40);
                 default -> "";

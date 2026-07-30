@@ -40,10 +40,15 @@ Targeted request tabs contain:
 
 Sweep loads candidates from Burp Proxy history or an imported target list.
 
-Sweep has two Proxy-history workflows:
+Sweep has three source modes:
 
 - `Blocked responses` loads the configured blocked/error status codes and compares probes with a live control request.
 - `Authenticated traffic` passively loads in-scope `2xx` history, identifies requests using user-selected auth header or cookie names, strips authentication, and sends only mutated probes.
+- `Import targets` shows the import control and loads a `.txt` file containing one absolute URL per line.
+
+The Proxy-history load control is shown only for the two history modes. `Import Targets` is shown only in import mode. Response-status filters are shown only in `Blocked responses`.
+Proxy-history discovery runs in the background so large authenticated history sets do not block Burp's interface.
+When automatic HTTP negotiation returns no response, Sweep retries safe `GET` and `HEAD` probes over HTTP/1. Remaining transport failures stay visible as `No response` rows and are written to the extension error log with the affected method and URL.
 
 By default it selects:
 
@@ -64,7 +69,7 @@ https://victim.com/admin/users
 https://victim.com/admin/info
 ```
 
-Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests.
+Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests. `View` opens the selected request and response side by side in a resizable window. The response side remains empty for imported URLs until the Control request runs because a URL list contains no stored response.
 Imported targets are unavailable in authenticated-traffic mode because they have no stored authenticated request or response.
 
 ## Authenticated Traffic
@@ -73,6 +78,8 @@ Authenticated-traffic discovery does not send requests. It inspects Proxy histor
 
 A `2xx` history request is included when it contains at least one selected identifier. `GET` and `HEAD` are included by default. State-changing methods require the explicit `Include state-changing methods` option.
 
+Images, JavaScript, CSS, and WOFF/WOFF2 responses are excluded by default using their response `Content-Type` or request-path extension. Clear `Exclude static assets` before loading authenticated history when those resources should be included.
+
 Cookie selections are identifiers only. Before attacks are generated, Sweep removes:
 
 - the entire `Cookie` header
@@ -80,7 +87,7 @@ Cookie selections are identifiers only. Before attacks are generated, Sweep remo
 - `Proxy-Authorization`
 - additional auth headers selected by the tester
 
-Sweep does not replay the authenticated request and does not send an unmodified anonymous control. It applies the existing bounded probe inventory to the stripped request and displays every response without labeling it a bypass. The results viewer includes an `Original Response` tab containing the stored authenticated response for manual comparison.
+Sweep does not replay the authenticated request and does not send an unmodified anonymous control. It applies the existing bounded probe inventory to the stripped request and displays every response without labeling it a bypass. `View` shows the selected candidate's stored authenticated exchange for manual comparison. Imported targets use their generated request and live Control response there. The scan-results viewer contains only the mutated `Request` and `Response`.
 
 ## Deduplication
 
@@ -101,7 +108,9 @@ When multiple history items match the same dedupe key, Sweep keeps the most rece
 Sweep runs one candidate sequentially, but can run multiple candidates concurrently.
 
 - `Concurrency` controls how many endpoints can be swept at the same time; the default is `1`.
-- `Throttle codes` defaults to `429,503`; repeated matching responses trigger auto-throttling.
+- `Delay (ms)` spaces request starts globally across all concurrent workers.
+- `Throttle codes` defaults to `429,503`; a matching response immediately pushes the shared request gate forward.
+- Adaptive throttling honors `Retry-After`, increases on recurring throttle responses, and gradually recovers after clean-response quiet windows.
 
 ## Probe Budget
 

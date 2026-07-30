@@ -1,6 +1,8 @@
 package com.bypassfuzzer.burp.http;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpMode;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 
@@ -22,19 +24,52 @@ public class MontoyaRequestSender implements RequestSender {
 
     private final MontoyaApi api;
     private final ExecutorService timeoutExecutor;
+    private final boolean retrySafeRequestsOverHttp1;
 
     public MontoyaRequestSender(MontoyaApi api) {
-        this(api, TIMEOUT_EXECUTOR);
+        this(api, TIMEOUT_EXECUTOR, false);
+    }
+
+    public MontoyaRequestSender(MontoyaApi api, boolean retrySafeRequestsOverHttp1) {
+        this(api, TIMEOUT_EXECUTOR, retrySafeRequestsOverHttp1);
     }
 
     MontoyaRequestSender(MontoyaApi api, ExecutorService timeoutExecutor) {
+        this(api, timeoutExecutor, false);
+    }
+
+    MontoyaRequestSender(MontoyaApi api, ExecutorService timeoutExecutor, boolean retrySafeRequestsOverHttp1) {
         this.api = api;
         this.timeoutExecutor = timeoutExecutor;
+        this.retrySafeRequestsOverHttp1 = retrySafeRequestsOverHttp1;
     }
 
     @Override
     public HttpResponse send(HttpRequest request) {
-        return api.http().sendRequest(request).response();
+        try {
+            HttpResponse response = responseFrom(api.http().sendRequest(request));
+            if (response != null) {
+                return response;
+            }
+
+            if (retrySafeRequestsOverHttp1 && isSafeMethod(request)) {
+                response = responseFrom(api.http().sendRequest(request, HttpMode.HTTP_1));
+                if (response != null) {
+                    safeLog("Sweep request returned no response in automatic mode; HTTP/1 retry succeeded: "
+                        + requestLabel(request));
+                    return response;
+                }
+            }
+
+            safeLogError("Sweep request returned no response"
+                + (retrySafeRequestsOverHttp1 && isSafeMethod(request) ? " after an HTTP/1 retry" : "")
+                + ": " + requestLabel(request));
+            return null;
+        } catch (Exception e) {
+            safeLogError("Sweep request failed: " + requestLabel(request) + " - "
+                + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            return null;
+        }
     }
 
     @Override
@@ -54,6 +89,42 @@ public class MontoyaRequestSender implements RequestSender {
             return null;
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private HttpResponse responseFrom(HttpRequestResponse exchange) {
+        return exchange == null ? null : exchange.response();
+    }
+
+    private boolean isSafeMethod(HttpRequest request) {
+        if (request == null || request.method() == null) {
+            return false;
+        }
+        return "GET".equalsIgnoreCase(request.method()) || "HEAD".equalsIgnoreCase(request.method());
+    }
+
+    private String requestLabel(HttpRequest request) {
+        if (request == null) {
+            return "<null request>";
+        }
+        try {
+            return request.method() + " " + request.url();
+        } catch (Exception e) {
+            return String.valueOf(request);
+        }
+    }
+
+    private void safeLog(String message) {
+        try {
+            api.logging().logToOutput(message);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void safeLogError(String message) {
+        try {
+            api.logging().logToError(message);
+        } catch (Exception ignored) {
         }
     }
 }

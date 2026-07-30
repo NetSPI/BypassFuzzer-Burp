@@ -14,6 +14,7 @@ public class AttackResult {
     private final String payloadEncoding;
     private final HttpRequest request;
     private final HttpResponse response;
+    private final HttpRequest originalRequest;
     private final HttpResponse originalResponse;
     private final int statusCode;
     private final int contentLength;
@@ -32,6 +33,13 @@ public class AttackResult {
     public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
                         String payloadEncoding, HttpRequest request, HttpResponse response,
                         HttpResponse originalResponse) {
+        this(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response,
+            null, originalResponse);
+    }
+
+    public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
+                        String payloadEncoding, HttpRequest request, HttpResponse response,
+                        HttpRequest originalRequest, HttpResponse originalResponse) {
         this.attackType = attackType;
         this.payload = payload;
         this.targetLabel = targetLabel == null ? "" : targetLabel;
@@ -39,6 +47,7 @@ public class AttackResult {
         this.payloadEncoding = payloadEncoding == null ? "" : payloadEncoding;
         this.request = request;
         this.response = response;
+        this.originalRequest = originalRequest;
         this.originalResponse = originalResponse;
         this.statusCode = response != null ? response.statusCode() : 0;
         this.contentLength = response != null ? response.body().length() : 0;
@@ -80,6 +89,10 @@ public class AttackResult {
 
     public HttpResponse getResponse() {
         return response;
+    }
+
+    public HttpRequest getOriginalRequest() {
+        return originalRequest;
     }
 
     public HttpResponse getOriginalResponse() {

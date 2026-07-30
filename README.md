@@ -32,6 +32,7 @@ BypassFuzzer has four main testing areas:
   - Available immediately when the extension loads
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
   - Can identify authenticated `2xx` history by selected auth headers/cookies and attack credential-stripped request copies
+  - Excludes images, JavaScript, CSS, and WOFF responses from authenticated-traffic discovery by default, with a checkbox to include them
   - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
   - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 120 probes per endpoint
@@ -113,15 +114,20 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 
 **Workflow**
 
-1. Select which Proxy history responses to load:
+1. Select a Sweep mode:
+   - `Blocked responses` to load Proxy history by status
+   - `Authenticated traffic` to load credential-bearing `2xx` Proxy history
+   - `Import targets` to load a `.txt` URL list
+2. In `Blocked responses`, select which Proxy history responses to load:
    - `401` and `403` are selected by default
    - `3xx` and `4xx` can be included when you intentionally want broader coverage
-2. Click **Load from Proxy History**, or click **Import Targets** and choose a `.txt` file with one absolute URL per line
-3. Review the deduped candidate table
-4. Uncheck candidates you do not want to probe
-5. Adjust concurrency and throttle status codes if needed
-6. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
-7. Click **Start Sweep**
+3. Use the load/import button shown for the selected mode
+4. Review the deduped candidate table
+   - Use **View** to open the selected request and response side by side
+5. Uncheck candidates you do not want to probe
+6. Adjust concurrency and throttle status codes if needed
+7. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
+8. Click **Start Sweep**
 
 **What Sweep sends**
 
@@ -149,6 +155,7 @@ Sweep results show all responses. The `Signal` column is reserved for concrete i
 - `Length +347`
 
 Probe responses with `4xx` status codes are still shown, but they are not marked with a signal.
+If Burp receives no response, Sweep retries safe `GET`/`HEAD` probes over HTTP/1 and labels any remaining transport failure as `No response` in the results table and extension error log.
 
 ### Bypass Tab
 

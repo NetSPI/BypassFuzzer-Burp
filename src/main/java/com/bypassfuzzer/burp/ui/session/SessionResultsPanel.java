@@ -73,6 +73,7 @@ public class SessionResultsPanel extends JPanel {
     private final JTable resultsTable;
     private final HttpRequestEditor requestViewer;
     private final HttpResponseEditor responseViewer;
+    private final HttpRequestEditor originalRequestViewer;
     private final HttpResponseEditor originalResponseViewer;
     private JPopupMenu tablePopupMenu;
     private AttackResult displayedResult;
@@ -99,6 +100,8 @@ public class SessionResultsPanel extends JPanel {
         this.resultsTable = new JTable(tableModel);
         this.requestViewer = api.userInterface().createHttpRequestEditor();
         this.responseViewer = api.userInterface().createHttpResponseEditor();
+        this.originalRequestViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
+            ? api.userInterface().createHttpRequestEditor() : null;
         this.originalResponseViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
             ? api.userInterface().createHttpResponseEditor() : null;
         initializeUi();
@@ -133,7 +136,12 @@ public class SessionResultsPanel extends JPanel {
         displayedResult = null;
         requestViewer.setRequest(null);
         responseViewer.setResponse(null);
-        if (originalResponseViewer != null) originalResponseViewer.setResponse(null);
+        if (originalRequestViewer != null) {
+            originalRequestViewer.setRequest(null);
+        }
+        if (originalResponseViewer != null) {
+            originalResponseViewer.setResponse(null);
+        }
     }
 
     public int shownResultsCount() {
@@ -168,7 +176,8 @@ public class SessionResultsPanel extends JPanel {
         JTabbedPane viewerTabs = new JTabbedPane();
         viewerTabs.addTab("Request", requestViewer.uiComponent());
         viewerTabs.addTab("Response", responseViewer.uiComponent());
-        if (originalResponseViewer != null) {
+        if (originalRequestViewer != null && originalResponseViewer != null) {
+            viewerTabs.addTab("Original Request", originalRequestViewer.uiComponent());
             viewerTabs.addTab("Original Response", originalResponseViewer.uiComponent());
         }
 
@@ -337,8 +346,11 @@ public class SessionResultsPanel extends JPanel {
     private void initializeRowSorter() {
         TableRowSorter<FuzzerResultsTableModel> sorter = new TableRowSorter<>(tableModel);
         sorter.setComparator(0, Comparator.comparingInt(o -> (Integer) o));
-        if (tableLayout == TableLayout.URL_VALIDATION || tableLayout == TableLayout.COVERAGE_SWEEP) {
+        if (tableLayout == TableLayout.URL_VALIDATION) {
             sorter.setComparator(5, Comparator.comparingInt(o -> (Integer) o));
+            sorter.setComparator(6, Comparator.comparingInt(o -> (Integer) o));
+        } else if (tableLayout == TableLayout.COVERAGE_SWEEP) {
+            sorter.setComparator(5, Comparator.comparingInt(this::statusSortValue));
             sorter.setComparator(6, Comparator.comparingInt(o -> (Integer) o));
         } else if (tableLayout == TableLayout.IDOR) {
             sorter.setComparator(4, Comparator.comparingInt(o -> (Integer) o));
@@ -362,14 +374,24 @@ public class SessionResultsPanel extends JPanel {
         }
         displayedResult = result;
 
-        if (result.getRequest() != null) {
-            requestViewer.setRequest(result.getRequest());
-        }
-        if (result.getResponse() != null) {
-            responseViewer.setResponse(result.getResponse());
+        requestViewer.setRequest(result.getRequest());
+        responseViewer.setResponse(result.getResponse());
+        if (originalRequestViewer != null) {
+            originalRequestViewer.setRequest(result.getOriginalRequest());
         }
         if (originalResponseViewer != null) {
             originalResponseViewer.setResponse(result.getOriginalResponse());
+        }
+    }
+
+    private int statusSortValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return -1;
         }
     }
 

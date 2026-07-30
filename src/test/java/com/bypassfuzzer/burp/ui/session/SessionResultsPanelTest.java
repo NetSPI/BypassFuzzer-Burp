@@ -1,6 +1,8 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
 import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
@@ -8,15 +10,18 @@ import com.bypassfuzzer.burp.core.filter.ResultHighlighter;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.RowSorter;
 import java.awt.Component;
+import java.awt.Container;
 import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SessionResultsPanelTest {
@@ -58,6 +63,43 @@ class SessionResultsPanelTest {
 
         assertEquals("Signal", table.getColumnName(3));
         assertEquals("403 -> 200", table.getValueAt(0, 3));
+        assertEquals("No response", table.getValueAt(0, 5));
+        JTabbedPane viewerTabs = findTabbedPane(panel);
+        assertEquals(4, viewerTabs.getTabCount());
+        assertEquals("Request", viewerTabs.getTitleAt(0));
+        assertEquals("Response", viewerTabs.getTitleAt(1));
+        assertEquals("Original Request", viewerTabs.getTitleAt(2));
+        assertEquals("Original Response", viewerTabs.getTitleAt(3));
+    }
+
+    @Test
+    void coverageSweepSelectionShowsOriginalRequestAndResponse() throws Exception {
+        SessionResultsPanel panel = new SessionResultsPanel(
+            api(),
+            new ResultHighlighter(),
+            () -> { },
+            SessionResultsPanel.ViewerLayout.BELOW_TABLE,
+            SessionResultsPanel.TableLayout.COVERAGE_SWEEP
+        );
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequest originalRequest = mock(HttpRequest.class);
+        HttpResponse originalResponse = mock(HttpResponse.class);
+        panel.addResult(new AttackResult(
+            "Coverage Sweep",
+            "payload",
+            "target",
+            "family",
+            "",
+            request,
+            null,
+            originalRequest,
+            originalResponse
+        ), true);
+
+        resultsTable(panel).setRowSelectionInterval(0, 0);
+
+        verify(field(panel, "originalRequestViewer", HttpRequestEditor.class)).setRequest(originalRequest);
+        verify(field(panel, "originalResponseViewer", HttpResponseEditor.class)).setResponse(originalResponse);
     }
 
 
@@ -122,19 +164,42 @@ class SessionResultsPanelTest {
     private MontoyaApi api() {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequestEditor requestEditor = mock(HttpRequestEditor.class);
+        HttpRequestEditor originalRequestEditor = mock(HttpRequestEditor.class);
         HttpResponseEditor responseEditor = mock(HttpResponseEditor.class);
+        HttpResponseEditor originalResponseEditor = mock(HttpResponseEditor.class);
 
-        when(api.userInterface().createHttpRequestEditor()).thenReturn(requestEditor);
-        when(api.userInterface().createHttpResponseEditor()).thenReturn(responseEditor);
+        when(api.userInterface().createHttpRequestEditor()).thenReturn(requestEditor, originalRequestEditor);
+        when(api.userInterface().createHttpResponseEditor()).thenReturn(responseEditor, originalResponseEditor);
         when(requestEditor.uiComponent()).thenReturn(new JPanel());
+        when(originalRequestEditor.uiComponent()).thenReturn(new JPanel());
         when(responseEditor.uiComponent()).thenReturn(new JPanel());
+        when(originalResponseEditor.uiComponent()).thenReturn(new JPanel());
 
         return api;
     }
 
     private JTable resultsTable(SessionResultsPanel panel) throws Exception {
-        Field field = SessionResultsPanel.class.getDeclaredField("resultsTable");
+        return field(panel, "resultsTable", JTable.class);
+    }
+
+    private <T> T field(SessionResultsPanel panel, String name, Class<T> type) throws Exception {
+        Field field = SessionResultsPanel.class.getDeclaredField(name);
         field.setAccessible(true);
-        return (JTable) field.get(panel);
+        return type.cast(field.get(panel));
+    }
+
+    private JTabbedPane findTabbedPane(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTabbedPane tabbedPane) {
+                return tabbedPane;
+            }
+            if (component instanceof Container child) {
+                JTabbedPane nested = findTabbedPane(child);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 }

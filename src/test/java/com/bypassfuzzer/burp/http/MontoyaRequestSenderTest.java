@@ -1,6 +1,8 @@
 package com.bypassfuzzer.burp.http;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpMode;
+import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import org.junit.jupiter.api.Test;
@@ -11,10 +13,32 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class MontoyaRequestSenderTest {
+
+    @Test
+    void safeSweepRequestRetriesOverHttp1WhenAutomaticModeHasNoResponse() {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequestResponse automaticExchange = mock(HttpRequestResponse.class);
+        HttpRequestResponse http1Exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        when(request.method()).thenReturn("GET");
+        when(request.url()).thenReturn("https://example.com/admin");
+        when(api.http().sendRequest(request)).thenReturn(automaticExchange);
+        when(automaticExchange.response()).thenReturn(null);
+        when(api.http().sendRequest(request, HttpMode.HTTP_1)).thenReturn(http1Exchange);
+        when(http1Exchange.response()).thenReturn(response);
+
+        HttpResponse sent = new MontoyaRequestSender(api, true).send(request);
+
+        assertSame(response, sent);
+        verify(api.http()).sendRequest(request, HttpMode.HTTP_1);
+    }
 
     @Test
     void timedSendReturnsNullWithoutShuttingDownInjectedExecutor() throws Exception {

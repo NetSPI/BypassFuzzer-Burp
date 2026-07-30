@@ -24,6 +24,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import java.lang.reflect.Field;
@@ -33,6 +34,9 @@ import java.nio.file.Path;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.requestWithHeaders;
@@ -59,15 +63,122 @@ class CoverageSweepPanelTest {
         JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
 
         mode.setSelectedIndex(1);
+        assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+        assertFalse(checkbox(panel, "status401CheckBox").isVisible());
+        assertFalse(checkbox(panel, "status403CheckBox").isVisible());
+        assertFalse(checkbox(panel, "status3xxCheckBox").isVisible());
+        assertFalse(checkbox(panel, "status4xxCheckBox").isVisible());
         button(panel, "loadButton").doClick();
 
         JTable table = field(panel, "candidateTable", JTable.class);
         assertEquals(1, table.getRowCount());
         assertEquals("/account", table.getValueAt(0, 3));
         assertFalse(button(panel, "importButton").isEnabled());
+        assertFalse(button(panel, "importButton").isVisible());
+        assertTrue(button(panel, "loadButton").isVisible());
 
         checkbox(panel, "includeUnsafeMethodsCheckBox").doClick();
         assertEquals(2, table.getRowCount());
+
+        mode.setSelectedIndex(0);
+        assertTrue(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+        assertTrue(checkbox(panel, "status401CheckBox").isVisible());
+        assertTrue(checkbox(panel, "status403CheckBox").isVisible());
+        assertTrue(checkbox(panel, "status3xxCheckBox").isVisible());
+        assertTrue(checkbox(panel, "status4xxCheckBox").isVisible());
+    }
+
+    @Test
+    void authenticatedHistoryCollectionRunsOffTheSwingEventThread() throws Exception {
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        AtomicBoolean collectedOnEventThread = new AtomicBoolean(true);
+        CountDownLatch collectionStarted = new CountDownLatch(1);
+        when(engine.collectPreview(any(CoverageSweepOptions.class))).thenAnswer(invocation -> {
+            collectedOnEventThread.set(SwingUtilities.isEventDispatchThread());
+            collectionStarted.countDown();
+            return new CoverageSweepPreview(0, 0, List.of());
+        });
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+
+        SwingUtilities.invokeAndWait(() -> {
+            fieldUnchecked(panel, "modeComboBox", JComboBox.class).setSelectedIndex(1);
+            fieldUnchecked(panel, "loadButton", JButton.class).doClick();
+        });
+
+        assertTrue(collectionStarted.await(2, TimeUnit.SECONDS));
+        assertFalse(collectedOnEventThread.get());
+        for (int i = 0; i < 50
+            && field(panel, "candidateLoadWorker", javax.swing.SwingWorker.class) != null; i++) {
+            Thread.sleep(20);
+            SwingUtilities.invokeAndWait(() -> { });
+        }
+        panel.cleanup();
+    }
+
+    @Test
+    void modeSelectorShowsOnlyTheRelevantSourceControls() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
+        JButton load = button(panel, "loadButton");
+        JButton importTargets = button(panel, "importButton");
+
+        assertEquals(3, mode.getItemCount());
+        assertTrue(load.isVisible());
+        assertFalse(importTargets.isVisible());
+        assertTrue(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+
+        mode.setSelectedIndex(1);
+
+        assertTrue(load.isVisible());
+        assertFalse(importTargets.isVisible());
+        assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+
+        mode.setSelectedIndex(2);
+
+        assertFalse(load.isVisible());
+        assertTrue(importTargets.isVisible());
+        assertTrue(importTargets.isEnabled());
+        assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+        assertFalse(checkbox(panel, "status401CheckBox").isVisible());
+        assertFalse(checkbox(panel, "status403CheckBox").isVisible());
+        assertFalse(checkbox(panel, "status3xxCheckBox").isVisible());
+        assertFalse(checkbox(panel, "status4xxCheckBox").isVisible());
+    }
+
+    @Test
+    void authenticatedModeExcludesStaticAssetsByDefaultAndCheckboxIncludesThem() throws Exception {
+        HttpRequest account = requestWithHeaders("/account", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest script = requestWithHeaders("/static/app.js?v=1", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest image = requestWithHeaders("/avatar", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest stylesheet = requestWithHeaders("/static/site.css", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest font = requestWithHeaders("/static/inter.woff", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(
+            history(account, 200, "application/json"),
+            history(script, 200, "text/plain"),
+            history(image, 200, "image/webp"),
+            history(stylesheet, 200, "text/plain"),
+            history(font, 200, "application/octet-stream")
+        )));
+
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(1);
+        JCheckBox excludeStatic = checkbox(panel, "excludeStaticAssetsCheckBox");
+        assertTrue(excludeStatic.isSelected());
+
+        button(panel, "loadButton").doClick();
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/account", table.getValueAt(0, 3));
+
+        excludeStatic.doClick();
+        button(panel, "loadButton").doClick();
+
+        assertEquals(5, table.getRowCount());
     }
 
     @Test
@@ -125,6 +236,7 @@ class CoverageSweepPanelTest {
 
         assertEquals(2, table.getRowCount());
         assertTrue(button(panel, "startButton").isEnabled());
+        assertTrue(button(panel, "viewCandidateButton").isEnabled());
         assertTrue(button(panel, "previewProbesButton").isEnabled());
         assertEquals("GET", table.getValueAt(0, 1));
         assertEquals("Imported", table.getValueAt(0, 4));
@@ -132,6 +244,7 @@ class CoverageSweepPanelTest {
             "/admin/info".equals(table.getValueAt(0, 3))
                 || "/admin/users".equals(table.getValueAt(0, 3))
         );
+        assertEquals(0, field(panel, "resultsWorkspace", SessionResultsWorkspace.class).allResultsCount());
     }
 
     @Test
@@ -151,10 +264,12 @@ class CoverageSweepPanelTest {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(history("/blocked", 403))));
 
         assertFalse(button(panel, "previewProbesButton").isEnabled());
+        assertFalse(button(panel, "viewCandidateButton").isEnabled());
 
         button(panel, "loadButton").doClick();
 
         assertTrue(button(panel, "previewProbesButton").isEnabled());
+        assertTrue(button(panel, "viewCandidateButton").isEnabled());
     }
 
     @Test
@@ -199,16 +314,27 @@ class CoverageSweepPanelTest {
 
     @Test
     void startAndStopButtonsReflectRunningState() throws Exception {
-        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(history("/blocked", 403)), 250));
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(
+            history("/blocked", 403),
+            history("/another-blocked", 403)
+        ), 250));
         button(panel, "loadButton").doClick();
 
         button(panel, "startButton").doClick();
 
         assertFalse(button(panel, "loadButton").isEnabled());
         assertFalse(button(panel, "startButton").isEnabled());
+        assertTrue(button(panel, "viewCandidateButton").isEnabled());
+        assertFalse(button(panel, "previewProbesButton").isEnabled());
         assertTrue(button(panel, "stopButton").isEnabled());
         assertFalse(field(panel, "concurrencyField", JTextField.class).isEnabled());
         assertFalse(field(panel, "throttleStatusCodesField", JTextField.class).isEnabled());
+        JTable candidateTable = field(panel, "candidateTable", JTable.class);
+        assertTrue(candidateTable.isEnabled());
+        assertFalse(candidateTable.isCellEditable(0, 0));
+        candidateTable.setRowSelectionInterval(1, 1);
+        assertEquals(1, candidateTable.getSelectedRow());
+        assertTrue(button(panel, "viewCandidateButton").isEnabled());
 
         button(panel, "stopButton").doClick();
     }
@@ -293,8 +419,12 @@ class CoverageSweepPanelTest {
     }
 
     private ProxyHttpRequestResponse history(HttpRequest request, int status) {
+        return history(request, status, "text/plain");
+    }
+
+    private ProxyHttpRequestResponse history(HttpRequest request, int status, String contentType) {
         ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
-        HttpResponse response = response(status, "text/plain", "blocked");
+        HttpResponse response = response(status, contentType, "blocked");
         when(item.request()).thenReturn(request);
         when(item.finalRequest()).thenReturn(request);
         when(item.response()).thenReturn(response);
@@ -356,5 +486,13 @@ class CoverageSweepPanelTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         return type.cast(field.get(target));
+    }
+
+    private <T> T fieldUnchecked(Object target, String fieldName, Class<T> type) {
+        try {
+            return field(target, fieldName, type);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 }

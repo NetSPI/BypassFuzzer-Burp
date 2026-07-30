@@ -12,7 +12,8 @@ public record CoverageSweepOptions(
     int requestDelayMs,
     Set<Integer> throttleStatusCodes,
     CoverageSweepMode mode,
-    CoverageSweepAuthSelection authSelection
+    CoverageSweepAuthSelection authSelection,
+    boolean excludeStaticAssets
 ) {
 
     public CoverageSweepOptions {
@@ -25,7 +26,7 @@ public record CoverageSweepOptions(
                                 Set<Integer> throttleStatusCodes) {
         this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
             requestsPerSecond, 0, throttleStatusCodes, CoverageSweepMode.BLOCKED_RESPONSES,
-            CoverageSweepAuthSelection.defaults());
+            CoverageSweepAuthSelection.defaults(), true);
     }
 
     public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
@@ -33,7 +34,15 @@ public record CoverageSweepOptions(
                                 int requestDelayMs, Set<Integer> throttleStatusCodes) {
         this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
             requestsPerSecond, requestDelayMs, throttleStatusCodes, CoverageSweepMode.BLOCKED_RESPONSES,
-            CoverageSweepAuthSelection.defaults());
+            CoverageSweepAuthSelection.defaults(), true);
+    }
+
+    public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
+                                int maxProbesPerCandidate, int concurrency, int requestsPerSecond,
+                                int requestDelayMs, Set<Integer> throttleStatusCodes,
+                                CoverageSweepMode mode, CoverageSweepAuthSelection authSelection) {
+        this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
+            requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection, true);
     }
 
     public static CoverageSweepOptions defaults() {
@@ -47,13 +56,14 @@ public record CoverageSweepOptions(
             0,
             Set.of(429, 503),
             CoverageSweepMode.BLOCKED_RESPONSES,
-            CoverageSweepAuthSelection.defaults()
+            CoverageSweepAuthSelection.defaults(),
+            true
         );
     }
 
     public CoverageSweepOptions withAuthenticatedTraffic(CoverageSweepAuthSelection selection) {
         return new CoverageSweepOptions(Set.of(), inScopeOnly, maxCandidates, maxProbesPerCandidate,
             concurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes,
-            CoverageSweepMode.AUTHENTICATED_TRAFFIC, selection);
+            CoverageSweepMode.AUTHENTICATED_TRAFFIC, selection, excludeStaticAssets);
     }
 }

@@ -28,8 +28,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public class CoverageSweepEngine {
+
+    private static final Pattern IMAGE_PATH_PATTERN = Pattern.compile(
+        ".*\\.(?:apng|avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$");
+    private static final Pattern JAVASCRIPT_PATH_PATTERN = Pattern.compile(
+        ".*\\.(?:cjs|js|mjs|js\\.map)$");
+    private static final Pattern STYLESHEET_OR_FONT_PATH_PATTERN = Pattern.compile(
+        ".*\\.(?:css|woff2?)$");
 
     private final MontoyaApi api;
     private final RequestSender requestSender;
@@ -43,7 +51,7 @@ public class CoverageSweepEngine {
     private RateLimiter rateLimiter;
 
     public CoverageSweepEngine(MontoyaApi api) {
-        this(api, new MontoyaRequestSender(api), new CoverageSweepProbeGenerator());
+        this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
     }
 
     CoverageSweepEngine(MontoyaApi api, RequestSender requestSender, CoverageSweepProbeGenerator probeGenerator) {
@@ -239,8 +247,12 @@ public class CoverageSweepEngine {
                 rateLimiter.reportResponse(response);
             }
             if (resultCallback != null) {
-                String signal = options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC || "Control".equals(probe.family())
-                    ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                String signal = response == null
+                    ? "No response"
+                    : options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC || "Control".equals(probe.family())
+                        ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                HttpResponse originalResponse = candidate.originalResponse() != null
+                    ? candidate.originalResponse() : controlResponse;
                 resultCallback.accept(new AttackResult(
                     options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC ? "Authenticated Coverage Sweep" : "Coverage Sweep",
                     probe.label(),
@@ -249,7 +261,8 @@ public class CoverageSweepEngine {
                     signal,
                     probe.request(),
                     response,
-                    candidate.originalResponse()
+                    candidate.request(),
+                    originalResponse
                 ));
             }
         }
@@ -264,6 +277,10 @@ public class CoverageSweepEngine {
             if (status < 200 || status >= 300) {
                 return false;
             }
+            HttpRequest request = item.finalRequest() != null ? item.finalRequest() : item.request();
+            if (options.excludeStaticAssets() && isStaticAsset(request, item.response())) {
+                return false;
+            }
         } else if (!options.statuses().contains((int) item.response().statusCode())) {
             return false;
         }
@@ -276,6 +293,32 @@ public class CoverageSweepEngine {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isStaticAsset(HttpRequest request, HttpResponse response) {
+        String responseContentType = safe(contentType(response))
+            .toLowerCase(Locale.ROOT)
+            .split(";", 2)[0]
+            .trim();
+        if (responseContentType.startsWith("image/")
+            || responseContentType.equals("text/css")
+            || responseContentType.equals("text/javascript")
+            || responseContentType.equals("application/javascript")
+            || responseContentType.equals("application/x-javascript")
+            || responseContentType.equals("text/ecmascript")
+            || responseContentType.equals("application/ecmascript")
+            || responseContentType.equals("font/woff")
+            || responseContentType.equals("font/woff2")
+            || responseContentType.equals("application/font-woff")
+            || responseContentType.equals("application/x-font-woff")) {
+            return true;
+        }
+
+        String path = request == null ? "" : RequestPathUtils.pathWithoutQuery(safe(request.path()))
+            .toLowerCase(Locale.ROOT);
+        return IMAGE_PATH_PATTERN.matcher(path).matches()
+            || JAVASCRIPT_PATH_PATTERN.matcher(path).matches()
+            || STYLESHEET_OR_FONT_PATH_PATTERN.matcher(path).matches();
     }
 
     public boolean matchesAuthSelection(CoverageSweepCandidate candidate, CoverageSweepAuthSelection selection) {

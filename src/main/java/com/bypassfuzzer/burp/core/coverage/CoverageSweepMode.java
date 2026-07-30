@@ -2,5 +2,6 @@ package com.bypassfuzzer.burp.core.coverage;
 
 public enum CoverageSweepMode {
     BLOCKED_RESPONSES,
-    AUTHENTICATED_TRAFFIC
+    AUTHENTICATED_TRAFFIC,
+    IMPORTED_TARGETS
 }

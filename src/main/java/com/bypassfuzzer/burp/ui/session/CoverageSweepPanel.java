@@ -1,6 +1,10 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
+import burp.api.montoya.ui.editor.HttpRequestEditor;
+import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepCandidate;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepAuthSelection;
@@ -23,6 +27,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
+import javax.swing.SwingWorker;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -35,9 +40,13 @@ import java.awt.Font;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 
 public class CoverageSweepPanel extends JPanel {
 
@@ -51,10 +60,12 @@ public class CoverageSweepPanel extends JPanel {
     private JButton stopButton;
     private JButton clearButton;
     private JButton previewProbesButton;
+    private JButton viewCandidateButton;
     private JButton exportButton;
     private JButton authIdentifiersButton;
     private JComboBox<String> modeComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
+    private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -64,6 +75,7 @@ public class CoverageSweepPanel extends JPanel {
     private JTextField requestDelayField;
     private JLabel statusLabel;
     private JLabel estimateLabel;
+    private JLabel pullResponsesLabel;
     private JTable candidateTable;
     private SessionResultsWorkspace resultsWorkspace;
     private volatile boolean stopRequested = false;
@@ -72,6 +84,8 @@ public class CoverageSweepPanel extends JPanel {
     private Set<String> discoveredCookieNames = Set.of();
     private Set<String> selectedAuthHeaders = new LinkedHashSet<>(Set.of("Authorization"));
     private Set<String> selectedCookieNames = new LinkedHashSet<>();
+    private final Map<HttpRequest, HttpResponse> importedControlResponses = new IdentityHashMap<>();
+    private volatile SwingWorker<CoverageSweepPreview, Void> candidateLoadWorker;
     private boolean authDefaultsInitialized;
 
     public CoverageSweepPanel(MontoyaApi api) {
@@ -86,6 +100,11 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     public void cleanup() {
+        SwingWorker<CoverageSweepPreview, Void> worker = candidateLoadWorker;
+        candidateLoadWorker = null;
+        if (worker != null) {
+            worker.cancel(true);
+        }
         engine.cleanup();
     }
 
@@ -101,7 +120,11 @@ public class CoverageSweepPanel extends JPanel {
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-        modeComboBox = new JComboBox<>(new String[]{"Blocked responses", "Authenticated traffic"});
+        modeComboBox = new JComboBox<>(new String[]{
+            "Blocked responses",
+            "Authenticated traffic",
+            "Import targets"
+        });
         modeComboBox.addActionListener(e -> handleModeChange());
 
         status401CheckBox = new JCheckBox("401", true);
@@ -120,7 +143,8 @@ public class CoverageSweepPanel extends JPanel {
 
         statusRow.add(new JLabel("Mode:"));
         statusRow.add(modeComboBox);
-        statusRow.add(new JLabel("Pull responses:"));
+        pullResponsesLabel = new JLabel("Pull responses:");
+        statusRow.add(pullResponsesLabel);
         statusRow.add(status401CheckBox);
         statusRow.add(status403CheckBox);
         statusRow.add(status3xxCheckBox);
@@ -128,6 +152,9 @@ public class CoverageSweepPanel extends JPanel {
 
         includeUnsafeMethodsCheckBox = new JCheckBox("Include state-changing methods", false);
         includeUnsafeMethodsCheckBox.addActionListener(e -> refilterAuthenticatedCandidates());
+        excludeStaticAssetsCheckBox = new JCheckBox("Exclude static assets", true);
+        excludeStaticAssetsCheckBox.setToolTipText(
+            "Skip image, JavaScript, CSS, and WOFF responses when loading authenticated Proxy history.");
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
@@ -138,6 +165,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
         executionRow.add(includeUnsafeMethodsCheckBox);
+        executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(authIdentifiersButton);
 
         loadButton = new JButton("Load from Proxy History");
@@ -153,6 +181,9 @@ public class CoverageSweepPanel extends JPanel {
         previewProbesButton = new JButton("Preview Probes");
         previewProbesButton.setEnabled(false);
         previewProbesButton.addActionListener(e -> openProbePreview());
+        viewCandidateButton = new JButton("View");
+        viewCandidateButton.setEnabled(false);
+        viewCandidateButton.addActionListener(e -> openCandidateView());
         clearButton = new JButton("Clear Results");
         clearButton.addActionListener(e -> clearResults());
         exportButton = new JButton("Export TSV");
@@ -161,6 +192,7 @@ public class CoverageSweepPanel extends JPanel {
 
         statusRow.add(loadButton);
         statusRow.add(importButton);
+        statusRow.add(viewCandidateButton);
         statusRow.add(previewProbesButton);
         statusRow.add(startButton);
         statusRow.add(stopButton);
@@ -201,6 +233,7 @@ public class CoverageSweepPanel extends JPanel {
             }
         });
         JScrollPane previewScrollPane = new JScrollPane(candidateTable);
+        previewScrollPane.setBorder(BorderFactory.createTitledBorder("Candidates"));
 
         resultsWorkspace = new SessionResultsWorkspace(
             api,
@@ -231,43 +264,93 @@ public class CoverageSweepPanel extends JPanel {
         }
 
         setControlsForLoading();
-        try {
-            CoverageSweepPreview preview = engine.collectPreview(currentOptions);
-            cachedHistoryCandidates = preview.candidates();
-            discoveredAuthHeaders = preview.discoveredHeaderNames();
-            discoveredCookieNames = preview.discoveredCookieNames();
-            if (currentOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-                if (!authDefaultsInitialized) {
-                    selectObviousIdentifiers();
-                    authDefaultsInitialized = true;
+        if (!SwingUtilities.isEventDispatchThread()) {
+            loadCandidatesSynchronously(currentOptions);
+            return;
+        }
+
+        candidateLoadWorker = new SwingWorker<>() {
+            @Override
+            protected CoverageSweepPreview doInBackground() {
+                return engine.collectPreview(currentOptions);
+            }
+
+            @Override
+            protected void done() {
+                if (candidateLoadWorker != this) {
+                    return;
                 }
-                refilterAuthenticatedCandidates();
-            } else {
-                candidateTableModel.setCandidates(preview.candidates());
+                try {
+                    applyLoadedCandidates(get(), currentOptions);
+                } catch (CancellationException e) {
+                    statusLabel.setText("Proxy history loading cancelled.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    handleCandidateLoadFailure(e);
+                } catch (ExecutionException e) {
+                    handleCandidateLoadFailure(e.getCause() == null ? e : e.getCause());
+                } finally {
+                    candidateLoadWorker = null;
+                    finishCandidateLoading();
+                }
             }
-            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
-            updatePreviewButton();
-            statusLabel.setText("Found " + preview.blockedHistoryCount()
-                + " matching history items; " + preview.dedupedEndpointCount()
-                + " deduped endpoints; showing " + preview.candidates().size() + ".");
-            if (currentOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-                updateAuthenticatedStatus(preview.blockedHistoryCount(), preview.dedupedEndpointCount());
-            }
-            updateEstimate();
+        };
+        candidateLoadWorker.execute();
+    }
+
+    private void loadCandidatesSynchronously(CoverageSweepOptions options) {
+        try {
+            applyLoadedCandidates(engine.collectPreview(options), options);
         } catch (Exception e) {
-            statusLabel.setText("Unable to load Proxy history: " + e.getMessage());
-            startButton.setEnabled(false);
-            previewProbesButton.setEnabled(false);
+            handleCandidateLoadFailure(e);
         } finally {
-            loadButton.setEnabled(true);
-            importButton.setEnabled(true);
-            setStatusControlsEnabled(true);
+            finishCandidateLoading();
         }
     }
 
+    private void applyLoadedCandidates(CoverageSweepPreview preview, CoverageSweepOptions options) {
+        cachedHistoryCandidates = preview.candidates();
+        discoveredAuthHeaders = preview.discoveredHeaderNames();
+        discoveredCookieNames = preview.discoveredCookieNames();
+        if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            if (!authDefaultsInitialized) {
+                selectObviousIdentifiers();
+                authDefaultsInitialized = true;
+            }
+            refilterAuthenticatedCandidates();
+        } else {
+            setCandidateRows(preview.candidates());
+        }
+        startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
+        updatePreviewButton();
+        statusLabel.setText("Found " + preview.blockedHistoryCount()
+            + " matching history items; " + preview.dedupedEndpointCount()
+            + " deduped endpoints; showing " + preview.candidates().size() + ".");
+        if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            updateAuthenticatedStatus(preview.blockedHistoryCount(), preview.dedupedEndpointCount());
+        }
+        updateEstimate();
+    }
+
+    private void handleCandidateLoadFailure(Throwable error) {
+        String message = error == null || error.getMessage() == null
+            ? "unknown error" : error.getMessage();
+        statusLabel.setText("Unable to load Proxy history: " + message);
+        startButton.setEnabled(false);
+        setCandidateActionButtonsEnabled(false);
+    }
+
+    private void finishCandidateLoading() {
+        loadButton.setEnabled(true);
+        importButton.setEnabled(true);
+        setStatusControlsEnabled(true);
+        candidateTableModel.setSelectionEditingEnabled(true);
+        updatePreviewButton();
+    }
+
     private void importTargetsWithChooser() {
-        if (currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-            statusLabel.setText("Authenticated traffic mode uses Proxy history and cannot import bare URLs.");
+        if (currentMode() != CoverageSweepMode.IMPORTED_TARGETS) {
+            statusLabel.setText("Select Import targets mode to load a URL list.");
             return;
         }
         JFileChooser chooser = new JFileChooser();
@@ -285,7 +368,7 @@ public class CoverageSweepPanel extends JPanel {
         try {
             List<String> urls = Files.readAllLines(path);
             CoverageSweepPreview preview = engine.collectPreviewFromUrls(urls, currentOptions());
-            candidateTableModel.setCandidates(preview.candidates());
+            setCandidateRows(preview.candidates());
             startButton.setEnabled(!preview.candidates().isEmpty());
             updatePreviewButton();
             statusLabel.setText("Imported " + preview.blockedHistoryCount()
@@ -294,15 +377,13 @@ public class CoverageSweepPanel extends JPanel {
             updateEstimate();
             return true;
         } catch (Exception e) {
-            candidateTableModel.setCandidates(List.of());
+            setCandidateRows(List.of());
             statusLabel.setText("Unable to import targets: " + e.getMessage());
             startButton.setEnabled(false);
-            previewProbesButton.setEnabled(false);
+            setCandidateActionButtonsEnabled(false);
             return false;
         } finally {
-            loadButton.setEnabled(true);
-            importButton.setEnabled(true);
-            setStatusControlsEnabled(true);
+            finishCandidateLoading();
         }
     }
 
@@ -317,10 +398,12 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setEnabled(false);
         importButton.setEnabled(false);
         setStatusControlsEnabled(false);
+        candidateTableModel.setSelectionEditingEnabled(false);
         previewProbesButton.setEnabled(false);
+        viewCandidateButton.setEnabled(previewCandidate() != null);
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
-        candidateTable.setEnabled(false);
+        candidateTable.setEnabled(true);
         statusLabel.setText("Coverage sweep in progress...");
 
         if (!engine.start(selected, currentOptions(), this::addResult, this::handleCompletion)) {
@@ -343,6 +426,9 @@ public class CoverageSweepPanel extends JPanel {
 
     private void addResult(AttackResult result) {
         SwingUtilities.invokeLater(() -> {
+            if (result.getOriginalRequest() != null && result.getOriginalResponse() != null) {
+                importedControlResponses.put(result.getOriginalRequest(), result.getOriginalResponse());
+            }
             resultsWorkspace.addResult(result);
             updateExportButton();
             statusLabel.setText("Coverage sweep running: " + resultsWorkspace.allResultsCount() + " requests sent.");
@@ -360,7 +446,8 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setEnabled(false);
         importButton.setEnabled(false);
         setStatusControlsEnabled(false);
-        previewProbesButton.setEnabled(false);
+        setCandidateActionButtonsEnabled(false);
+        candidateTableModel.setSelectionEditingEnabled(false);
         startButton.setEnabled(false);
         stopButton.setEnabled(false);
         statusLabel.setText("Loading Proxy history...");
@@ -374,6 +461,7 @@ public class CoverageSweepPanel extends JPanel {
         startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
         stopButton.setEnabled(false);
         candidateTable.setEnabled(true);
+        candidateTableModel.setSelectionEditingEnabled(true);
         updateEstimate();
         updatePreviewButton();
     }
@@ -396,7 +484,8 @@ public class CoverageSweepPanel extends JPanel {
             parseNonNegativeInt(requestDelayField, defaults.requestDelayMs()),
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
             currentMode(),
-            currentAuthSelection()
+            currentAuthSelection(),
+            excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected()
         );
     }
 
@@ -436,8 +525,14 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private CoverageSweepMode currentMode() {
-        return modeComboBox != null && modeComboBox.getSelectedIndex() == 1
-            ? CoverageSweepMode.AUTHENTICATED_TRAFFIC : CoverageSweepMode.BLOCKED_RESPONSES;
+        if (modeComboBox == null) {
+            return CoverageSweepMode.BLOCKED_RESPONSES;
+        }
+        return switch (modeComboBox.getSelectedIndex()) {
+            case 1 -> CoverageSweepMode.AUTHENTICATED_TRAFFIC;
+            case 2 -> CoverageSweepMode.IMPORTED_TARGETS;
+            default -> CoverageSweepMode.BLOCKED_RESPONSES;
+        };
     }
 
     private CoverageSweepAuthSelection currentAuthSelection() {
@@ -447,12 +542,17 @@ public class CoverageSweepPanel extends JPanel {
 
     private void handleModeChange() {
         cachedHistoryCandidates = List.of();
-        candidateTableModel.setCandidates(List.of());
+        setCandidateRows(List.of());
         startButton.setEnabled(false);
         updateModeControls();
-        statusLabel.setText(currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
-            ? "Load in-scope 2xx Proxy history and choose identifiers used to recognize authenticated requests."
-            : "Load in-scope Proxy history responses to preview sweep candidates.");
+        statusLabel.setText(switch (currentMode()) {
+            case AUTHENTICATED_TRAFFIC ->
+                "Load in-scope 2xx Proxy history and choose identifiers used to recognize authenticated requests.";
+            case IMPORTED_TARGETS ->
+                "Import a text file containing one absolute HTTP or HTTPS URL per line.";
+            case BLOCKED_RESPONSES ->
+                "Load in-scope Proxy history responses to preview sweep candidates.";
+        });
         updateEstimate();
     }
 
@@ -460,14 +560,27 @@ public class CoverageSweepPanel extends JPanel {
         if (modeComboBox == null) return;
         boolean idle = !engine.isRunning() && modeComboBox.isEnabled();
         boolean authenticated = currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC;
-        status401CheckBox.setEnabled(idle && !authenticated);
-        status403CheckBox.setEnabled(idle && !authenticated);
-        status3xxCheckBox.setEnabled(idle && !authenticated);
-        status4xxCheckBox.setEnabled(idle && !authenticated);
-        importButton.setEnabled(idle && !authenticated);
+        boolean imported = currentMode() == CoverageSweepMode.IMPORTED_TARGETS;
+        boolean blocked = currentMode() == CoverageSweepMode.BLOCKED_RESPONSES;
+        pullResponsesLabel.setVisible(blocked);
+        status401CheckBox.setVisible(blocked);
+        status403CheckBox.setVisible(blocked);
+        status3xxCheckBox.setVisible(blocked);
+        status4xxCheckBox.setVisible(blocked);
+        status401CheckBox.setEnabled(idle && blocked);
+        status403CheckBox.setEnabled(idle && blocked);
+        status3xxCheckBox.setEnabled(idle && blocked);
+        status4xxCheckBox.setEnabled(idle && blocked);
+        loadButton.setVisible(!imported);
+        loadButton.setEnabled(idle && !imported);
+        importButton.setVisible(imported);
+        importButton.setEnabled(idle && imported);
         includeUnsafeMethodsCheckBox.setEnabled(idle && authenticated);
+        excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
         loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
+        revalidate();
+        repaint();
     }
 
     private void selectObviousIdentifiers() {
@@ -496,11 +609,21 @@ public class CoverageSweepPanel extends JPanel {
             .filter(candidate -> engine.matchesAuthSelection(candidate, selection))
             .limit(Math.max(1, CoverageSweepOptions.defaults().maxCandidates()))
             .toList();
-        candidateTableModel.setCandidates(filtered);
+        setCandidateRows(filtered);
         startButton.setEnabled(!filtered.isEmpty() && !engine.isRunning());
         updateAuthenticatedStatus(cachedHistoryCandidates.size(), cachedHistoryCandidates.size());
         updateEstimate();
         updatePreviewButton();
+    }
+
+    private void setCandidateRows(List<CoverageSweepCandidate> candidates) {
+        importedControlResponses.clear();
+        candidateTableModel.setCandidates(candidates);
+        if (candidates == null || candidates.isEmpty()) {
+            candidateTable.clearSelection();
+            return;
+        }
+        candidateTable.setRowSelectionInterval(0, 0);
     }
 
     private void updateAuthenticatedStatus(int historyCount, int dedupedCount) {
@@ -584,9 +707,14 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void updatePreviewButton() {
-        if (previewProbesButton != null) {
-            previewProbesButton.setEnabled(!engine.isRunning() && previewCandidate() != null);
-        }
+        boolean candidateAvailable = previewCandidate() != null;
+        previewProbesButton.setEnabled(candidateAvailable && !engine.isRunning());
+        viewCandidateButton.setEnabled(candidateAvailable && candidateLoadWorker == null);
+    }
+
+    private void setCandidateActionButtonsEnabled(boolean enabled) {
+        if (previewProbesButton != null) previewProbesButton.setEnabled(enabled);
+        if (viewCandidateButton != null) viewCandidateButton.setEnabled(enabled);
     }
 
     private void updateExportButton() {
@@ -649,6 +777,58 @@ public class CoverageSweepPanel extends JPanel {
         }
         List<CoverageSweepCandidate> selectedCandidates = candidateTableModel.selectedCandidates();
         return selectedCandidates.isEmpty() ? null : selectedCandidates.get(0);
+    }
+
+    private void openCandidateView() {
+        CoverageSweepCandidate candidate = previewCandidate();
+        if (candidate == null) {
+            statusLabel.setText("Select a candidate to view its original request and response.");
+            return;
+        }
+
+        HttpRequestEditor requestViewer = api.userInterface().createHttpRequestEditor();
+        HttpResponseEditor responseViewer = api.userInterface().createHttpResponseEditor();
+        requestViewer.setRequest(candidate.request());
+        HttpResponse originalResponse = originalResponseFor(candidate);
+        responseViewer.setResponse(originalResponse);
+
+        JPanel requestPanel = new JPanel(new BorderLayout());
+        requestPanel.setBorder(BorderFactory.createTitledBorder("Request"));
+        requestPanel.add(requestViewer.uiComponent(), BorderLayout.CENTER);
+
+        JPanel responsePanel = new JPanel(new BorderLayout());
+        responsePanel.setBorder(BorderFactory.createTitledBorder("Response"));
+        responsePanel.add(responseViewer.uiComponent(), BorderLayout.CENTER);
+
+        JSplitPane exchangeSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, requestPanel, responsePanel);
+        exchangeSplit.setResizeWeight(0.5);
+
+        JDialog dialog = new JDialog(
+            api.userInterface().swingUtils().suiteFrame(),
+            "Sweep Target - " + candidate.method() + " " + candidate.displayUrl(),
+            false
+        );
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.setLayout(new BorderLayout(0, 8));
+        dialog.add(exchangeSplit, BorderLayout.CENTER);
+        if (originalResponse == null) {
+            JLabel note = new JLabel("No response is available until the imported target's Control request runs.");
+            note.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+            dialog.add(note, BorderLayout.SOUTH);
+        }
+        dialog.setSize(1200, 720);
+        dialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
+        SwingUtilities.invokeLater(() -> exchangeSplit.setDividerLocation(0.5));
+        dialog.setVisible(true);
+    }
+
+    private HttpResponse originalResponseFor(CoverageSweepCandidate candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        return candidate.originalResponse() != null
+            ? candidate.originalResponse()
+            : importedControlResponses.get(candidate.request());
     }
 
     private void openProbePreview() {
@@ -718,6 +898,14 @@ public class CoverageSweepPanel extends JPanel {
     private static final class CandidateTableModel extends AbstractTableModel {
         private static final String[] COLUMNS = {"Run", "Method", "Host", "Path", "Status", "Content-Type"};
         private final List<Row> rows = new ArrayList<>();
+        private boolean selectionEditingEnabled = true;
+
+        void setSelectionEditingEnabled(boolean enabled) {
+            selectionEditingEnabled = enabled;
+            if (!rows.isEmpty()) {
+                fireTableRowsUpdated(0, rows.size() - 1);
+            }
+        }
 
         void setCandidates(List<CoverageSweepCandidate> candidates) {
             rows.clear();
@@ -763,7 +951,7 @@ public class CoverageSweepPanel extends JPanel {
 
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return columnIndex == 0;
+            return selectionEditingEnabled && columnIndex == 0;
         }
 
         @Override

@@ -59,6 +59,52 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void authenticatedDiscoveryExcludesStaticAssetsByDefaultAndCanIncludeThem() {
+        HttpRequest account = requestWithHeaders("/account", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest script = requestWithHeaders("/assets/app.js?v=1", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest image = requestWithHeaders("/avatar", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest stylesheet = requestWithHeaders("/assets/site.css?v=1", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpRequest font = requestWithHeaders("/assets/inter.woff2", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        List<ProxyHttpRequestResponse> history = List.of(
+            history(account, 200, 5, "application/json"),
+            history(script, 200, 4, "text/plain"),
+            history(image, 200, 3, "image/png"),
+            history(stylesheet, 200, 2, "text/plain"),
+            history(font, 200, 1, "application/octet-stream")
+        );
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(history),
+            new StaticSender(response(200, "text/plain", "ok")), new CoverageSweepProbeGenerator());
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults().withAuthenticatedTraffic(
+            CoverageSweepAuthSelection.defaults());
+
+        CoverageSweepPreview filtered = engine.collectPreview(defaults);
+
+        assertEquals(List.of("/account"), filtered.candidates().stream()
+            .map(CoverageSweepCandidate::path).toList());
+
+        CoverageSweepOptions includingStatic = new CoverageSweepOptions(
+            defaults.statuses(),
+            defaults.inScopeOnly(),
+            defaults.maxCandidates(),
+            defaults.maxProbesPerCandidate(),
+            defaults.concurrency(),
+            defaults.requestsPerSecond(),
+            defaults.requestDelayMs(),
+            defaults.throttleStatusCodes(),
+            defaults.mode(),
+            defaults.authSelection(),
+            false
+        );
+
+        assertEquals(5, engine.collectPreview(includingStatic).candidates().size());
+    }
+
+    @Test
     void selectedCookieIdentifiesCandidateButAttacksRemoveEntireCookieAndAuthHeaders() {
         HttpRequest original = requestWithHeaders("/account", "", "GET", Map.of(
             "Cookie", "theme=dark; JSESSIONID=secret",
@@ -108,8 +154,53 @@ class CoverageSweepEngineTest {
 
         assertEquals(2, results.size());
         assertTrue(results.stream().allMatch(result -> result.getPayloadEncoding().isBlank()));
+        assertTrue(results.stream().allMatch(result -> result.getOriginalRequest() == originalRequest));
         assertTrue(results.stream().allMatch(result -> result.getOriginalResponse() == originalResponse));
         assertTrue(results.stream().noneMatch(result -> "Control".equals(result.getPayloadFamily())));
+    }
+
+    @Test
+    void importedExecutionCarriesOriginalRequestAndLiveControlResponse() throws Exception {
+        HttpRequest originalRequest = request("/imported", "", "GET", null, "");
+        HttpResponse controlResponse = response(403, "text/plain", "blocked");
+        CoverageSweepCandidate importedCandidate = new CoverageSweepCandidate(
+            originalRequest,
+            null,
+            "imported-key",
+            originalRequest.url(),
+            originalRequest.method(),
+            "example.com",
+            originalRequest.path(),
+            0,
+            0,
+            "",
+            ZonedDateTime.now()
+        );
+        CoverageSweepEngine engine = new CoverageSweepEngine(
+            api(List.of()),
+            new SequenceSender(List.of(
+                controlResponse,
+                response(200, "application/json", "probe")
+            )),
+            new CoverageSweepProbeGenerator()
+        );
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            CoverageSweepOptions.defaults().statuses(),
+            true,
+            100,
+            2,
+            1,
+            0,
+            CoverageSweepOptions.defaults().throttleStatusCodes()
+        );
+        List<AttackResult> results = new ArrayList<>();
+
+        assertTrue(engine.start(List.of(importedCandidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(2, results.size());
+        assertTrue(results.stream().allMatch(result -> result.getOriginalRequest() == originalRequest));
+        assertTrue(results.stream().allMatch(result -> result.getOriginalResponse() == controlResponse));
     }
 
     @Test
@@ -354,6 +445,33 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void executionLabelsMissingTransportResponsesExplicitly() throws Exception {
+        CoverageSweepEngine engine = new CoverageSweepEngine(
+            api(List.of()),
+            new StaticSender(null),
+            new CoverageSweepProbeGenerator()
+        );
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            CoverageSweepOptions.defaults().statuses(),
+            true,
+            100,
+            1,
+            1,
+            0,
+            CoverageSweepOptions.defaults().throttleStatusCodes()
+        );
+
+        assertTrue(engine.start(List.of(candidate(request("/something", "", "GET", null, ""), 403)),
+            options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(1, results.size());
+        assertEquals("No response", results.get(0).getPayloadEncoding());
+        assertEquals(0, results.get(0).getStatusCode());
+    }
+
+    @Test
     void executesCandidatesConcurrentlyWhenConfigured() throws Exception {
         ConcurrentTrackingSender sender = new ConcurrentTrackingSender(response(403, "text/plain", "blocked"), 120);
         CoverageSweepEngine engine = new CoverageSweepEngine(
@@ -417,6 +535,17 @@ class CoverageSweepEngineTest {
 
     private ProxyHttpRequestResponse history(HttpRequest request, int status, int minutes) {
         return history(mock(ProxyHttpRequestResponse.class), request, status, minutes);
+    }
+
+    private ProxyHttpRequestResponse history(HttpRequest request, int status, int minutes, String contentType) {
+        ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
+        HttpResponse response = response(status, contentType, "body");
+        when(item.request()).thenReturn(request);
+        when(item.finalRequest()).thenReturn(request);
+        when(item.response()).thenReturn(response);
+        when(item.hasResponse()).thenReturn(true);
+        when(item.time()).thenReturn(ZonedDateTime.now().plusMinutes(minutes));
+        return item;
     }
 
     private ProxyHttpRequestResponse history(ProxyHttpRequestResponse item, HttpRequest request, int status, int minutes) {
