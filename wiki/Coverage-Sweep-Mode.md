@@ -87,7 +87,11 @@ Cookie selections are identifiers only. Before attacks are generated, Sweep remo
 - `Proxy-Authorization`
 - additional auth headers selected by the tester
 
-Sweep does not replay the authenticated request and does not send an unmodified anonymous control. It applies the existing bounded probe inventory to the stripped request and displays every response without labeling it a bypass. `View` shows the selected candidate's stored authenticated exchange for manual comparison. Imported targets use their generated request and live Control response there. The scan-results viewer contains only the mutated `Request` and `Response`.
+When `Verify unauthenticated access` is enabled, Sweep first replays the original request with authentication removed. A successful compatible `2xx` response is shown as `LIKELY PUBLIC: authenticated X -> unauthenticated Y`. This is a review signal, not confirmation: stale sessions, public endpoints, incomplete auth-identifier selection, and generic `200` responses can all produce false positives. The anonymous control response is retained in the result viewer alongside the original authenticated exchange.
+
+If the anonymous control is blocked and a mutation succeeds, Sweep labels that result `LIKELY UNAUTHENTICATED BYPASS: X -> Y`. This is distinct from `LIKELY PUBLIC`: it means the endpoint was not directly reachable without credentials, but a crafted request changed the anonymous response.
+
+The `Likely Public only` results toggle shows only direct unauthenticated-access candidates while retaining the complete result set for returning to the normal view or exporting. Verification is enabled by default for authenticated traffic. State-changing methods still require `Include state-changing methods`.
 
 ## Deduplication
 

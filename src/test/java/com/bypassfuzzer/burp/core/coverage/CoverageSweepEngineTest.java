@@ -160,6 +160,60 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void authenticatedExecutionVerifiesAnonymousControlAndLabelsLikelyPublic() throws Exception {
+        HttpRequest originalRequest = requestWithHeaders("/account", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        HttpResponse originalResponse = response(200, "application/json", "authenticated");
+        CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest, originalResponse, "key",
+            originalRequest.url(), "GET", "example.com", "/account", 200, 13,
+            "application/json", ZonedDateTime.now());
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+            Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false), true, true);
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new SequenceSender(List.of(
+                response(200, "application/json", "public"),
+                response(403, "application/json", "blocked")
+            )), new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.start(List.of(candidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(2, results.size());
+        assertEquals("Unauthenticated Control", results.get(0).getPayloadFamily());
+        assertEquals("LIKELY PUBLIC: authenticated 200 -> unauthenticated 200",
+            results.get(0).getPayloadEncoding());
+        assertFalse(results.get(0).getRequest().hasHeader("Authorization"));
+        assertEquals("", results.get(1).getPayloadEncoding());
+    }
+
+    @Test
+    void authenticatedMutationUsesAnonymousControlAsBypassBaseline() throws Exception {
+        HttpRequest originalRequest = requestWithHeaders("/account", "", "GET",
+            Map.of("Authorization", "Bearer secret"), "");
+        CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest,
+            response(200, "application/json", "authenticated"), "key", originalRequest.url(), "GET",
+            "example.com", "/account", 200, 13, "application/json", ZonedDateTime.now());
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+            Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false), true, true);
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new SequenceSender(List.of(
+                response(403, "application/json", "blocked"),
+                response(200, "application/json", "secret")
+            )), new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.start(List.of(candidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(2, results.size());
+        assertEquals("", results.get(0).getPayloadEncoding());
+        assertEquals("LIKELY UNAUTHENTICATED BYPASS: 403 -> 200", results.get(1).getPayloadEncoding());
+    }
+
+    @Test
     void importedExecutionCarriesOriginalRequestAndLiveControlResponse() throws Exception {
         HttpRequest originalRequest = request("/imported", "", "GET", null, "");
         HttpResponse controlResponse = response(403, "text/plain", "blocked");

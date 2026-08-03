@@ -146,6 +146,35 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void authenticatedModeOffersAnonymousVerificationAndLikelyPublicFilter() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
+        JCheckBox verify = checkbox(panel, "verifyUnauthenticatedAccessCheckBox");
+        JCheckBox likelyPublic = checkbox(panel, "likelyPublicOnlyCheckBox");
+
+        assertTrue(verify.isSelected());
+        assertFalse(verify.isVisible());
+        assertFalse(likelyPublic.isVisible());
+
+        mode.setSelectedIndex(1);
+        assertTrue(verify.isVisible());
+        assertTrue(likelyPublic.isVisible());
+
+        SessionResultsWorkspace workspace = field(panel, "resultsWorkspace", SessionResultsWorkspace.class);
+        workspace.addResult(new AttackResult("Sweep", "control", "GET /public", "Unauthenticated Control",
+            "LIKELY PUBLIC: authenticated 200 -> unauthenticated 200",
+            request("/public", "", "GET", null, ""), response(200, "application/json", "public")));
+        workspace.addResult(new AttackResult("Sweep", "probe", "GET /private", "Path",
+            "", request("/private", "", "GET", null, ""), response(403, "application/json", "blocked")));
+        assertEquals(2, workspace.allResultsCount());
+
+        likelyPublic.doClick();
+        assertEquals(1, workspace.shownResultsCount());
+        likelyPublic.doClick();
+        assertEquals(2, workspace.shownResultsCount());
+    }
+
+    @Test
     void authenticatedModeExcludesStaticAssetsByDefaultAndCheckboxIncludesThem() throws Exception {
         HttpRequest account = requestWithHeaders("/account", "", "GET",
             Map.of("Authorization", "Bearer secret"), "");

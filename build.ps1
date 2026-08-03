@@ -10,13 +10,22 @@ $jdkRoot = Join-Path $projectRoot '.gradle\jdks'
 $jdkHome = Join-Path $jdkRoot 'temurin-17'
 
 function Get-JavaMajorVersion([string]$java) {
-    $output = (& $java -version 2>&1 | Out-String)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = (& $java -version 2>&1 | Out-String)
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($output -match 'version "([0-9]+)') { return [int]$Matches[1] }
     return 0
 }
 
 function Find-Java {
     $candidates = New-Object System.Collections.Generic.List[string]
+    if (Test-Path -LiteralPath (Join-Path $jdkHome 'bin\java.exe')) {
+        $candidates.Add((Join-Path $jdkHome 'bin\java.exe'))
+    }
     if ($env:JAVA_HOME) { $candidates.Add((Join-Path $env:JAVA_HOME 'bin\java.exe')) }
     $pathJava = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($pathJava) { $candidates.Add($pathJava.Source) }
@@ -47,8 +56,7 @@ function Install-Java {
     New-Item -ItemType Directory -Force -Path $jdkRoot | Out-Null
     Write-Host 'No Java 17+ installation found; downloading Temurin 17 for this project...'
     Invoke-WebRequest -Uri $url -OutFile $archive -TimeoutSec 120
-    $extractRoot = Join-Path $jdkRoot 'download'
-    if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force }
+    $extractRoot = Join-Path $jdkRoot ('download-' + [Guid]::NewGuid().ToString('N'))
     Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
     $foundHome = Get-ChildItem -LiteralPath $extractRoot -Directory | Select-Object -First 1
     if (-not $foundHome) { throw 'The Java download did not contain a JDK directory.' }

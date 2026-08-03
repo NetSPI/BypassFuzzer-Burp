@@ -13,6 +13,7 @@ java_major() {
 
 find_java() {
     candidates=""
+    [ -x "$jdk_home/bin/java" ] && candidates="$candidates:$jdk_home/bin/java"
     [ -n "${JAVA_HOME:-}" ] && candidates="$candidates:$JAVA_HOME/bin/java"
     command -v java >/dev/null 2>&1 && candidates="$candidates:$(command -v java)"
     for home in /usr/lib/jvm/* /Library/Java/JavaVirtualMachines/*/Contents/Home; do
@@ -39,12 +40,11 @@ install_java() {
         *) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
     esac
     archive="${TMPDIR:-/tmp}/bypassfuzzer-temurin-17.tar.gz"
-    extract_root="$jdk_root/download"
+    extract_root="$jdk_root/download-$$"
     mkdir -p "$jdk_root"
     url="https://api.adoptium.net/v3/binary/latest/17/ga/$os/$arch/jdk/hotspot/normal/eclipse"
     echo 'No Java 17+ installation found; downloading Temurin 17 for this project...' >&2
     if command -v curl >/dev/null 2>&1; then curl --fail --location --silent --show-error --max-time 120 "$url" -o "$archive"; else wget -q --timeout=120 "$url" -O "$archive"; fi
-    rm -rf "$extract_root"
     mkdir -p "$extract_root"
     tar -xzf "$archive" -C "$extract_root"
     found_home=$(find "$extract_root" -mindepth 1 -maxdepth 1 -type d | head -n 1)

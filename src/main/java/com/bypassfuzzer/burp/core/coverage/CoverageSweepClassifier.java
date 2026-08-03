@@ -4,6 +4,9 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 
 public final class CoverageSweepClassifier {
 
+    public static final String LIKELY_PUBLIC_PREFIX = "LIKELY PUBLIC";
+    public static final String LIKELY_UNAUTHENTICATED_BYPASS_PREFIX = "LIKELY UNAUTHENTICATED BYPASS";
+
     private CoverageSweepClassifier() {
     }
 
@@ -65,6 +68,41 @@ public final class CoverageSweepClassifier {
         return "";
     }
 
+    public static String unauthenticatedControlSignal(CoverageSweepCandidate candidate,
+                                                       HttpResponse anonymousResponse) {
+        if (candidate == null || anonymousResponse == null || !isSuccess(anonymousResponse.statusCode())) {
+            return "";
+        }
+
+        int authenticatedStatus = candidate.statusCode();
+        if (!isSuccess(authenticatedStatus)) {
+            return "";
+        }
+
+        String authenticatedType = normalizeContentType(candidate.contentType());
+        String anonymousType = normalizeContentType(contentType(anonymousResponse));
+        if (!blank(authenticatedType) && !blank(anonymousType)
+            && !authenticatedType.equalsIgnoreCase(anonymousType)) {
+            return "";
+        }
+
+        return LIKELY_PUBLIC_PREFIX + ": authenticated " + authenticatedStatus
+            + " -> unauthenticated " + anonymousResponse.statusCode();
+    }
+
+    public static String unauthenticatedMutationSignal(HttpResponse anonymousControl,
+                                                        HttpResponse probeResponse) {
+        if (anonymousControl == null || probeResponse == null || !isBlocked(anonymousControl.statusCode())) {
+            return "";
+        }
+        int probeStatus = probeResponse.statusCode();
+        if (isClientError(probeStatus)) {
+            return "";
+        }
+        return LIKELY_UNAUTHENTICATED_BYPASS_PREFIX + ": "
+            + anonymousControl.statusCode() + " -> " + probeStatus;
+    }
+
     private static boolean isBlocked(int status) {
         return status == 401 || status == 403;
     }
@@ -95,5 +133,9 @@ public final class CoverageSweepClassifier {
 
     private static boolean blank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static String normalizeContentType(String value) {
+        return blank(value) ? "" : value.split(";", 2)[0].trim();
     }
 }

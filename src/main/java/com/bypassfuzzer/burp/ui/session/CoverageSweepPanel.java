@@ -8,6 +8,7 @@ import burp.api.montoya.ui.editor.HttpResponseEditor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepCandidate;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepAuthSelection;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepClassifier;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepEngine;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepMode;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
@@ -66,6 +67,8 @@ public class CoverageSweepPanel extends JPanel {
     private JComboBox<String> modeComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox excludeStaticAssetsCheckBox;
+    private JCheckBox verifyUnauthenticatedAccessCheckBox;
+    private JCheckBox likelyPublicOnlyCheckBox;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -155,6 +158,9 @@ public class CoverageSweepPanel extends JPanel {
         excludeStaticAssetsCheckBox = new JCheckBox("Exclude static assets", true);
         excludeStaticAssetsCheckBox.setToolTipText(
             "Skip image, JavaScript, CSS, and WOFF responses when loading authenticated Proxy history.");
+        verifyUnauthenticatedAccessCheckBox = new JCheckBox("Verify unauthenticated access", true);
+        verifyUnauthenticatedAccessCheckBox.setToolTipText(
+            "Replay each authenticated candidate without credentials and mark successful 2xx responses as LIKELY PUBLIC.");
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
@@ -166,6 +172,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(throttleStatusCodesField);
         executionRow.add(includeUnsafeMethodsCheckBox);
         executionRow.add(excludeStaticAssetsCheckBox);
+        executionRow.add(verifyUnauthenticatedAccessCheckBox);
         executionRow.add(authIdentifiersButton);
 
         loadButton = new JButton("Load from Proxy History");
@@ -189,6 +196,9 @@ public class CoverageSweepPanel extends JPanel {
         exportButton = new JButton("Export TSV");
         exportButton.setEnabled(false);
         exportButton.addActionListener(e -> exportResultsWithChooser());
+        likelyPublicOnlyCheckBox = new JCheckBox("Likely Public only", false);
+        likelyPublicOnlyCheckBox.setToolTipText("Show only direct unauthenticated-access candidates; all results remain retained.");
+        likelyPublicOnlyCheckBox.addActionListener(e -> updateLikelyPublicFilter());
 
         statusRow.add(loadButton);
         statusRow.add(importButton);
@@ -198,6 +208,7 @@ public class CoverageSweepPanel extends JPanel {
         statusRow.add(stopButton);
         statusRow.add(clearButton);
         statusRow.add(exportButton);
+        statusRow.add(likelyPublicOnlyCheckBox);
 
         controls.add(statusRow);
         controls.add(executionRow);
@@ -485,7 +496,8 @@ public class CoverageSweepPanel extends JPanel {
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
             currentMode(),
             currentAuthSelection(),
-            excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected()
+            excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
+            verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected()
         );
     }
 
@@ -543,6 +555,10 @@ public class CoverageSweepPanel extends JPanel {
     private void handleModeChange() {
         cachedHistoryCandidates = List.of();
         setCandidateRows(List.of());
+        if (likelyPublicOnlyCheckBox != null) {
+            likelyPublicOnlyCheckBox.setSelected(false);
+        }
+        updateLikelyPublicFilter();
         startButton.setEnabled(false);
         updateModeControls();
         statusLabel.setText(switch (currentMode()) {
@@ -577,7 +593,11 @@ public class CoverageSweepPanel extends JPanel {
         importButton.setEnabled(idle && imported);
         includeUnsafeMethodsCheckBox.setEnabled(idle && authenticated);
         excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
+        verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
+        verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
+        likelyPublicOnlyCheckBox.setVisible(authenticated);
+        likelyPublicOnlyCheckBox.setEnabled(authenticated);
         loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
         revalidate();
         repaint();
@@ -630,6 +650,17 @@ public class CoverageSweepPanel extends JPanel {
         statusLabel.setText("Inspected " + historyCount + " in-scope 2xx history item(s); "
             + dedupedCount + " deduped; " + candidateTableModel.getRowCount()
             + " match the selected auth identifiers.");
+    }
+
+    private void updateLikelyPublicFilter() {
+        if (resultsWorkspace == null) {
+            return;
+        }
+        boolean enabled = likelyPublicOnlyCheckBox != null && likelyPublicOnlyCheckBox.isSelected();
+        resultsWorkspace.setExternalFilter(enabled
+            ? result -> result.getPayloadEncoding() != null
+                && result.getPayloadEncoding().startsWith(CoverageSweepClassifier.LIKELY_PUBLIC_PREFIX)
+            : result -> true);
     }
 
     private void openAuthIdentifiersDialog() {

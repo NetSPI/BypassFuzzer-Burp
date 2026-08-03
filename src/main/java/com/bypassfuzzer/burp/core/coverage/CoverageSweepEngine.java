@@ -231,6 +231,35 @@ public class CoverageSweepEngine {
                                   CoverageSweepOptions options,
                                   Consumer<AttackResult> resultCallback) {
         HttpResponse controlResponse = null;
+        HttpResponse anonymousControlResponse = null;
+        if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
+            && options.verifyUnauthenticatedAccess()) {
+            HttpRequest anonymousRequest = stripAuthentication(candidate.request(), options.authSelection());
+            if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
+                return;
+            }
+            anonymousControlResponse = requestSender.send(anonymousRequest);
+            if (rateLimiter != null && anonymousControlResponse != null) {
+                rateLimiter.reportResponse(anonymousControlResponse);
+            }
+            if (resultCallback != null) {
+                String signal = anonymousControlResponse == null
+                    ? "No response"
+                    : CoverageSweepClassifier.unauthenticatedControlSignal(candidate, anonymousControlResponse);
+                resultCallback.accept(new AttackResult(
+                    "Authenticated Coverage Sweep",
+                    "Original request without authentication",
+                    candidate.method() + " " + candidate.path(),
+                    "Unauthenticated Control",
+                    signal,
+                    anonymousRequest,
+                    anonymousControlResponse,
+                    candidate.request(),
+                    candidate.originalResponse()
+                ));
+            }
+        }
+
         for (CoverageSweepProbe probe : buildProbes(candidate, options)) {
             if (!canContinue()) {
                 return;
@@ -247,10 +276,18 @@ public class CoverageSweepEngine {
                 rateLimiter.reportResponse(response);
             }
             if (resultCallback != null) {
-                String signal = response == null
-                    ? "No response"
-                    : options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC || "Control".equals(probe.family())
-                        ? "" : CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                String signal;
+                if (response == null) {
+                    signal = "No response";
+                } else if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+                    signal = options.verifyUnauthenticatedAccess()
+                        ? CoverageSweepClassifier.unauthenticatedMutationSignal(anonymousControlResponse, response)
+                        : "";
+                } else if ("Control".equals(probe.family())) {
+                    signal = "";
+                } else {
+                    signal = CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                }
                 HttpResponse originalResponse = candidate.originalResponse() != null
                     ? candidate.originalResponse() : controlResponse;
                 resultCallback.accept(new AttackResult(

@@ -32,6 +32,7 @@ BypassFuzzer has four main testing areas:
   - Available immediately when the extension loads
   - Pulls in-scope Proxy history by response status, defaulting to `401` and `403`
   - Can identify authenticated `2xx` history by selected auth headers/cookies and attack credential-stripped request copies
+  - Can verify credential-stripped controls and highlight `LIKELY PUBLIC` candidates for focused review
   - Excludes images, JavaScript, CSS, and WOFF responses from authenticated-traffic discovery by default, with a checkbox to include them
   - Imports `.txt` target lists with one absolute URL per line
   - Deduplicates endpoint shapes before sending probes
