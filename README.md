@@ -71,7 +71,7 @@ BypassFuzzer has four main testing areas:
 
 - Java 17 or higher
 - Burp Suite Professional or Community Edition (2023.10+)
-- Gradle 7.0+ (for building)
+- Internet access on the first build if Java 17+ is not already installed (the build helper downloads a project-local Temurin JDK)
 
 ## Installation
 1. Download latest JAR from the [releases page](https://github.com/intrudir/BypassFuzzer-Burp/releases)
@@ -83,12 +83,14 @@ BypassFuzzer has four main testing areas:
 ### Building from source (optional)
 
 ```bash
-# Build the extension JAR
-./gradlew clean shadowJar
+# Build the extension JAR (macOS/Linux)
+sh build.sh clean shadowJar
 
 # The compiled JAR will be at:
 # build/libs/bypassfuzzer.jar
 ```
+
+On Windows PowerShell, run `.\build.ps1 clean shadowJar`. On systems where the shell does not preserve executable bits, run `sh build.sh clean shadowJar`. These helpers use an existing Java 17+ installation when available. Otherwise they download Temurin 17 into `.gradle/jdks` and reuse it on later builds. You can still invoke `./gradlew` or `gradlew.bat` directly when Java is already configured.
 
 Builds embed the public S3 version manifest URL by default so BypassFuzzer can notify users when a newer release is available. Override it for custom release channels with `-PupdateManifestUrl=...`. To preview the update banner locally without changing S3, build with `-PdevLatestVersion=1.4`.
 

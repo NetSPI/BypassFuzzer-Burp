@@ -127,8 +127,7 @@ if [ -n "$JAVA_HOME" ] ; then
     if [ ! -x "$JAVACMD" ] ; then
         die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
 
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
+Please install Java 17+ and set JAVA_HOME, or run ./build.sh from the project root."
     fi
 else
     JAVACMD=java
@@ -136,8 +135,7 @@ else
     then
         die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
 
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
+Please install Java 17+ and set JAVA_HOME, or run ./build.sh from the project root."
     fi
 fi
 
