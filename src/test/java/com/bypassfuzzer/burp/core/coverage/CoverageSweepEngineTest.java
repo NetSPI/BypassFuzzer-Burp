@@ -231,6 +231,9 @@ class CoverageSweepEngineTest {
             candidate,
             response(403, "application/json", "blocked"),
             response(302, "text/html", "redirect")));
+        assertEquals("", CoverageSweepClassifier.unauthenticatedMutationSignal(
+            response(403, "application/json", "blocked"),
+            response(302, "text/html", "redirect")));
     }
 
     @Test

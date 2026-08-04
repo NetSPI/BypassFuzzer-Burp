@@ -321,9 +321,7 @@ public class SessionResultsPanel extends JPanel {
             resultsTable.getColumnModel().getColumn(0).setMaxWidth(50);
             resultsTable.getColumnModel().getColumn(1).setPreferredWidth(120);
             resultsTable.getColumnModel().getColumn(2).setPreferredWidth(90);
-            resultsTable.getColumnModel().getColumn(2).setMaxWidth(120);
             resultsTable.getColumnModel().getColumn(3).setPreferredWidth(90);
-            resultsTable.getColumnModel().getColumn(3).setMaxWidth(120);
             resultsTable.getColumnModel().getColumn(4).setPreferredWidth(280);
             resultsTable.getColumnModel().getColumn(5).setPreferredWidth(60);
             resultsTable.getColumnModel().getColumn(5).setMaxWidth(80);

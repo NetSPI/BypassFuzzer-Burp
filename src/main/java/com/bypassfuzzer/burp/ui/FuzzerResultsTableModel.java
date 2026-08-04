@@ -121,12 +121,12 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
             case COVERAGE_SWEEP -> switch (columnIndex) {
                 case 0 -> resultIds.getOrDefault(result, 0);
                 case 1 -> emptyToDash(result.getTargetLabel());
-                case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);
-                case 3 -> truncatePayload(emptyToDash(result.getPayloadEncoding()), 18);
-                case 4 -> truncatePayload(result.getPayload(), 64);
+                case 2 -> emptyToDash(result.getPayloadFamily());
+                case 3 -> emptyToDash(result.getPayloadEncoding());
+                case 4 -> result.getPayload();
                 case 5 -> result.getResponse() == null ? "No response" : result.getStatusCode();
                 case 6 -> result.getContentLength();
-                case 7 -> truncatePayload(result.getContentType(), 40);
+                case 7 -> result.getContentType();
                 default -> "";
             };
         };

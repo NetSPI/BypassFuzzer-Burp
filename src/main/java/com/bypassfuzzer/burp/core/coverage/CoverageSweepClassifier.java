@@ -97,7 +97,7 @@ public final class CoverageSweepClassifier {
             return "";
         }
         int probeStatus = probeResponse.statusCode();
-        if (isClientError(probeStatus)) {
+        if (!isSuccess(probeStatus)) {
             return "";
         }
         return LIKELY_UNAUTHENTICATED_BYPASS_PREFIX + ": "

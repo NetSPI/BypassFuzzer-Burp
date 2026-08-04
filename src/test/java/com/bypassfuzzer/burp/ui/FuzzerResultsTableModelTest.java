@@ -85,4 +85,18 @@ class FuzzerResultsTableModelTest {
 
         assertEquals(target, model.getValueAt(0, 1));
     }
+
+    @Test
+    void coverageSweepTextColumnsRetainFullValues() {
+        FuzzerResultsTableModel model = new FuzzerResultsTableModel(FuzzerResultsTableModel.TableLayout.COVERAGE_SWEEP);
+        String family = "Unauthenticated Control With Detailed Context";
+        String signal = "BYPASS?: authenticated 200 -> anonymous 403 -> probe 200";
+        String payload = "Original request without authentication and the complete probe description";
+        model.addResult(new AttackResult("Coverage Sweep", payload, "target", family, signal,
+            null, null), true);
+
+        assertEquals(family, model.getValueAt(0, 2));
+        assertEquals(signal, model.getValueAt(0, 3));
+        assertEquals(payload, model.getValueAt(0, 4));
+    }
 }
