@@ -99,7 +99,7 @@ BYPASS?: authenticated 200 -> anonymous 403 -> probe 200
 
 `401`, `403`, and redirects are treated as strong authentication boundaries. Other `4xx` responses are marked `BYPASS? (weak)` because they may represent routing or application errors rather than authorization.
 
-The `Likely Public only` results toggle shows only direct unauthenticated-access candidates while retaining the complete result set for returning to the normal view or exporting. Verification is enabled by default for authenticated traffic. State-changing methods still require `Include state-changing methods`.
+Verification is enabled by default for authenticated traffic. State-changing methods still require `Include state-changing methods`.
 
 The shared Manual Filter includes `Signal contains` with optional regex support. Use `BYPASS?` to focus on these candidates, `LIKELY PUBLIC` to focus on direct anonymous access, or an exact transition such as `anonymous 403 -> probe 200`.
 

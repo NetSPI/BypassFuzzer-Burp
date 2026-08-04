@@ -13,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 
 /**
  * Shared filter/results workspace used by session tabs.
@@ -27,7 +26,6 @@ public class SessionResultsWorkspace {
     private final SessionResultsPanel resultsPanel;
     private final JSplitPane splitPane;
     private final Consumer<SessionResultsWorkspace> filterAppliedListener;
-    private Predicate<AttackResult> externalFilter = result -> true;
 
     public SessionResultsWorkspace(MontoyaApi api,
                                    Consumer<String> errorLogger,
@@ -49,20 +47,15 @@ public class SessionResultsWorkspace {
 
     public void applyFilters() {
         filterController.setHighlightColorFilter(filterPanel.selectedHighlightColor());
-        resultsPanel.applyFilter(this::shouldShow);
+        resultsPanel.applyFilter(filterController::shouldShow);
         updateFilterStatus();
         filterAppliedListener.accept(this);
     }
 
     public void addResult(AttackResult result) {
         filterController.track(result);
-        resultsPanel.addResult(result, shouldShow(result));
+        resultsPanel.addResult(result, filterController.shouldShow(result));
         updateFilterStatus();
-    }
-
-    public void setExternalFilter(Predicate<AttackResult> filter) {
-        externalFilter = filter == null ? result -> true : filter;
-        applyFilters();
     }
 
     public void clear() {
@@ -112,7 +105,4 @@ public class SessionResultsWorkspace {
         );
     }
 
-    private boolean shouldShow(AttackResult result) {
-        return externalFilter.test(result) && filterController.shouldShow(result);
-    }
 }
