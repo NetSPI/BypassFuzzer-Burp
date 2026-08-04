@@ -210,7 +210,27 @@ class CoverageSweepEngineTest {
 
         assertEquals(2, results.size());
         assertEquals("", results.get(0).getPayloadEncoding());
-        assertEquals("LIKELY UNAUTHENTICATED BYPASS: 403 -> 200", results.get(1).getPayloadEncoding());
+        assertEquals("BYPASS?: authenticated 200 -> anonymous 403 -> probe 200", results.get(1).getPayloadEncoding());
+    }
+
+    @Test
+    void classifiesThreeResponseAuthenticatedBypassWithWeakBoundaryMarker() {
+        CoverageSweepCandidate candidate = candidate(request("/account", "", "GET", null, ""), 200);
+
+        assertEquals("BYPASS?: authenticated 200 -> anonymous 302 -> probe 200",
+            CoverageSweepClassifier.authenticatedBypassSignal(
+                candidate,
+                response(302, "text/html", "login"),
+                response(200, "application/json", "secret")));
+        assertEquals("BYPASS? (weak): authenticated 200 -> anonymous 404 -> probe 200",
+            CoverageSweepClassifier.authenticatedBypassSignal(
+                candidate,
+                response(404, "application/json", "missing"),
+                response(200, "application/json", "secret")));
+        assertEquals("", CoverageSweepClassifier.authenticatedBypassSignal(
+            candidate,
+            response(403, "application/json", "blocked"),
+            response(302, "text/html", "redirect")));
     }
 
     @Test

@@ -87,11 +87,21 @@ Cookie selections are identifiers only. Before attacks are generated, Sweep remo
 - `Proxy-Authorization`
 - additional auth headers selected by the tester
 
-When `Verify unauthenticated access` is enabled, Sweep first replays the original request with authentication removed. A successful compatible `2xx` response is shown as `LIKELY PUBLIC: authenticated X -> unauthenticated Y`. This is a review signal, not confirmation: stale sessions, public endpoints, incomplete auth-identifier selection, and generic `200` responses can all produce false positives. The anonymous control response is retained in the result viewer alongside the original authenticated exchange.
+When `Verify unauthenticated access` is enabled, Sweep first replays the original request with authentication removed. A successful compatible `2xx` response is shown as `LIKELY PUBLIC: authenticated X -> unauthenticated Y`. This is a review signal, not confirmation: stale sessions, public endpoints, incomplete auth-identifier selection, and generic `200` responses can all produce false positives. The anonymous control response is retained in the result viewer alongside the original authenticated exchange. Authenticated Sweep results also provide dedicated `Auth Verification Request` and `Auth Verification Response` tabs for reviewing the exact credential-stripped exchange used for classification.
 
 If the anonymous control is blocked and a mutation succeeds, Sweep labels that result `LIKELY UNAUTHENTICATED BYPASS: X -> Y`. This is distinct from `LIKELY PUBLIC`: it means the endpoint was not directly reachable without credentials, but a crafted request changed the anonymous response.
 
+When the authenticated history response is successful, the anonymous control is a `3xx` or `4xx`, and a credential-stripped mutation returns `2xx`, Sweep emits the stronger three-response signal:
+
+```text
+BYPASS?: authenticated 200 -> anonymous 403 -> probe 200
+```
+
+`401`, `403`, and redirects are treated as strong authentication boundaries. Other `4xx` responses are marked `BYPASS? (weak)` because they may represent routing or application errors rather than authorization.
+
 The `Likely Public only` results toggle shows only direct unauthenticated-access candidates while retaining the complete result set for returning to the normal view or exporting. Verification is enabled by default for authenticated traffic. State-changing methods still require `Include state-changing methods`.
+
+The shared Manual Filter includes `Signal contains` with optional regex support. Use `BYPASS?` to focus on these candidates, `LIKELY PUBLIC` to focus on direct anonymous access, or an exact transition such as `anonymous 403 -> probe 200`.
 
 ## Deduplication
 

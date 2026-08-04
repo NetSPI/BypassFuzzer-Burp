@@ -16,6 +16,8 @@ public class AttackResult {
     private final HttpResponse response;
     private final HttpRequest originalRequest;
     private final HttpResponse originalResponse;
+    private final HttpRequest verificationRequest;
+    private final HttpResponse verificationResponse;
     private final int statusCode;
     private final int contentLength;
     private final String contentType;
@@ -40,6 +42,14 @@ public class AttackResult {
     public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
                         String payloadEncoding, HttpRequest request, HttpResponse response,
                         HttpRequest originalRequest, HttpResponse originalResponse) {
+        this(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response,
+            originalRequest, originalResponse, null, null);
+    }
+
+    public AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
+                        String payloadEncoding, HttpRequest request, HttpResponse response,
+                        HttpRequest originalRequest, HttpResponse originalResponse,
+                        HttpRequest verificationRequest, HttpResponse verificationResponse) {
         this.attackType = attackType;
         this.payload = payload;
         this.targetLabel = targetLabel == null ? "" : targetLabel;
@@ -49,6 +59,8 @@ public class AttackResult {
         this.response = response;
         this.originalRequest = originalRequest;
         this.originalResponse = originalResponse;
+        this.verificationRequest = verificationRequest;
+        this.verificationResponse = verificationResponse;
         this.statusCode = response != null ? response.statusCode() : 0;
         this.contentLength = response != null ? response.body().length() : 0;
         this.contentType = response != null ? extractContentType(response) : "";
@@ -83,6 +95,14 @@ public class AttackResult {
         return payloadEncoding;
     }
 
+    /**
+     * Returns the result signal. Coverage Sweep stores its signal in the
+     * payload-encoding slot for compatibility with the shared results table.
+     */
+    public String getSignal() {
+        return payloadEncoding;
+    }
+
     public HttpRequest getRequest() {
         return request;
     }
@@ -97,6 +117,14 @@ public class AttackResult {
 
     public HttpResponse getOriginalResponse() {
         return originalResponse;
+    }
+
+    public HttpRequest getVerificationRequest() {
+        return verificationRequest;
+    }
+
+    public HttpResponse getVerificationResponse() {
+        return verificationResponse;
     }
 
     public int getStatusCode() {

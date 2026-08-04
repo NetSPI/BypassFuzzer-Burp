@@ -75,6 +75,8 @@ public class SessionResultsPanel extends JPanel {
     private final HttpResponseEditor responseViewer;
     private final HttpRequestEditor originalRequestViewer;
     private final HttpResponseEditor originalResponseViewer;
+    private final HttpRequestEditor verificationRequestViewer;
+    private final HttpResponseEditor verificationResponseViewer;
     private JPopupMenu tablePopupMenu;
     private AttackResult displayedResult;
 
@@ -103,6 +105,10 @@ public class SessionResultsPanel extends JPanel {
         this.originalRequestViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
             ? api.userInterface().createHttpRequestEditor() : null;
         this.originalResponseViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
+            ? api.userInterface().createHttpResponseEditor() : null;
+        this.verificationRequestViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
+            ? api.userInterface().createHttpRequestEditor() : null;
+        this.verificationResponseViewer = this.tableLayout == TableLayout.COVERAGE_SWEEP
             ? api.userInterface().createHttpResponseEditor() : null;
         initializeUi();
     }
@@ -142,6 +148,12 @@ public class SessionResultsPanel extends JPanel {
         if (originalResponseViewer != null) {
             originalResponseViewer.setResponse(null);
         }
+        if (verificationRequestViewer != null) {
+            verificationRequestViewer.setRequest(null);
+        }
+        if (verificationResponseViewer != null) {
+            verificationResponseViewer.setResponse(null);
+        }
     }
 
     public int shownResultsCount() {
@@ -179,6 +191,8 @@ public class SessionResultsPanel extends JPanel {
         if (originalRequestViewer != null && originalResponseViewer != null) {
             viewerTabs.addTab("Original Request", originalRequestViewer.uiComponent());
             viewerTabs.addTab("Original Response", originalResponseViewer.uiComponent());
+            viewerTabs.addTab("Auth Verification Request", verificationRequestViewer.uiComponent());
+            viewerTabs.addTab("Auth Verification Response", verificationResponseViewer.uiComponent());
         }
 
         int splitOrientation = viewerLayout == ViewerLayout.RIGHT_OF_TABLE
@@ -381,6 +395,12 @@ public class SessionResultsPanel extends JPanel {
         }
         if (originalResponseViewer != null) {
             originalResponseViewer.setResponse(result.getOriginalResponse());
+        }
+        if (verificationRequestViewer != null) {
+            verificationRequestViewer.setRequest(result.getVerificationRequest());
+        }
+        if (verificationResponseViewer != null) {
+            verificationResponseViewer.setResponse(result.getVerificationResponse());
         }
     }
 

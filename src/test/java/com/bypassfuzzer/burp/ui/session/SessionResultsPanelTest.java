@@ -65,11 +65,13 @@ class SessionResultsPanelTest {
         assertEquals("403 -> 200", table.getValueAt(0, 3));
         assertEquals("No response", table.getValueAt(0, 5));
         JTabbedPane viewerTabs = findTabbedPane(panel);
-        assertEquals(4, viewerTabs.getTabCount());
+        assertEquals(6, viewerTabs.getTabCount());
         assertEquals("Request", viewerTabs.getTitleAt(0));
         assertEquals("Response", viewerTabs.getTitleAt(1));
         assertEquals("Original Request", viewerTabs.getTitleAt(2));
         assertEquals("Original Response", viewerTabs.getTitleAt(3));
+        assertEquals("Auth Verification Request", viewerTabs.getTitleAt(4));
+        assertEquals("Auth Verification Response", viewerTabs.getTitleAt(5));
     }
 
     @Test
@@ -84,6 +86,8 @@ class SessionResultsPanelTest {
         HttpRequest request = mock(HttpRequest.class);
         HttpRequest originalRequest = mock(HttpRequest.class);
         HttpResponse originalResponse = mock(HttpResponse.class);
+        HttpRequest verificationRequest = mock(HttpRequest.class);
+        HttpResponse verificationResponse = mock(HttpResponse.class);
         panel.addResult(new AttackResult(
             "Coverage Sweep",
             "payload",
@@ -93,13 +97,17 @@ class SessionResultsPanelTest {
             request,
             null,
             originalRequest,
-            originalResponse
+            originalResponse,
+            verificationRequest,
+            verificationResponse
         ), true);
 
         resultsTable(panel).setRowSelectionInterval(0, 0);
 
         verify(field(panel, "originalRequestViewer", HttpRequestEditor.class)).setRequest(originalRequest);
         verify(field(panel, "originalResponseViewer", HttpResponseEditor.class)).setResponse(originalResponse);
+        verify(field(panel, "verificationRequestViewer", HttpRequestEditor.class)).setRequest(verificationRequest);
+        verify(field(panel, "verificationResponseViewer", HttpResponseEditor.class)).setResponse(verificationResponse);
     }
 
 
@@ -165,15 +173,21 @@ class SessionResultsPanelTest {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequestEditor requestEditor = mock(HttpRequestEditor.class);
         HttpRequestEditor originalRequestEditor = mock(HttpRequestEditor.class);
+        HttpRequestEditor verificationRequestEditor = mock(HttpRequestEditor.class);
         HttpResponseEditor responseEditor = mock(HttpResponseEditor.class);
         HttpResponseEditor originalResponseEditor = mock(HttpResponseEditor.class);
+        HttpResponseEditor verificationResponseEditor = mock(HttpResponseEditor.class);
 
-        when(api.userInterface().createHttpRequestEditor()).thenReturn(requestEditor, originalRequestEditor);
-        when(api.userInterface().createHttpResponseEditor()).thenReturn(responseEditor, originalResponseEditor);
+        when(api.userInterface().createHttpRequestEditor()).thenReturn(
+            requestEditor, originalRequestEditor, verificationRequestEditor);
+        when(api.userInterface().createHttpResponseEditor()).thenReturn(
+            responseEditor, originalResponseEditor, verificationResponseEditor);
         when(requestEditor.uiComponent()).thenReturn(new JPanel());
         when(originalRequestEditor.uiComponent()).thenReturn(new JPanel());
+        when(verificationRequestEditor.uiComponent()).thenReturn(new JPanel());
         when(responseEditor.uiComponent()).thenReturn(new JPanel());
         when(originalResponseEditor.uiComponent()).thenReturn(new JPanel());
+        when(verificationResponseEditor.uiComponent()).thenReturn(new JPanel());
 
         return api;
     }

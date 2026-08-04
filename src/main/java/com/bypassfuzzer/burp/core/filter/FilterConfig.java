@@ -21,6 +21,8 @@ public class FilterConfig {
     private Set<Integer> shownContentLengths = new HashSet<>();
     private String contentTypeFilter = null;
     private String payloadContainsFilter = null;
+    private String signalContainsFilter = null;
+    private boolean signalContainsRegex = false;
     private String responseContainsFilter = null;
     private boolean responseContainsRegex = false;
 
@@ -110,6 +112,22 @@ public class FilterConfig {
 
     public void setPayloadContainsFilter(String filter) {
         this.payloadContainsFilter = filter;
+    }
+
+    public String getSignalContainsFilter() {
+        return signalContainsFilter;
+    }
+
+    public void setSignalContainsFilter(String filter) {
+        this.signalContainsFilter = filter;
+    }
+
+    public boolean isSignalContainsRegex() {
+        return signalContainsRegex;
+    }
+
+    public void setSignalContainsRegex(boolean signalContainsRegex) {
+        this.signalContainsRegex = signalContainsRegex;
     }
 
     public String getResponseContainsFilter() {

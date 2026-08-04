@@ -75,4 +75,14 @@ class FuzzerResultsTableModelTest {
         assertEquals("idor.hybrid.cross_source_conflicts", model.getValueAt(0, 2));
         assertEquals("path-authorized query-target", model.getValueAt(0, 3));
     }
+
+    @Test
+    void coverageSweepTargetColumnRetainsFullTargetText() {
+        FuzzerResultsTableModel model = new FuzzerResultsTableModel(FuzzerResultsTableModel.TableLayout.COVERAGE_SWEEP);
+        String target = "GET https://dfyql-ro.sports.yahoo.com/v2/contestsFilteredWeb?lang=en-US&region=US&device=desktop&sport=mlb";
+        model.addResult(new AttackResult("Coverage Sweep", "control", target,
+            "Unauthenticated Control", "LIKELY PUBLIC", null, null), true);
+
+        assertEquals(target, model.getValueAt(0, 1));
+    }
 }

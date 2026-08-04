@@ -40,6 +40,8 @@ public class FilterPanel extends JPanel {
     private JTextField showOnlyContentLengthsField;
     private JTextField contentTypeField;
     private JTextField payloadContainsField;
+    private JTextField signalContainsField;
+    private JCheckBox signalRegexCheckbox;
     private JTextField responseContainsField;
     private JCheckBox responseRegexCheckbox;
     private JComboBox<String> highlightColorFilter;
@@ -127,6 +129,8 @@ public class FilterPanel extends JPanel {
         showOnlyContentLengthsField = new JTextField(15);
         contentTypeField = new JTextField(20);
         payloadContainsField = new JTextField(20);
+        signalContainsField = new JTextField(20);
+        signalRegexCheckbox = new JCheckBox("Regex");
         responseContainsField = new JTextField(20);
         responseRegexCheckbox = new JCheckBox("Regex");
         highlightColorFilter = new JComboBox<>(new String[]{
@@ -140,6 +144,8 @@ public class FilterPanel extends JPanel {
         manualPanel.add(createContainsPanel("Content-Type", "Contains:", contentTypeField, "(e.g. html, json)"));
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createContainsPanel("Payload", "Contains:", payloadContainsField, null));
+        manualPanel.add(Box.createVerticalStrut(5));
+        manualPanel.add(createSignalPanel());
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createResponsePanel());
         manualPanel.add(Box.createVerticalStrut(5));
@@ -231,6 +237,17 @@ public class FilterPanel extends JPanel {
         return responsePanel;
     }
 
+    private JPanel createSignalPanel() {
+        JPanel signalPanel = createTitledPanel("Signal");
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        row.add(new JLabel("Contains:"));
+        row.add(signalContainsField);
+        signalRegexCheckbox.setToolTipText("Treat the signal filter as a regular expression.");
+        row.add(signalRegexCheckbox);
+        signalPanel.add(row);
+        return signalPanel;
+    }
+
     private JPanel createSectionPanel(String title) {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -259,6 +276,8 @@ public class FilterPanel extends JPanel {
         showOnlyContentLengthsField.setEnabled(enabled);
         contentTypeField.setEnabled(enabled);
         payloadContainsField.setEnabled(enabled);
+        signalContainsField.setEnabled(enabled);
+        signalRegexCheckbox.setEnabled(enabled);
         responseContainsField.setEnabled(enabled);
         responseRegexCheckbox.setEnabled(enabled);
         highlightColorFilter.setEnabled(enabled);
@@ -267,8 +286,14 @@ public class FilterPanel extends JPanel {
 
     private void applyManualFilters() {
         String responseFilter = emptyToNull(responseContainsField.getText());
+        String signalFilter = emptyToNull(signalContainsField.getText());
         if (responseRegexCheckbox.isSelected() && responseFilter != null) {
             if (!isValidRegex(responseFilter)) {
+                return;
+            }
+        }
+        if (signalRegexCheckbox.isSelected() && signalFilter != null) {
+            if (!isValidRegex(signalFilter)) {
                 return;
             }
         }
@@ -281,6 +306,8 @@ public class FilterPanel extends JPanel {
         filterConfig.setShownContentLengths(parseIntegerSet(showOnlyContentLengthsField.getText(), "content length"));
         filterConfig.setContentTypeFilter(emptyToNull(contentTypeField.getText()));
         filterConfig.setPayloadContainsFilter(emptyToNull(payloadContainsField.getText()));
+        filterConfig.setSignalContainsFilter(signalFilter);
+        filterConfig.setSignalContainsRegex(signalRegexCheckbox.isSelected());
         filterConfig.setResponseContainsFilter(responseFilter);
         filterConfig.setResponseContainsRegex(responseRegexCheckbox.isSelected());
         filterChangeListener.run();

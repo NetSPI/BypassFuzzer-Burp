@@ -6,6 +6,7 @@ public final class CoverageSweepClassifier {
 
     public static final String LIKELY_PUBLIC_PREFIX = "LIKELY PUBLIC";
     public static final String LIKELY_UNAUTHENTICATED_BYPASS_PREFIX = "LIKELY UNAUTHENTICATED BYPASS";
+    public static final String BYPASS_PREFIX = "BYPASS?";
 
     private CoverageSweepClassifier() {
     }
@@ -103,6 +104,22 @@ public final class CoverageSweepClassifier {
             + anonymousControl.statusCode() + " -> " + probeStatus;
     }
 
+    public static String authenticatedBypassSignal(CoverageSweepCandidate candidate,
+                                                   HttpResponse anonymousControl,
+                                                   HttpResponse probeResponse) {
+        if (candidate == null || anonymousControl == null || probeResponse == null
+            || !isSuccess(candidate.statusCode())
+            || !isAuthBoundary(anonymousControl.statusCode())
+            || !isSuccess(probeResponse.statusCode())) {
+            return "";
+        }
+
+        String confidence = isStrongAuthBoundary(anonymousControl.statusCode()) ? "" : " (weak)";
+        return BYPASS_PREFIX + confidence + ": authenticated " + candidate.statusCode()
+            + " -> anonymous " + anonymousControl.statusCode()
+            + " -> probe " + probeResponse.statusCode();
+    }
+
     private static boolean isBlocked(int status) {
         return status == 401 || status == 403;
     }
@@ -117,6 +134,14 @@ public final class CoverageSweepClassifier {
 
     private static boolean isClientError(int status) {
         return status >= 400 && status < 500;
+    }
+
+    private static boolean isAuthBoundary(int status) {
+        return isRedirect(status) || isClientError(status);
+    }
+
+    private static boolean isStrongAuthBoundary(int status) {
+        return status == 401 || status == 403 || isRedirect(status);
     }
 
     private static int bodyLength(HttpResponse response) {

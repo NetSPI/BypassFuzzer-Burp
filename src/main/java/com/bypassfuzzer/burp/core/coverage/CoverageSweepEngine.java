@@ -232,13 +232,14 @@ public class CoverageSweepEngine {
                                   Consumer<AttackResult> resultCallback) {
         HttpResponse controlResponse = null;
         HttpResponse anonymousControlResponse = null;
+        HttpRequest verificationRequest = null;
         if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
             && options.verifyUnauthenticatedAccess()) {
-            HttpRequest anonymousRequest = stripAuthentication(candidate.request(), options.authSelection());
+            verificationRequest = stripAuthentication(candidate.request(), options.authSelection());
             if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
                 return;
             }
-            anonymousControlResponse = requestSender.send(anonymousRequest);
+            anonymousControlResponse = requestSender.send(verificationRequest);
             if (rateLimiter != null && anonymousControlResponse != null) {
                 rateLimiter.reportResponse(anonymousControlResponse);
             }
@@ -249,13 +250,15 @@ public class CoverageSweepEngine {
                 resultCallback.accept(new AttackResult(
                     "Authenticated Coverage Sweep",
                     "Original request without authentication",
-                    candidate.method() + " " + candidate.path(),
+                    candidate.method() + " " + candidate.displayUrl(),
                     "Unauthenticated Control",
                     signal,
-                    anonymousRequest,
+                    verificationRequest,
                     anonymousControlResponse,
                     candidate.request(),
-                    candidate.originalResponse()
+                    candidate.originalResponse(),
+                    verificationRequest,
+                    anonymousControlResponse
                 ));
             }
         }
@@ -280,9 +283,16 @@ public class CoverageSweepEngine {
                 if (response == null) {
                     signal = "No response";
                 } else if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-                    signal = options.verifyUnauthenticatedAccess()
-                        ? CoverageSweepClassifier.unauthenticatedMutationSignal(anonymousControlResponse, response)
-                        : "";
+                    if (options.verifyUnauthenticatedAccess()) {
+                        signal = CoverageSweepClassifier.authenticatedBypassSignal(
+                            candidate, anonymousControlResponse, response);
+                        if (signal.isBlank()) {
+                            signal = CoverageSweepClassifier.unauthenticatedMutationSignal(
+                                anonymousControlResponse, response);
+                        }
+                    } else {
+                        signal = "";
+                    }
                 } else if ("Control".equals(probe.family())) {
                     signal = "";
                 } else {
@@ -293,13 +303,15 @@ public class CoverageSweepEngine {
                 resultCallback.accept(new AttackResult(
                     options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC ? "Authenticated Coverage Sweep" : "Coverage Sweep",
                     probe.label(),
-                    candidate.method() + " " + candidate.path(),
+                    candidate.method() + " " + candidate.displayUrl(),
                     probe.family(),
                     signal,
                     probe.request(),
                     response,
                     candidate.request(),
-                    originalResponse
+                    originalResponse,
+                    verificationRequest,
+                    anonymousControlResponse
                 ));
             }
         }

@@ -86,6 +86,15 @@ public class ManualFilter implements ResponseFilter {
             }
         }
 
+        String signalFilter = config.getSignalContainsFilter();
+        if (signalFilter != null && !signalFilter.trim().isEmpty()) {
+            String signal = result.getSignal();
+            if (signal == null || signal.isBlank()
+                || !matchesFilter(signal, signalFilter, config.isSignalContainsRegex())) {
+                return false;
+            }
+        }
+
         String responseFilter = config.getResponseContainsFilter();
         if (responseFilter != null && !responseFilter.trim().isEmpty()) {
             String responseText = responseText(result);
@@ -117,13 +126,17 @@ public class ManualFilter implements ResponseFilter {
     }
 
     private boolean matchesResponseFilter(String responseText, String filter, boolean regex) {
+        return matchesFilter(responseText, filter, regex);
+    }
+
+    private boolean matchesFilter(String value, String filter, boolean regex) {
         if (!regex) {
-            return containsIgnoreCase(responseText, filter);
+            return containsIgnoreCase(value, filter);
         }
 
         try {
             return Pattern.compile(filter, Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
-                .matcher(responseText)
+                .matcher(value)
                 .find();
         } catch (PatternSyntaxException e) {
             return false;
