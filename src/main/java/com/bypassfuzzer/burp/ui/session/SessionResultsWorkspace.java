@@ -23,7 +23,7 @@ import java.util.function.Consumer;
 public class SessionResultsWorkspace {
 
     private static final int SIDEBAR_WIDTH = 500;
-    private static final int COLLAPSED_SIDEBAR_WIDTH = 145;
+    private static final int COLLAPSED_SIDEBAR_WIDTH = 58;
 
     private final ResultFilterController filterController = new ResultFilterController();
     private final FilterPanel filterPanel;
@@ -94,19 +94,37 @@ public class SessionResultsWorkspace {
             filterScrollPane.setBorder(null);
         }
 
+        JPanel expandedFilterSidebar = new JPanel(new BorderLayout());
+        JButton hideFiltersButton = new JButton("Hide Filters");
+        hideFiltersButton.setToolTipText("Hide the filter drawer and give the results table more space.");
+        expandedFilterSidebar.add(hideFiltersButton, BorderLayout.NORTH);
+        expandedFilterSidebar.add(filterScrollPane, BorderLayout.CENTER);
+
+        JPanel collapsedFilterSidebar = new JPanel(new BorderLayout());
+        JButton showFiltersButton = new JButton("<html><center>Show<br>Filters</center></html>");
+        showFiltersButton.setToolTipText("Show the filter drawer.");
+        collapsedFilterSidebar.add(showFiltersButton, BorderLayout.CENTER);
+
         JPanel filterSidebar = new JPanel(new BorderLayout());
-        JButton toggleFiltersButton = new JButton("Collapse Filters");
-        toggleFiltersButton.setToolTipText("Collapse the filter sidebar to give the results table more space.");
-        toggleFiltersButton.addActionListener(event -> {
-            filtersCollapsed = !filtersCollapsed;
-            toggleFiltersButton.setText(filtersCollapsed ? "Show Filters" : "Collapse Filters");
-            toggleFiltersButton.setToolTipText(filtersCollapsed
-                ? "Expand the filter sidebar."
-                : "Collapse the filter sidebar to give the results table more space.");
-            splitPane.setDividerLocation(filtersCollapsed ? COLLAPSED_SIDEBAR_WIDTH : SIDEBAR_WIDTH);
+        filterSidebar.add(expandedFilterSidebar, BorderLayout.CENTER);
+        hideFiltersButton.addActionListener(event -> {
+            filtersCollapsed = true;
+            filterSidebar.removeAll();
+            filterSidebar.add(collapsedFilterSidebar, BorderLayout.CENTER);
+            filterSidebar.setPreferredSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH, 0));
+            filterSidebar.revalidate();
+            filterSidebar.repaint();
+            splitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH);
         });
-        filterSidebar.add(toggleFiltersButton, BorderLayout.NORTH);
-        filterSidebar.add(filterScrollPane, BorderLayout.CENTER);
+        showFiltersButton.addActionListener(event -> {
+            filtersCollapsed = false;
+            filterSidebar.removeAll();
+            filterSidebar.add(expandedFilterSidebar, BorderLayout.CENTER);
+            filterSidebar.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
+            filterSidebar.revalidate();
+            filterSidebar.repaint();
+            splitPane.setDividerLocation(SIDEBAR_WIDTH);
+        });
 
         JSplitPane horizontalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, filterSidebar, resultsPanel);
         horizontalSplit.setDividerSize(6);
