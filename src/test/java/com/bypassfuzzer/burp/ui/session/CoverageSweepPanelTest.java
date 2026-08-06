@@ -209,6 +209,25 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void candidateTableColumnsAreSortable() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(
+            history("/z-last", 403),
+            history("/a-first", 403)
+        )));
+        button(panel, "loadButton").doClick();
+        JTable table = field(panel, "candidateTable", JTable.class);
+
+        assertTrue(table.getRowSorter() != null);
+        table.getRowSorter().toggleSortOrder(3);
+        assertEquals("/a-first", table.getValueAt(0, 3));
+        assertEquals("/z-last", table.getValueAt(1, 3));
+
+        table.getRowSorter().toggleSortOrder(3);
+        assertEquals("/z-last", table.getValueAt(0, 3));
+        assertEquals("/a-first", table.getValueAt(1, 3));
+    }
+
+    @Test
     void responseStatusCheckboxesControlLoadedHistory() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(
             history("/redirect", 302),

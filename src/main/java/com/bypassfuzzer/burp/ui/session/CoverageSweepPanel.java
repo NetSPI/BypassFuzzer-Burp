@@ -231,6 +231,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private JSplitPane buildCenterPanel() {
         candidateTable = new JTable(candidateTableModel);
+        candidateTable.setAutoCreateRowSorter(true);
         candidateTableModel.addTableModelListener(e -> {
             updateEstimate();
             updatePreviewButton();
