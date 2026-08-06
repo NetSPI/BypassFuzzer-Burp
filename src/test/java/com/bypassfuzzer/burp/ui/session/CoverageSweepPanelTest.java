@@ -283,6 +283,45 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void importModeCheckboxTogglesStateChangingRequestSelectionWithoutHidingRows() throws Exception {
+        Path spec = tempDir.resolve("openapi.yaml");
+        Files.writeString(spec, "openapi: 3.0.0\npaths: {}\n");
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview preview = new CoverageSweepPreview(3, 3, List.of(
+            candidate("https://api.example.test/users", "/users", "GET"),
+            candidate("https://api.example.test/users", "/users", "POST"),
+            candidate("https://api.example.test/users/1", "/users/1", "DELETE")
+        ));
+        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), any(CoverageSweepOptions.class)))
+            .thenReturn(preview);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+        JCheckBox includeStateChanging = checkbox(panel, "includeUnsafeMethodsCheckBox");
+
+        assertTrue(includeStateChanging.isEnabled());
+        assertFalse(includeStateChanging.isSelected());
+        assertTrue(panel.importTargetsFromFile(spec));
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(3, table.getRowCount());
+        assertMethodSelected(table, "GET", true);
+        assertMethodSelected(table, "POST", false);
+        assertMethodSelected(table, "DELETE", false);
+
+        includeStateChanging.doClick();
+        assertEquals(3, table.getRowCount());
+        assertMethodSelected(table, "GET", true);
+        assertMethodSelected(table, "POST", true);
+        assertMethodSelected(table, "DELETE", true);
+
+        includeStateChanging.doClick();
+        assertEquals(3, table.getRowCount());
+        assertMethodSelected(table, "GET", true);
+        assertMethodSelected(table, "POST", false);
+        assertMethodSelected(table, "DELETE", false);
+    }
+
+    @Test
     void importTargetsButtonDisablesWhileSweepRuns() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(history("/blocked", 403)), 250));
         button(panel, "loadButton").doClick();
@@ -469,14 +508,18 @@ class CoverageSweepPanelTest {
     }
 
     private CoverageSweepCandidate candidate(String displayUrl, String path) {
-        HttpRequest request = request(path, "", "GET", null, "");
+        return candidate(displayUrl, path, "GET");
+    }
+
+    private CoverageSweepCandidate candidate(String displayUrl, String path, String method) {
+        HttpRequest request = request(path, "", method, null, "");
         HttpResponse response = response(0, "", "");
         return new CoverageSweepCandidate(
             request,
             null,
             displayUrl,
             displayUrl,
-            "GET",
+            method,
             "victim.example",
             path,
             0,
@@ -484,6 +527,16 @@ class CoverageSweepPanelTest {
             "",
             ZonedDateTime.now()
         );
+    }
+
+    private void assertMethodSelected(JTable table, String method, boolean expected) {
+        for (int row = 0; row < table.getRowCount(); row++) {
+            if (method.equals(table.getValueAt(row, 1))) {
+                assertEquals(expected, table.getValueAt(row, 0));
+                return;
+            }
+        }
+        throw new AssertionError("No imported row found for method " + method);
     }
 
     private HttpResponse response(int status, String contentType, String body) {

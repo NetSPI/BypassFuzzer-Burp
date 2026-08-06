@@ -158,7 +158,9 @@ public class CoverageSweepPanel extends JPanel {
         statusRow.add(status4xxCheckBox);
 
         includeUnsafeMethodsCheckBox = new JCheckBox("Include state-changing methods", false);
-        includeUnsafeMethodsCheckBox.addActionListener(e -> refilterAuthenticatedCandidates());
+        includeUnsafeMethodsCheckBox.setToolTipText(
+            "Include POST, PUT, PATCH, DELETE, and other state-changing methods in the sweep selection.");
+        includeUnsafeMethodsCheckBox.addActionListener(e -> handleUnsafeMethodsSelectionChange());
         excludeStaticAssetsCheckBox = new JCheckBox("Exclude static assets", true);
         excludeStaticAssetsCheckBox.setToolTipText(
             "Skip image, JavaScript, CSS, and WOFF responses when loading authenticated Proxy history.");
@@ -387,7 +389,8 @@ public class CoverageSweepPanel extends JPanel {
                     openApiBaseUrlField.getText().trim(), currentOptions())
                 : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
             setCandidateRows(preview.candidates());
-            startButton.setEnabled(!preview.candidates().isEmpty());
+            applyImportedMethodSelection();
+            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
             updatePreviewButton();
             statusLabel.setText("Imported " + preview.blockedHistoryCount()
                 + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ") + preview.dedupedEndpointCount()
@@ -603,7 +606,7 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setEnabled(idle && !imported);
         importButton.setVisible(imported);
         importButton.setEnabled(idle && imported);
-        includeUnsafeMethodsCheckBox.setEnabled(idle && authenticated);
+        includeUnsafeMethodsCheckBox.setEnabled(idle && (authenticated || imported));
         excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
         verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
@@ -647,6 +650,18 @@ public class CoverageSweepPanel extends JPanel {
         updateAuthenticatedStatus(cachedHistoryCandidates.size(), cachedHistoryCandidates.size());
         updateEstimate();
         updatePreviewButton();
+    }
+
+    private void handleUnsafeMethodsSelectionChange() {
+        if (currentMode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+            refilterAuthenticatedCandidates();
+        } else if (currentMode() == CoverageSweepMode.IMPORTED_TARGETS) {
+            applyImportedMethodSelection();
+        }
+    }
+
+    private void applyImportedMethodSelection() {
+        candidateTableModel.setStateChangingMethodsSelected(includeUnsafeMethodsCheckBox.isSelected());
     }
 
     private void setCandidateRows(List<CoverageSweepCandidate> candidates) {
@@ -953,6 +968,16 @@ public class CoverageSweepPanel extends JPanel {
                 .filter(row -> row.selected)
                 .map(row -> row.candidate)
                 .toList();
+        }
+
+        void setStateChangingMethodsSelected(boolean selected) {
+            for (Row row : rows) {
+                String method = row.candidate.method();
+                row.selected = selected || "GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method);
+            }
+            if (!rows.isEmpty()) {
+                fireTableRowsUpdated(0, rows.size() - 1);
+            }
         }
 
         CoverageSweepCandidate candidateAt(int rowIndex) {
