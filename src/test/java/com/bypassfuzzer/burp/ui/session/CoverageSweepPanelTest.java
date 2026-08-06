@@ -23,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.JTable;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -258,6 +260,26 @@ class CoverageSweepPanelTest {
                 || "/admin/users".equals(table.getValueAt(0, 3))
         );
         assertEquals(0, field(panel, "resultsWorkspace", SessionResultsWorkspace.class).allResultsCount());
+    }
+
+    @Test
+    void importsOpenApiYamlThroughImportMode() throws Exception {
+        Path spec = tempDir.resolve("openapi.yaml");
+        Files.writeString(spec, "openapi: 3.0.0\npaths: {}\n");
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview preview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://api.example.test/users", "/users")
+        ));
+        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), any(CoverageSweepOptions.class)))
+            .thenReturn(preview);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+
+        assertTrue(panel.importTargetsFromFile(spec));
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/users", table.getValueAt(0, 3));
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
     }
 
     @Test

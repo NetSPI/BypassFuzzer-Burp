@@ -35,6 +35,7 @@ BypassFuzzer has four main testing areas:
   - Can verify credential-stripped controls and highlight `LIKELY PUBLIC` candidates for focused review
   - Excludes images, JavaScript, CSS, and WOFF responses from authenticated-traffic discovery by default, with a checkbox to include them
   - Imports `.txt` target lists with one absolute URL per line
+  - Imports OpenAPI 3 and Swagger 2 JSON/YAML specifications as method-aware sweep candidates
   - Deduplicates endpoint shapes before sending probes
   - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 120 probes per endpoint
   - Supports endpoint-level concurrency, fixed inter-request delay, and auto-throttle status-code controls

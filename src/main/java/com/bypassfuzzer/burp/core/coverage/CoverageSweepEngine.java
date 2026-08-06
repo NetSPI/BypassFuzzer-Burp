@@ -10,6 +10,7 @@ import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
+import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 import com.bypassfuzzer.burp.http.RequestSender;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
 
@@ -131,6 +132,29 @@ public class CoverageSweepEngine {
         }
 
         return new CoverageSweepPreview(parsedTargets, deduped.size(), List.copyOf(candidates));
+    }
+
+    public CoverageSweepPreview collectPreviewFromOpenApi(String source, String fileName,
+                                                           CoverageSweepOptions options) {
+        return collectPreviewFromOpenApi(source, fileName, "", options);
+    }
+
+    public CoverageSweepPreview collectPreviewFromOpenApi(String source, String fileName,
+                                                           String baseUrlOverride,
+                                                           CoverageSweepOptions options) {
+        List<OpenApiOperation> operations = new OpenApiSpecParser().parse(source, fileName, baseUrlOverride);
+        CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
+        Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
+        for (OpenApiOperation operation : operations) {
+            CoverageSweepCandidate candidate = toImportedCandidate(operation);
+            if (candidate != null) deduped.putIfAbsent(candidate.dedupeKey(), candidate);
+        }
+        List<CoverageSweepCandidate> candidates = new ArrayList<>(deduped.values());
+        candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo))
+            .thenComparing(CoverageSweepCandidate::method));
+        int cap = Math.max(1, effectiveOptions.maxCandidates());
+        if (candidates.size() > cap) candidates = new ArrayList<>(candidates.subList(0, cap));
+        return new CoverageSweepPreview(operations.size(), deduped.size(), List.copyOf(candidates));
     }
 
     public List<CoverageSweepProbe> buildProbes(CoverageSweepCandidate candidate, CoverageSweepOptions options) {
@@ -482,6 +506,26 @@ public class CoverageSweepEngine {
                 "",
                 ZonedDateTime.now()
             );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private CoverageSweepCandidate toImportedCandidate(OpenApiOperation operation) {
+        String displayUrl = normalizeUrl(operation.url());
+        if (displayUrl == null) return null;
+        try {
+            URI uri = URI.create(displayUrl);
+            HttpRequest request = urlRequestFactory.create(uri).withMethod(operation.method());
+            for (Map.Entry<String, String> header : operation.headers().entrySet()) {
+                request = RequestHeaderUtils.upsertHeader(request, header.getKey(), header.getValue());
+            }
+            if (!operation.body().isEmpty()) request = request.withBody(operation.body());
+            String path = request.path() == null || request.path().isBlank()
+                ? RequestPathUtils.extractPathAndQuery(displayUrl) : request.path();
+            return new CoverageSweepCandidate(request, null, dedupeKey(request, displayUrl), displayUrl,
+                safe(request.method()), host(request, displayUrl), path, 0, 0,
+                safe(request.headerValue("Content-Type")), ZonedDateTime.now());
         } catch (Exception e) {
             return null;
         }

@@ -72,6 +72,8 @@ https://victim.com/admin/info
 Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests. `View` opens the selected request and response side by side in a resizable window. The response side remains empty for imported URLs until the Control request runs because a URL list contains no stored response.
 Imported targets are unavailable in authenticated-traffic mode because they have no stored authenticated request or response.
 
+Import mode also accepts OpenAPI 3 and Swagger 2 specifications in JSON or YAML. Each documented operation becomes a candidate using its HTTP method and server/path combination. Documented path, query, and header parameters use examples/defaults when available, and request bodies are generated from media-type examples or schemas. An optional `OpenAPI base URL` overrides the specification's servers, which is useful for specifications with relative or missing server URLs.
+
 ## Authenticated Traffic
 
 Authenticated-traffic discovery does not send requests. It inspects Proxy history and inventories likely authentication header names and cookie names without displaying their values. `Authorization` and session/auth/token-like identifiers are selected automatically; the tester can change the selection and add custom auth header names.

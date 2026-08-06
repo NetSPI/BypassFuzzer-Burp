@@ -32,6 +32,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.WindowConstants;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -74,6 +75,8 @@ public class CoverageSweepPanel extends JPanel {
     private JTextField concurrencyField;
     private JTextField throttleStatusCodesField;
     private JTextField requestDelayField;
+    private JTextField openApiBaseUrlField;
+    private JLabel openApiBaseUrlLabel;
     private JLabel statusLabel;
     private JLabel estimateLabel;
     private JLabel pullResponsesLabel;
@@ -141,6 +144,9 @@ public class CoverageSweepPanel extends JPanel {
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
+        openApiBaseUrlField = new JTextField("", 20);
+        openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
+        openApiBaseUrlLabel = new JLabel("OpenAPI base URL:");
 
         statusRow.add(new JLabel("Mode:"));
         statusRow.add(modeComboBox);
@@ -172,6 +178,8 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(verifyUnauthenticatedAccessCheckBox);
         executionRow.add(authIdentifiersButton);
+        executionRow.add(openApiBaseUrlLabel);
+        executionRow.add(openApiBaseUrlField);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
@@ -359,6 +367,8 @@ public class CoverageSweepPanel extends JPanel {
         }
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import Sweep Targets");
+        chooser.setFileFilter(new FileNameExtensionFilter(
+            "Target lists and OpenAPI specs (*.txt, *.json, *.yaml, *.yml)", "txt", "json", "yaml", "yml"));
         int result = chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame());
         if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
             return;
@@ -370,13 +380,17 @@ public class CoverageSweepPanel extends JPanel {
     boolean importTargetsFromFile(Path path) {
         setControlsForLoading();
         try {
-            List<String> urls = Files.readAllLines(path);
-            CoverageSweepPreview preview = engine.collectPreviewFromUrls(urls, currentOptions());
+            String source = Files.readString(path);
+            boolean openApi = isOpenApiSource(path, source);
+            CoverageSweepPreview preview = openApi
+                ? engine.collectPreviewFromOpenApi(source, path.getFileName().toString(),
+                    openApiBaseUrlField.getText().trim(), currentOptions())
+                : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
             setCandidateRows(preview.candidates());
             startButton.setEnabled(!preview.candidates().isEmpty());
             updatePreviewButton();
             statusLabel.setText("Imported " + preview.blockedHistoryCount()
-                + " valid target URL(s); " + preview.dedupedEndpointCount()
+                + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ") + preview.dedupedEndpointCount()
                 + " deduped endpoints; showing " + preview.candidates().size() + ".");
             updateEstimate();
             return true;
@@ -389,6 +403,15 @@ public class CoverageSweepPanel extends JPanel {
         } finally {
             finishCandidateLoading();
         }
+    }
+
+    private boolean isOpenApiSource(Path path, String source) {
+        String name = path == null || path.getFileName() == null ? ""
+            : path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".yml")) return true;
+        String trimmed = source == null ? "" : source.stripLeading();
+        return trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:")
+            || (trimmed.startsWith("{") && (trimmed.contains("\"openapi\"") || trimmed.contains("\"swagger\"")));
     }
 
     private void startSweep() {
@@ -585,6 +608,9 @@ public class CoverageSweepPanel extends JPanel {
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
         verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
+        openApiBaseUrlLabel.setVisible(imported);
+        openApiBaseUrlField.setVisible(imported);
+        openApiBaseUrlField.setEnabled(idle && imported);
         loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
         revalidate();
         repaint();

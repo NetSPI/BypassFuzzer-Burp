@@ -382,6 +382,38 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void importsOpenApiOperationsAsMethodAwareCandidates() {
+        String spec = """
+            openapi: 3.0.0
+            servers:
+              - url: https://api.example.test
+            paths:
+              /admin/{id}:
+                get:
+                  parameters:
+                    - name: id
+                      in: path
+                      required: true
+                      example: 7
+                delete:
+                  parameters:
+                    - name: id
+                      in: path
+                      required: true
+                      example: 7
+            """;
+
+        CoverageSweepPreview preview = importedEngine()
+            .collectPreviewFromOpenApi(spec, "openapi.yaml", CoverageSweepOptions.defaults());
+
+        assertEquals(2, preview.blockedHistoryCount());
+        assertEquals(2, preview.candidates().size());
+        assertTrue(preview.candidates().stream().anyMatch(candidate -> candidate.method().equals("GET")));
+        assertTrue(preview.candidates().stream().anyMatch(candidate -> candidate.method().equals("DELETE")));
+        assertTrue(preview.candidates().stream().allMatch(candidate -> candidate.path().equals("/admin/7")));
+    }
+
+    @Test
     void generatesBoundedHighSignalProbes() {
         CoverageSweepCandidate candidate = candidate(request("/admin/users", "", "GET", null, ""), 403);
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
