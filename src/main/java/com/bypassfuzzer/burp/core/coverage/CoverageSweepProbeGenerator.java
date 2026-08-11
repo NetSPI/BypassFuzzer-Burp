@@ -44,8 +44,58 @@ public class CoverageSweepProbeGenerator {
         for (CoverageSweepProbeTemplate template : templates) {
             add(probes, seen, limit, buildProbe(template, request, path));
         }
+        addStandaloneMatrixBoundaryProbes(probes, seen, limit, request, path);
 
         return probes;
+    }
+
+    private void addStandaloneMatrixBoundaryProbes(List<CoverageSweepProbe> probes,
+                                                    Set<String> seen,
+                                                    int limit,
+                                                    HttpRequest request,
+                                                    String pathWithQuery) {
+        for (String marker : List.of(";", "%3b")) {
+            List<String> variants = standaloneMatrixBoundaryPaths(pathWithQuery, marker);
+            for (int index = 0; index < variants.size(); index++) {
+                String position = index == variants.size() - 1 ? "all boundaries" : "boundary " + (index + 1);
+                add(probes, seen, limit, new CoverageSweepProbe(
+                    "Standalone " + marker + " segment at " + position,
+                    "Path Normalization",
+                    request.withPath(variants.get(index))
+                ));
+            }
+        }
+    }
+
+    private List<String> standaloneMatrixBoundaryPaths(String pathWithQuery, String marker) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        List<Integer> boundaries = new ArrayList<>();
+        for (int index = 1; index < path.length() - 1; index++) {
+            if (path.charAt(index) == '/' && path.charAt(index - 1) != '/' && path.charAt(index + 1) != '/') {
+                boundaries.add(index);
+            }
+        }
+        if (boundaries.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> variants = new ArrayList<>();
+        for (int boundary : boundaries) {
+            String variant = path.substring(0, boundary) + "/" + marker + "/" + path.substring(boundary + 1);
+            variants.add(RequestPathUtils.replaceQuery(variant, query));
+        }
+
+        StringBuilder cumulative = new StringBuilder(path.length() + boundaries.size() * (marker.length() + 1));
+        for (int index = 0; index < path.length(); index++) {
+            if (boundaries.contains(index)) {
+                cumulative.append('/').append(marker).append('/');
+            } else {
+                cumulative.append(path.charAt(index));
+            }
+        }
+        variants.add(RequestPathUtils.replaceQuery(cumulative.toString(), query));
+        return variants;
     }
 
     private CoverageSweepProbe buildProbe(CoverageSweepProbeTemplate template, HttpRequest request, String path) {

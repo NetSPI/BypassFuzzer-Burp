@@ -419,7 +419,7 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(120, probes.size());
+        assertEquals(122, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
@@ -468,6 +468,20 @@ class CoverageSweepEngineTest {
         assertTrue(probes.stream().anyMatch(probe -> "Bearer A".equals(probe.request().headerValue("Authorization"))));
         assertTrue(probes.stream().anyMatch(probe -> "Basic A".equals(probe.request().headerValue("Authorization"))));
         assertFalse(probes.stream().anyMatch(probe -> probe.request().hasHeader("X-Custom-IP-Authorization")));
+    }
+
+    @Test
+    void sweepIteratesStandaloneSemicolonSegmentsAcrossPathBoundaries() {
+        CoverageSweepCandidate candidate = candidate(request("/v1/console/plus", "mode=full", "GET", null, ""), 403);
+        List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
+            .buildProbes(candidate, CoverageSweepOptions.defaults());
+
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/;/console/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/console/;/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/;/console/;/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/%3b/console/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/console/%3b/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/%3b/console/%3b/plus?mode=full")));
     }
 
     @Test

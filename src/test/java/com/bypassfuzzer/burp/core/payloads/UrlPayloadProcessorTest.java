@@ -209,6 +209,19 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void generator_insertsStandaloneSemicolonSegmentsAtEveryPathBoundary() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/v1/console/plus?mode=full");
+        List<String> out = processor.generateUrlPayloads(List.of());
+
+        assertTrue(out.contains("https://example.com/v1/;/console/plus?mode=full"));
+        assertTrue(out.contains("https://example.com/v1/console/;/plus?mode=full"));
+        assertTrue(out.contains("https://example.com/v1/;/console/;/plus?mode=full"));
+        assertTrue(out.contains("https://example.com/v1/%3b/console/plus?mode=full"));
+        assertTrue(out.contains("https://example.com/v1/console/%3b/plus?mode=full"));
+        assertTrue(out.contains("https://example.com/v1/%3b/console/%3b/plus?mode=full"));
+    }
+
+    @Test
     void generator_realWorldTripleSlashBypassEmitted() throws Exception {
         // Real engagement: POST /api/v1/users was 403 (ACL blocking user
         // registration). Same request to POST /api///v1/users returned 201
