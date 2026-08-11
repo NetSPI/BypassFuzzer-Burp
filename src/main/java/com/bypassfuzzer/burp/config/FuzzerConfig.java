@@ -39,7 +39,7 @@ public class FuzzerConfig {
     private String oobPayload = null;
 
     // Collaborator options
-    private boolean enableCollaboratorPayloads = false;
+    private boolean enableCollaboratorPayloads = true;
 
     public FuzzerConfig() {
         // Default: auto-throttle on rate limit and service unavailable
