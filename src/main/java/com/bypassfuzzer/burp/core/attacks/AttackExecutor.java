@@ -1,5 +1,6 @@
 package com.bypassfuzzer.burp.core.attacks;
 
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.RateLimiter;
@@ -25,6 +26,23 @@ public class AttackExecutor {
                            BooleanSupplier shouldContinue,
                            RateLimiter rateLimiter) {
         return execute(attackType, payload, null, null, null, request, resultCallback, shouldContinue, rateLimiter);
+    }
+
+    public boolean execute(String attackType, String payload, HttpRequest request,
+                           Consumer<AttackResult> resultCallback,
+                           BooleanSupplier shouldContinue,
+                           RateLimiter rateLimiter,
+                           HttpMode httpMode) {
+        if (!AttackExecutionSupport.prepareRequest(shouldContinue, rateLimiter)) {
+            return false;
+        }
+
+        HttpResponse response = requestSender.send(request, httpMode);
+        if (rateLimiter != null) {
+            rateLimiter.reportResponse(response);
+        }
+        resultCallback.accept(new AttackResult(attackType, payload, request, response));
+        return true;
     }
 
     public boolean execute(String attackType, String payload, String targetLabel, String payloadFamily, String payloadEncoding,

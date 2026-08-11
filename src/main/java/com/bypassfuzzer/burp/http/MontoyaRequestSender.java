@@ -92,6 +92,22 @@ public class MontoyaRequestSender implements RequestSender {
         }
     }
 
+    @Override
+    public HttpResponse send(HttpRequest request, HttpMode httpMode) {
+        try {
+            HttpRequestResponse exchange = api.http().sendRequest(request, httpMode);
+            HttpResponse response = responseFrom(exchange);
+            if (response == null) {
+                safeLogError("Request returned no response in " + httpMode + " mode: " + requestLabel(request));
+            }
+            return response;
+        } catch (Exception e) {
+            safeLogError("Request failed in " + httpMode + " mode: " + requestLabel(request) + " - "
+                + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            return null;
+        }
+    }
+
     private HttpResponse responseFrom(HttpRequestResponse exchange) {
         return exchange == null ? null : exchange.response();
     }

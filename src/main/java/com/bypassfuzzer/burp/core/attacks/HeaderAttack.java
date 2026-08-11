@@ -1,9 +1,11 @@
 package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.payloads.HeaderPayloadProcessor;
+import com.bypassfuzzer.burp.core.payloads.HostPortBypassPayloadGenerator;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 
@@ -16,6 +18,7 @@ public class HeaderAttack implements AttackStrategy {
     private final List<String> headerTemplates;
     private final List<String> ipPayloads;
     private final boolean collaboratorEnabled;
+    private final HostPortBypassPayloadGenerator hostPortPayloadGenerator = new HostPortBypassPayloadGenerator();
 
     public HeaderAttack(String targetUrl, String oobPayload, boolean enableCollaborator) {
         this.collaboratorEnabled = enableCollaborator;
@@ -33,7 +36,11 @@ public class HeaderAttack implements AttackStrategy {
             collaboratorEnabled ? api : null
         );
 
-        if (!AttackExecutionSupport.logStart(api, "Starting Header Attack: " + headerPayloads.size() + " total payloads")) {
+        List<HostPortBypassPayloadGenerator.HostPortPayload> hostPortPayloads =
+            hostPortPayloadGenerator.generate(baseRequest, targetUrl);
+        int totalPayloads = headerPayloads.size() + hostPortPayloads.size();
+
+        if (!AttackExecutionSupport.logStart(api, "Starting Header Attack: " + totalPayloads + " total payloads")) {
             return;
         }
 
@@ -81,6 +88,42 @@ public class HeaderAttack implements AttackStrategy {
                 count++;
             } catch (Exception e) {
                 if (!AttackExecutionSupport.handleExecutionException(api, shouldContinue, "Header attack error with payload: " + payload + " - ", e)) {
+                    return;
+                }
+            }
+        }
+
+        for (HostPortBypassPayloadGenerator.HostPortPayload payload : hostPortPayloads) {
+            if (AttackExecutionSupport.stopIfRequested(
+                api,
+                shouldContinue,
+                "Header Attack stopped by user (" + count + " of " + totalPayloads + " completed)"
+            )) {
+                return;
+            }
+
+            String displayPayload = "Host: " + payload.value() + " (double-port " + payload.family() + ")";
+            try {
+                HttpRequest modifiedRequest = RequestHeaderUtils.upsertHeader(baseRequest, "Host", payload.value());
+                if (!attackExecutor.execute(
+                    getAttackType(),
+                    displayPayload,
+                    modifiedRequest,
+                    resultCallback,
+                    shouldContinue,
+                    rateLimiter,
+                    HttpMode.HTTP_1
+                )) {
+                    return;
+                }
+                count++;
+            } catch (Exception e) {
+                if (!AttackExecutionSupport.handleExecutionException(
+                    api,
+                    shouldContinue,
+                    "Header attack error with payload: " + displayPayload + " - ",
+                    e
+                )) {
                     return;
                 }
             }

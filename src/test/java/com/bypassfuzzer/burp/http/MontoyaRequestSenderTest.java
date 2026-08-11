@@ -41,6 +41,21 @@ class MontoyaRequestSenderTest {
     }
 
     @Test
+    void explicitHttpModeIsPassedDirectlyToMontoya() {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        when(api.http().sendRequest(request, HttpMode.HTTP_1)).thenReturn(exchange);
+        when(exchange.response()).thenReturn(response);
+
+        HttpResponse sent = new MontoyaRequestSender(api).send(request, HttpMode.HTTP_1);
+
+        assertSame(response, sent);
+        verify(api.http()).sendRequest(request, HttpMode.HTTP_1);
+    }
+
+    @Test
     void timedSendReturnsNullWithoutShuttingDownInjectedExecutor() throws Exception {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequest request = mock(HttpRequest.class);
