@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.core.coverage;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -31,6 +32,47 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class CoverageSweepEngineTest {
+
+    @Test
+    void optionalDoublePortHostProbesUseHttp1AndPreserveTheConnectionService() throws Exception {
+        HttpRequest original = requestWithHeaders("/blocked", "", "GET",
+            Map.of("Host", "example.com:8443"), "");
+        CoverageSweepCandidate candidate = candidate(original, 403);
+        ModeTrackingSender sender = new ModeTrackingSender(response(403, "text/plain", "blocked"));
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            Set.of(403), true, 100, 1, 1, 0, 0, Set.of(),
+            CoverageSweepMode.BLOCKED_RESPONSES, CoverageSweepAuthSelection.defaults(),
+            true, true, true
+        );
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()), sender,
+            new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.start(List.of(candidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(1, sender.automaticRequests.size());
+        assertEquals(2, sender.http1Requests.size());
+        assertEquals(List.of("example.com:8443:80", "example.com:8443:443"),
+            sender.http1Requests.stream().map(request -> request.headerValue("Host")).toList());
+        assertTrue(sender.http1Requests.stream().allMatch(request ->
+            request.httpService().host().equals("example.com") && request.httpService().port() == 443));
+        assertEquals(2, results.stream().filter(result -> "Host Parsing".equals(result.getPayloadFamily())).count());
+    }
+
+    @Test
+    void doublePortHostProbesAreDisabledByDefault() {
+        HttpRequest original = requestWithHeaders("/blocked", "", "GET",
+            Map.of("Host", "example.com:8443"), "");
+        CoverageSweepCandidate candidate = candidate(original, 403);
+
+        List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
+            .buildProbes(candidate, CoverageSweepOptions.defaults());
+
+        assertFalse(CoverageSweepOptions.defaults().doublePortHostProbes());
+        assertTrue(probes.stream().noneMatch(probe -> "Host Parsing".equals(probe.family())));
+    }
 
     @Test
     void authenticatedDiscoveryIsPassiveAndInventoriesIdentifiers() {
@@ -798,6 +840,35 @@ class CoverageSweepEngineTest {
                 Thread.currentThread().interrupt();
             } finally {
                 active.decrementAndGet();
+            }
+            return response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request, long timeout, TimeUnit timeUnit) {
+            return send(request);
+        }
+    }
+
+    private static final class ModeTrackingSender implements RequestSender {
+        private final HttpResponse response;
+        private final List<HttpRequest> automaticRequests = new ArrayList<>();
+        private final List<HttpRequest> http1Requests = new ArrayList<>();
+
+        private ModeTrackingSender(HttpResponse response) {
+            this.response = response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request) {
+            automaticRequests.add(request);
+            return response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request, HttpMode httpMode) {
+            if (httpMode == HttpMode.HTTP_1) {
+                http1Requests.add(request);
             }
             return response;
         }

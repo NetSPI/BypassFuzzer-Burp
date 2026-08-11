@@ -70,6 +70,42 @@ public final class HostPortBypassPayloadGenerator {
         return new ArrayList<>(payloads.values());
     }
 
+    /**
+     * Builds the two highest-value probes for broad sweep usage without adding
+     * the full port and malformed-value matrix to every candidate.
+     */
+    public List<HostPortPayload> generateLightweight(HttpRequest request) {
+        if (request == null) {
+            return List.of();
+        }
+
+        Authority serviceAuthority = authorityFromService(request.httpService());
+        if (serviceAuthority == null) {
+            serviceAuthority = authorityFromUrl(safeUrl(request));
+        }
+
+        String originalHost = trimToNull(request.headerValue("Host"));
+        Authority originalAuthority = parseAuthority(originalHost);
+        String baseAuthority;
+        if (originalAuthority != null) {
+            int firstPort = originalAuthority.port() != null
+                ? originalAuthority.port()
+                : fallbackPort(serviceAuthority);
+            baseAuthority = formatHost(originalAuthority.host()) + ":" + firstPort;
+        } else if (originalHost != null) {
+            // Preserve malformed authorities literally for the append trick.
+            baseAuthority = originalHost;
+        } else if (serviceAuthority != null) {
+            baseAuthority = formatHost(serviceAuthority.host()) + ":" + fallbackPort(serviceAuthority);
+        } else {
+            return List.of();
+        }
+
+        return TRAILING_PORTS.stream()
+            .map(port -> new HostPortPayload(baseAuthority + ":" + port, "lightweight sweep"))
+            .toList();
+    }
+
     private void add(Map<String, HostPortPayload> payloads, String value, String family) {
         payloads.putIfAbsent(value, new HostPortPayload(value, family));
     }
@@ -83,6 +119,18 @@ public final class HostPortBypassPayloadGenerator {
         }
         Authority urlAuthority = authorityFromUrl(targetUrl);
         return urlAuthority != null && urlAuthority.port() != null ? urlAuthority.port() : 443;
+    }
+
+    private int fallbackPort(Authority authority) {
+        return authority != null && authority.port() != null ? authority.port() : 443;
+    }
+
+    private String safeUrl(HttpRequest request) {
+        try {
+            return request.url();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private Authority authorityFromService(HttpService service) {

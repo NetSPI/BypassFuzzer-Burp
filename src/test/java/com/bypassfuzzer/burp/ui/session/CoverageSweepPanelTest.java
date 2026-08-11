@@ -29,6 +29,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,6 +55,19 @@ class CoverageSweepPanelTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void doublePortHostSweepProbesAreOptIn() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JCheckBox doublePort = checkbox(panel, "doublePortHostProbesCheckBox");
+
+        assertFalse(doublePort.isSelected());
+        assertFalse(currentOptions(panel).doublePortHostProbes());
+
+        doublePort.doClick();
+
+        assertTrue(currentOptions(panel).doublePortHostProbes());
+    }
 
     @Test
     void authenticatedModePassivelyFiltersBySelectedIdentifiersAndSafeMethods() throws Exception {
@@ -589,6 +603,12 @@ class CoverageSweepPanelTest {
 
     private JCheckBox checkbox(CoverageSweepPanel panel, String fieldName) throws Exception {
         return field(panel, fieldName, JCheckBox.class);
+    }
+
+    private CoverageSweepOptions currentOptions(CoverageSweepPanel panel) throws Exception {
+        Method method = CoverageSweepPanel.class.getDeclaredMethod("currentOptions");
+        method.setAccessible(true);
+        return (CoverageSweepOptions) method.invoke(panel);
     }
 
     private <T> T field(Object target, String fieldName, Class<T> type) throws Exception {

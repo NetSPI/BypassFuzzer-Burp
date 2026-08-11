@@ -56,6 +56,24 @@ class HostPortBypassPayloadGeneratorTest {
     }
 
     @Test
+    void lightweightFamilyUsesOnlyCurrentHostPortWithTwoTrailingPorts() {
+        HttpRequest request = request("yahoo.com:8443", "yahoo.com", 443, true);
+
+        List<String> values = values(generator.generateLightweight(request));
+
+        assertEquals(List.of("yahoo.com:8443:80", "yahoo.com:8443:443"), values);
+    }
+
+    @Test
+    void lightweightFamilyUsesConnectionPortWhenHostHasNoPort() {
+        HttpRequest request = request("vhost.example", "public.example", 8081, false);
+
+        List<String> values = values(generator.generateLightweight(request));
+
+        assertEquals(List.of("vhost.example:8081:80", "vhost.example:8081:443"), values);
+    }
+
+    @Test
     void differingLiteralHostControlsEveryStructuredMutation() {
         HttpRequest request = request("internal.example:8443", "public.example", 443, true);
 

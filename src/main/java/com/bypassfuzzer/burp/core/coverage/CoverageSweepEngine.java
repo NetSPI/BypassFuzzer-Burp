@@ -295,7 +295,9 @@ public class CoverageSweepEngine {
                 return;
             }
 
-            HttpResponse response = requestSender.send(probe.request());
+            HttpResponse response = probe.httpMode() == null
+                ? requestSender.send(probe.request())
+                : requestSender.send(probe.request(), probe.httpMode());
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
             }

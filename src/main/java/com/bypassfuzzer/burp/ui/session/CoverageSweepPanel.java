@@ -68,6 +68,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
+    private JCheckBox doublePortHostProbesCheckBox;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -167,6 +168,10 @@ public class CoverageSweepPanel extends JPanel {
         verifyUnauthenticatedAccessCheckBox = new JCheckBox("Verify unauthenticated access", true);
         verifyUnauthenticatedAccessCheckBox.setToolTipText(
             "Replay each authenticated candidate without credentials and mark successful 2xx responses as LIKELY PUBLIC.");
+        doublePortHostProbesCheckBox = new JCheckBox("Double-port Host probes", false);
+        doublePortHostProbesCheckBox.setToolTipText(
+            "Add two HTTP/1.1 Host parser probes per endpoint using trailing :80 and :443 ports.");
+        doublePortHostProbesCheckBox.addActionListener(e -> updateEstimate());
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
@@ -179,6 +184,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(includeUnsafeMethodsCheckBox);
         executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(verifyUnauthenticatedAccessCheckBox);
+        executionRow.add(doublePortHostProbesCheckBox);
         executionRow.add(authIdentifiersButton);
         executionRow.add(openApiBaseUrlLabel);
         executionRow.add(openApiBaseUrlField);
@@ -499,7 +505,10 @@ public class CoverageSweepPanel extends JPanel {
 
     private void updateEstimate() {
         int selected = candidateTableModel.selectedCandidates().size();
-        int estimate = selected * currentOptions().maxProbesPerCandidate();
+        CoverageSweepOptions options = currentOptions();
+        int probesPerCandidate = options.maxProbesPerCandidate()
+            + (options.doublePortHostProbes() ? 2 : 0);
+        int estimate = selected * probesPerCandidate;
         estimateLabel.setText("Selected " + selected + " endpoint(s); estimated max " + estimate + " request(s).");
     }
 
@@ -517,7 +526,8 @@ public class CoverageSweepPanel extends JPanel {
             currentMode(),
             currentAuthSelection(),
             excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
-            verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected()
+            verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
+            doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected()
         );
     }
 
@@ -553,6 +563,7 @@ public class CoverageSweepPanel extends JPanel {
         throttleStatusCodesField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
+        doublePortHostProbesCheckBox.setEnabled(enabled);
         updateModeControls();
     }
 
@@ -612,6 +623,7 @@ public class CoverageSweepPanel extends JPanel {
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
         verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
+        doublePortHostProbesCheckBox.setEnabled(idle);
         openApiBaseUrlLabel.setVisible(imported);
         openApiBaseUrlField.setVisible(imported);
         openApiBaseUrlField.setEnabled(idle && imported);

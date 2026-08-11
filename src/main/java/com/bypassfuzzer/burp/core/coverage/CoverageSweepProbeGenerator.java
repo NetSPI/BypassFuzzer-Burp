@@ -1,7 +1,9 @@
 package com.bypassfuzzer.burp.core.coverage;
 
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
+import com.bypassfuzzer.burp.core.payloads.HostPortBypassPayloadGenerator;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
 import com.bypassfuzzer.burp.core.payloads.StandalonePathMarkerVariants;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
@@ -16,6 +18,7 @@ public class CoverageSweepProbeGenerator {
 
     private static final String SWEEP_PROBES_FILE = "sweep_probes.txt";
     private final List<CoverageSweepProbeTemplate> templates;
+    private final HostPortBypassPayloadGenerator hostPortPayloadGenerator = new HostPortBypassPayloadGenerator();
 
     public CoverageSweepProbeGenerator() {
         this(loadTemplates());
@@ -34,11 +37,23 @@ public class CoverageSweepProbeGenerator {
             return List.of();
         }
 
-        int limit = Math.max(1, options.maxProbesPerCandidate());
+        int limit = Math.max(1, options.maxProbesPerCandidate())
+            + (options.doublePortHostProbes() ? 2 : 0);
         List<CoverageSweepProbe> probes = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         if (includeControl) {
             add(probes, seen, limit, new CoverageSweepProbe("Control: original blocked request", "Control", request));
+        }
+        if (options.doublePortHostProbes()) {
+            for (HostPortBypassPayloadGenerator.HostPortPayload payload
+                : hostPortPayloadGenerator.generateLightweight(request)) {
+                add(probes, seen, limit, new CoverageSweepProbe(
+                    "Host: " + payload.value() + " (double-port)",
+                    "Host Parsing",
+                    RequestHeaderUtils.upsertHeader(request, "Host", payload.value()),
+                    HttpMode.HTTP_1
+                ));
+            }
         }
 
         String path = safePath(request.path());
