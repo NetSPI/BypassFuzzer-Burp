@@ -64,6 +64,15 @@ public class CoverageSweepProbeGenerator {
                     request.withPath(variants.get(index))
                 ));
             }
+
+            List<String> surroundedSegments = standaloneMatrixSegmentSurroundPaths(pathWithQuery, marker);
+            for (int index = 0; index < surroundedSegments.size(); index++) {
+                add(probes, seen, limit, new CoverageSweepProbe(
+                    "Surround path segment " + (index + 1) + " with standalone " + marker + " segments",
+                    "Path Normalization",
+                    request.withPath(surroundedSegments.get(index))
+                ));
+            }
         }
     }
 
@@ -95,6 +104,37 @@ public class CoverageSweepProbeGenerator {
             }
         }
         variants.add(RequestPathUtils.replaceQuery(cumulative.toString(), query));
+        return variants;
+    }
+
+    private List<String> standaloneMatrixSegmentSurroundPaths(String pathWithQuery, String marker) {
+        String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
+        String query = RequestPathUtils.queryFromPath(pathWithQuery);
+        List<int[]> segments = new ArrayList<>();
+        int index = 0;
+        while (index < path.length()) {
+            while (index < path.length() && path.charAt(index) == '/') {
+                index++;
+            }
+            if (index >= path.length()) {
+                break;
+            }
+            int start = index;
+            while (index < path.length() && path.charAt(index) != '/') {
+                index++;
+            }
+            segments.add(new int[]{start, index});
+        }
+
+        List<String> variants = new ArrayList<>();
+        for (int[] segment : segments) {
+            int start = segment[0];
+            int end = segment[1];
+            String surrounded = path.substring(0, start)
+                + marker + "/" + path.substring(start, end) + "/" + marker
+                + path.substring(end);
+            variants.add(RequestPathUtils.replaceQuery(surrounded, query));
+        }
         return variants;
     }
 

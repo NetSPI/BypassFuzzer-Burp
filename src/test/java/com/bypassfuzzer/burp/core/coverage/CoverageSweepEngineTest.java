@@ -419,7 +419,7 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(122, probes.size());
+        assertEquals(126, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
@@ -472,16 +472,16 @@ class CoverageSweepEngineTest {
 
     @Test
     void sweepIteratesStandaloneSemicolonSegmentsAcrossPathBoundaries() {
-        CoverageSweepCandidate candidate = candidate(request("/v1/console/plus", "mode=full", "GET", null, ""), 403);
+        CoverageSweepCandidate candidate = candidate(request("/api/v2/admin/users/profile", "mode=full", "GET", null, ""), 403);
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/;/console/plus?mode=full")));
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/console/;/plus?mode=full")));
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/;/console/;/plus?mode=full")));
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/%3b/console/plus?mode=full")));
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/console/%3b/plus?mode=full")));
-        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/v1/%3b/console/%3b/plus?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/;/v2/;/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/v2/;/admin/;/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/v2/admin/;/users/;/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/;/api/;/v2/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/v2/admin/users/;/profile/;?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%3b/v2/%3b/admin/users/profile?mode=full")));
     }
 
     @Test

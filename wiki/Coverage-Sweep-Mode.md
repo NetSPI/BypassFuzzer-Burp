@@ -130,7 +130,7 @@ Sweep runs one candidate sequentially, but can run multiple candidates concurren
 
 ## Probe Budget
 
-Sweep uses a bounded probe set with a default cap of 140 unique probes per endpoint.
+Sweep uses a bounded probe set with a default cap of 160 unique probes per endpoint.
 
 Generated requests are deduplicated before sending. This matters for short paths such as `/admin`, where some templates collapse to the same effective request:
 

@@ -111,7 +111,8 @@ public class UrlPayloadProcessor {
         // Insert a standalone matrix-parameter segment at each internal path
         // boundary. Some routing stacks discard /;/ while an upstream ACL sees
         // a different raw path, e.g. /v1/;/console/;/plus. Emit each boundary
-        // independently as well as the cumulative all-boundaries form.
+        // independently, around each path segment, and in the cumulative
+        // all-boundaries form.
         addStandaloneMatrixSegmentVariants(allPaths);
 
         // Per-segment case expansion (deterministic, bounded cartesian via LETTER_CAP).
@@ -177,6 +178,20 @@ public class UrlPayloadProcessor {
                 List<String> variant = new ArrayList<>(pathSegments);
                 variant.add(boundary, marker);
                 allPaths.add(String.join("/", variant));
+            }
+
+            for (int target = 0; target < pathSegments.size(); target++) {
+                List<String> surrounded = new ArrayList<>(pathSegments.size() + 2);
+                for (int index = 0; index < pathSegments.size(); index++) {
+                    if (index == target) {
+                        surrounded.add(marker);
+                    }
+                    surrounded.add(pathSegments.get(index));
+                    if (index == target) {
+                        surrounded.add(marker);
+                    }
+                }
+                allPaths.add(String.join("/", surrounded));
             }
 
             List<String> cumulative = new ArrayList<>(pathSegments.size() * 2 - 1);
