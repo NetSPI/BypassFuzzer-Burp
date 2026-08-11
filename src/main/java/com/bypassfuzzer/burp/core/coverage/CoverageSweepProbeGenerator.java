@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.coverage;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.payloads.PayloadLoader;
+import com.bypassfuzzer.burp.core.payloads.StandalonePathMarkerVariants;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 
@@ -44,18 +45,18 @@ public class CoverageSweepProbeGenerator {
         for (CoverageSweepProbeTemplate template : templates) {
             add(probes, seen, limit, buildProbe(template, request, path));
         }
-        addStandaloneMatrixBoundaryProbes(probes, seen, limit, request, path);
+        addStandaloneNormalizationMarkerProbes(probes, seen, limit, request, path);
 
         return probes;
     }
 
-    private void addStandaloneMatrixBoundaryProbes(List<CoverageSweepProbe> probes,
-                                                    Set<String> seen,
-                                                    int limit,
-                                                    HttpRequest request,
-                                                    String pathWithQuery) {
-        for (String marker : List.of(";", "%3b")) {
-            List<String> variants = standaloneMatrixBoundaryPaths(pathWithQuery, marker);
+    private void addStandaloneNormalizationMarkerProbes(List<CoverageSweepProbe> probes,
+                                                         Set<String> seen,
+                                                         int limit,
+                                                         HttpRequest request,
+                                                         String pathWithQuery) {
+        for (String marker : StandalonePathMarkerVariants.all()) {
+            List<String> variants = standaloneMarkerBoundaryPaths(pathWithQuery, marker);
             for (int index = 0; index < variants.size(); index++) {
                 String position = index == variants.size() - 1 ? "all boundaries" : "boundary " + (index + 1);
                 add(probes, seen, limit, new CoverageSweepProbe(
@@ -65,7 +66,7 @@ public class CoverageSweepProbeGenerator {
                 ));
             }
 
-            List<String> surroundedSegments = standaloneMatrixSegmentSurroundPaths(pathWithQuery, marker);
+            List<String> surroundedSegments = standaloneMarkerSegmentSurroundPaths(pathWithQuery, marker);
             for (int index = 0; index < surroundedSegments.size(); index++) {
                 add(probes, seen, limit, new CoverageSweepProbe(
                     "Surround path segment " + (index + 1) + " with standalone " + marker + " segments",
@@ -76,7 +77,7 @@ public class CoverageSweepProbeGenerator {
         }
     }
 
-    private List<String> standaloneMatrixBoundaryPaths(String pathWithQuery, String marker) {
+    private List<String> standaloneMarkerBoundaryPaths(String pathWithQuery, String marker) {
         String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
         String query = RequestPathUtils.queryFromPath(pathWithQuery);
         List<Integer> boundaries = new ArrayList<>();
@@ -107,7 +108,7 @@ public class CoverageSweepProbeGenerator {
         return variants;
     }
 
-    private List<String> standaloneMatrixSegmentSurroundPaths(String pathWithQuery, String marker) {
+    private List<String> standaloneMarkerSegmentSurroundPaths(String pathWithQuery, String marker) {
         String path = RequestPathUtils.pathWithoutQuery(pathWithQuery);
         String query = RequestPathUtils.queryFromPath(pathWithQuery);
         List<int[]> segments = new ArrayList<>();

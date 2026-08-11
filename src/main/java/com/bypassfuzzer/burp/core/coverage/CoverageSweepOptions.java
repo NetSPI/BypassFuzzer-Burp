@@ -61,7 +61,7 @@ public record CoverageSweepOptions(
             Set.of(401, 403),
             true,
             100,
-            160,
+            280,
             1,
             0,
             0,

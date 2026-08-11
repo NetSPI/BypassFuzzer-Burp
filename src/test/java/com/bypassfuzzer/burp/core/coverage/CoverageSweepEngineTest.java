@@ -123,7 +123,7 @@ class CoverageSweepEngineTest {
         assertTrue(engine.matchesAuthSelection(candidate, selection));
         List<CoverageSweepProbe> probes = engine.buildProbes(candidate, options);
 
-        assertTrue(probes.size() > 100 && probes.size() <= 120);
+        assertTrue(probes.size() > 100 && probes.size() <= options.maxProbesPerCandidate());
         assertTrue(probes.stream().noneMatch(probe -> "Control".equals(probe.family())));
         HttpRequest first = probes.get(0).request();
         assertFalse(first.hasHeader("Cookie"));
@@ -419,7 +419,7 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(126, probes.size());
+        assertEquals(162, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
@@ -482,6 +482,12 @@ class CoverageSweepEngineTest {
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/;/api/;/v2/admin/users/profile?mode=full")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/v2/admin/users/;/profile/;?mode=full")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%3b/v2/%3b/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/./v2/./admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%2e/v2/%2e/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%252e/v2/%252e/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%u002e/v2/%u002e/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%253b/v2/%253b/admin/users/profile?mode=full")));
+        assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/api/%u003b/v2/%u003b/admin/users/profile?mode=full")));
     }
 
     @Test

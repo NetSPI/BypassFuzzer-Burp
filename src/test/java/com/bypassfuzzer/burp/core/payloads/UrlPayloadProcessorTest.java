@@ -235,6 +235,22 @@ class UrlPayloadProcessorTest {
     }
 
     @Test
+    void generator_surroundsSegmentsWithDotEncodedAndUnicodeMarkerVariants() throws Exception {
+        UrlPayloadProcessor processor = new UrlPayloadProcessor("https://example.com/api/v2/admin");
+        List<String> out = processor.generateUrlPayloads(List.of());
+
+        assertTrue(out.contains("https://example.com/api/./v2/./admin"));
+        assertTrue(out.contains("https://example.com/api/%2e/v2/%2e/admin"));
+        assertTrue(out.contains("https://example.com/api/%2E/v2/%2E/admin"));
+        assertTrue(out.contains("https://example.com/api/%252e/v2/%252e/admin"));
+        assertTrue(out.contains("https://example.com/api/%u002e/v2/%u002e/admin"));
+        assertTrue(out.contains("https://example.com/api/%U002E/v2/%U002E/admin"));
+        assertTrue(out.contains("https://example.com/api/%253b/v2/%253b/admin"));
+        assertTrue(out.contains("https://example.com/api/%u003b/v2/%u003b/admin"));
+        assertTrue(out.contains("https://example.com/api/%U003B/v2/%U003B/admin"));
+    }
+
+    @Test
     void generator_realWorldTripleSlashBypassEmitted() throws Exception {
         // Real engagement: POST /api/v1/users was 403 (ACL blocking user
         // registration). Same request to POST /api///v1/users returned 201

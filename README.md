@@ -37,7 +37,7 @@ BypassFuzzer has four main testing areas:
   - Imports `.txt` target lists with one absolute URL per line
   - Imports OpenAPI 3 and Swagger 2 JSON/YAML specifications as method-aware sweep candidates
   - Deduplicates endpoint shapes before sending probes
-  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 160 probes per endpoint
+  - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 280 probes per endpoint
   - Supports endpoint-level concurrency, fixed inter-request delay, and auto-throttle status-code controls
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
@@ -135,9 +135,10 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 
 **What Sweep sends**
 
-Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 160 probes per endpoint by default. The bundled wordlist focuses on:
+Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 280 probes per endpoint by default. The bundled wordlist focuses on:
 
 - matrix and extension normalization such as `;.json`, `;.html`, `.json;`, and `.html;`
+- standalone dot/semicolon markers inserted at boundaries and around each segment, including URL-encoded, double-encoded, and legacy `%u` forms
 - lightweight content negotiation query probes such as `?.json` and `?format=json`
 - framework and extension fallback suffixes such as `.php`, `.aspx`, `.jsp`, `.map`, `.bak`, `.old`, and `.config`
 - trailing slash and dot-segment normalization

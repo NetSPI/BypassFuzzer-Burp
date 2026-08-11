@@ -387,7 +387,7 @@ class CoverageSweepPanelTest {
 
         String preview = panel.renderProbePreview(candidate, probes);
 
-        assertTrue(preview.contains("Probe count: 126"));
+        assertTrue(preview.contains("Probe count: 162"));
         assertTrue(preview.contains("Matrix / Extension - Path suffix ;.json"));
         assertTrue(preview.contains("GET /admin/users;.json HTTP/1.1"));
         assertTrue(preview.contains("GET /admin/users?format=json HTTP/1.1"));

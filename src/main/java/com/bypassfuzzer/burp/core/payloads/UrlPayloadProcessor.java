@@ -108,12 +108,11 @@ public class UrlPayloadProcessor {
             }
         }
 
-        // Insert a standalone matrix-parameter segment at each internal path
-        // boundary. Some routing stacks discard /;/ while an upstream ACL sees
-        // a different raw path, e.g. /v1/;/console/;/plus. Emit each boundary
-        // independently, around each path segment, and in the cumulative
-        // all-boundaries form.
-        addStandaloneMatrixSegmentVariants(allPaths);
+        // Insert standalone dot/matrix marker segments at each internal path
+        // boundary. Some routing stacks discard these markers while an upstream
+        // ACL sees a different raw path, e.g. /v1/;/console/;/plus. Emit each
+        // boundary independently, around each path segment, and cumulatively.
+        addStandaloneNormalizationMarkerVariants(allPaths);
 
         // Per-segment case expansion (deterministic, bounded cartesian via LETTER_CAP).
         // Catches case-insensitive routing bypasses like /Admin vs /admin on IIS /
@@ -168,12 +167,12 @@ public class UrlPayloadProcessor {
         return convertPathsToUrls(new ArrayList<>(allPaths), suffixPayloads);
     }
 
-    private void addStandaloneMatrixSegmentVariants(Set<String> allPaths) {
+    private void addStandaloneNormalizationMarkerVariants(Set<String> allPaths) {
         if (pathSegments.size() < 2) {
             return;
         }
 
-        for (String marker : List.of(";", "%3b")) {
+        for (String marker : StandalonePathMarkerVariants.all()) {
             for (int boundary = 1; boundary < pathSegments.size(); boundary++) {
                 List<String> variant = new ArrayList<>(pathSegments);
                 variant.add(boundary, marker);
