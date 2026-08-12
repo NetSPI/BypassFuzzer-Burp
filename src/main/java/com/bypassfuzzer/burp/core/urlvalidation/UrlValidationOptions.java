@@ -1,5 +1,8 @@
 package com.bypassfuzzer.burp.core.urlvalidation;
 
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
+
+import java.util.List;
 import java.util.Set;
 
 public record UrlValidationOptions(
@@ -14,8 +17,25 @@ public record UrlValidationOptions(
     int requestsPerSecond,
     int requestDelayMs,
     Set<Integer> throttleStatusCodes,
-    boolean autoThrottleEnabled
+    boolean autoThrottleEnabled,
+    List<ConfiguredHeader> requestHeaders
 ) {
+
+    public UrlValidationOptions {
+        requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
+    }
+
+    public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
+                                boolean collaboratorPayloads, String attackerScheme,
+                                Set<UrlValidationContext> payloadFamilies,
+                                Set<UrlValidationAttackSetting> attackSettings,
+                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
+                                int requestDelayMs, Set<Integer> throttleStatusCodes,
+                                boolean autoThrottleEnabled) {
+        this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
+            payloadFamilies, attackSettings, encodings, requestsPerSecond, requestDelayMs,
+            throttleStatusCodes, autoThrottleEnabled, List.of());
+    }
 
     public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
                                 boolean collaboratorPayloads, String attackerScheme,
@@ -25,7 +45,8 @@ public record UrlValidationOptions(
                                 int requestDelayMs, Set<Integer> throttleStatusCodes) {
         this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
             payloadFamilies, attackSettings, encodings, requestsPerSecond, requestDelayMs,
-            throttleStatusCodes, throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
+            throttleStatusCodes, throttleStatusCodes != null && !throttleStatusCodes.isEmpty(),
+            List.of());
     }
 
     public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
@@ -36,7 +57,7 @@ public record UrlValidationOptions(
                                 Set<Integer> throttleStatusCodes) {
         this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
             payloadFamilies, attackSettings, encodings, requestsPerSecond, 0, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
     }
 
     private static final Set<UrlValidationContext> DEFAULT_PAYLOAD_FAMILIES = Set.of(

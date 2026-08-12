@@ -13,6 +13,8 @@ import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 import com.bypassfuzzer.burp.http.RequestSender;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
+import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
+import com.bypassfuzzer.burp.http.CookieHeaderUtils;
 
 import java.net.URI;
 import java.time.ZonedDateTime;
@@ -162,10 +164,14 @@ public class CoverageSweepEngine {
             return List.of();
         }
         CoverageSweepOptions effective = options == null ? CoverageSweepOptions.defaults() : options;
+        ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(effective.requestHeaders());
         if (effective.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-            return probeGenerator.buildProbes(stripAuthentication(candidate.request(), effective.authSelection()), effective, false);
+            HttpRequest anonymousRequest = stripAuthentication(candidate.request(), effective.authSelection());
+            return reconcileProbes(probeGenerator.buildProbes(anonymousRequest, effective, false),
+                anonymousRequest, headerPolicy);
         }
-        return probeGenerator.buildProbes(candidate.request(), effective, true);
+        return reconcileProbes(probeGenerator.buildProbes(candidate.request(), effective, true),
+            candidate.request(), headerPolicy);
     }
 
     public boolean start(List<CoverageSweepCandidate> candidates,
@@ -254,12 +260,16 @@ public class CoverageSweepEngine {
     private void executeCandidate(CoverageSweepCandidate candidate,
                                   CoverageSweepOptions options,
                                   Consumer<AttackResult> resultCallback) {
+        ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.requestHeaders());
         HttpResponse controlResponse = null;
         HttpResponse anonymousControlResponse = null;
         HttpRequest verificationRequest = null;
         if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
             && options.verifyUnauthenticatedAccess()) {
-            verificationRequest = stripAuthentication(candidate.request(), options.authSelection());
+            ConfiguredHeaderPolicy anonymousPolicy = headerPolicy.withoutAuthentication(
+                options.authSelection().headerNames(), options.authSelection().cookieNames());
+            HttpRequest anonymousBase = stripAuthentication(candidate.request(), options.authSelection());
+            verificationRequest = anonymousPolicy.reconcileMutation(anonymousBase, anonymousBase);
             if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
                 return;
             }
@@ -414,8 +424,7 @@ public class CoverageSweepEngine {
     }
 
     HttpRequest stripAuthentication(HttpRequest request, CoverageSweepAuthSelection selection) {
-        HttpRequest stripped = request.withRemovedHeader("Cookie")
-            .withRemovedHeader("Authorization")
+        HttpRequest stripped = request.withRemovedHeader("Authorization")
             .withRemovedHeader("Proxy-Authorization");
         if (selection != null) {
             for (String headerName : selection.headerNames()) {
@@ -423,8 +432,25 @@ public class CoverageSweepEngine {
                     stripped = stripped.withRemovedHeader(headerName.trim());
                 }
             }
+            String cookieHeader = stripped.headerValue("Cookie");
+            String retainedCookies = CookieHeaderUtils.removeCookies(cookieHeader, selection.cookieNames());
+            if (cookieHeader != null) {
+                stripped = stripped.withRemovedHeader("Cookie");
+                if (retainedCookies != null && !retainedCookies.isBlank()) {
+                    stripped = stripped.withAddedHeader("Cookie", retainedCookies);
+                }
+            }
         }
         return stripped;
+    }
+
+    private List<CoverageSweepProbe> reconcileProbes(List<CoverageSweepProbe> probes,
+                                                      HttpRequest baseline,
+                                                      ConfiguredHeaderPolicy headerPolicy) {
+        return probes.stream()
+            .map(probe -> new CoverageSweepProbe(probe.label(), probe.family(),
+                headerPolicy.reconcileMutation(baseline, probe.request()), probe.httpMode()))
+            .toList();
     }
 
     private void collectAuthIdentifiers(HttpRequest request, Set<String> headers, Set<String> cookies) {

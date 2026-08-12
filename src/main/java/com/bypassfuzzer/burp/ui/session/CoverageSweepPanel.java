@@ -74,6 +74,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
     private JCheckBox doublePortHostProbesCheckBox;
     private JCheckBox autoThrottleCheckBox;
+    private RequestHeadersControl requestHeadersControl;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -167,6 +168,7 @@ public class CoverageSweepPanel extends JPanel {
         autoThrottleCheckBox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
         autoThrottleCheckBox.setToolTipText(
             "Automatically back off when a configured throttle response is received.");
+        requestHeadersControl = new RequestHeadersControl(this);
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
@@ -210,6 +212,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
         executionRow.add(autoThrottleCheckBox);
+        executionRow.add(requestHeadersControl.button());
         executionRow.add(includeUnsafeMethodsCheckBox);
         executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(verifyUnauthenticatedAccessCheckBox);
@@ -481,7 +484,7 @@ public class CoverageSweepPanel extends JPanel {
             @Override
             protected RemoteOpenApiImport doInBackground() throws Exception {
                 String fileName = remoteFileName(target.requestTarget());
-                String source = openApiUrlFetcher.fetch(target.rawUrl(), httpMode);
+                String source = openApiUrlFetcher.fetch(target.rawUrl(), httpMode, options.requestHeaders());
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
                     source, fileName, baseUrl, options);
                 return new RemoteOpenApiImport(preview,
@@ -740,7 +743,8 @@ public class CoverageSweepPanel extends JPanel {
             excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
             verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
             doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected(),
-            autoThrottleCheckBox == null || autoThrottleCheckBox.isSelected()
+            autoThrottleCheckBox == null || autoThrottleCheckBox.isSelected(),
+            requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers()
         );
     }
 
@@ -775,6 +779,7 @@ public class CoverageSweepPanel extends JPanel {
         concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckBox.setEnabled(enabled);
+        requestHeadersControl.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
         doublePortHostProbesCheckBox.setEnabled(enabled);

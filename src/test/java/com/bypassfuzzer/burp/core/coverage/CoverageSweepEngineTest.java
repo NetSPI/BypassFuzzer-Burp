@@ -10,6 +10,7 @@ import burp.api.montoya.proxy.ProxyHistoryFilter;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.RequestSender;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Proxy;
@@ -147,7 +148,7 @@ class CoverageSweepEngineTest {
     }
 
     @Test
-    void selectedCookieIdentifiesCandidateButAttacksRemoveEntireCookieAndAuthHeaders() {
+    void selectedCookieIdentifiesCandidateButAttacksRemoveSelectedCredentialsOnly() {
         HttpRequest original = requestWithHeaders("/account", "", "GET", Map.of(
             "Cookie", "theme=dark; JSESSIONID=secret",
             "Authorization", "Bearer secret",
@@ -168,12 +169,49 @@ class CoverageSweepEngineTest {
         assertTrue(probes.size() > 100 && probes.size() <= options.maxProbesPerCandidate());
         assertTrue(probes.stream().noneMatch(probe -> "Control".equals(probe.family())));
         HttpRequest first = probes.get(0).request();
-        assertFalse(first.hasHeader("Cookie"));
+        assertEquals("theme=dark", first.headerValue("Cookie"));
         assertFalse(first.hasHeader("Authorization"));
         assertFalse(first.hasHeader("Proxy-Authorization"));
         assertFalse(first.hasHeader("X-Api-Key"));
         assertEquals("value", first.headerValue("X-Keep"));
         assertEquals("theme=dark; JSESSIONID=secret", original.headerValue("Cookie"));
+    }
+
+    @Test
+    void configuredHeadersArePresentAndAttackedValuesAreAppendedAsDuplicates() {
+        HttpRequest original = com.bypassfuzzer.burp.testsupport.HeaderRequestTestFactory.request(
+            Map.entry("Authorization", "Bearer captured"),
+            Map.entry("Cookie", "JSESSIONID=captured; theme=dark"),
+            Map.entry("X-Forwarded-For", "captured"));
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            defaults.statuses(), defaults.inScopeOnly(), defaults.maxCandidates(),
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
+            defaults.requestDelayMs(), defaults.throttleStatusCodes(),
+            CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("JSESSIONID"), false),
+            true, true, false, true, List.of(
+                new ConfiguredHeader("Authorization", "Bearer stable"),
+                new ConfiguredHeader("Cookie", "JSESSIONID=stable; theme=light"),
+                new ConfiguredHeader("X-Forwarded-For", "10.0.0.1")
+            ));
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(200, "text/plain", "ok")), new CoverageSweepProbeGenerator());
+
+        List<CoverageSweepProbe> probes = engine.buildProbes(candidate(original, 200), options);
+        CoverageSweepProbe forwarded = probes.stream()
+            .filter(probe -> probe.label().equals("X-Forwarded-For localhost"))
+            .findFirst().orElseThrow();
+        CoverageSweepProbe authorization = probes.stream()
+            .filter(probe -> probe.label().equals("Authorization bearer placeholder"))
+            .findFirst().orElseThrow();
+
+        assertEquals(List.of("10.0.0.1", "127.0.0.1"),
+            com.bypassfuzzer.burp.testsupport.HeaderRequestTestFactory.values(
+                forwarded.request(), "X-Forwarded-For"));
+        assertEquals(List.of("Bearer stable", "Bearer A"),
+            com.bypassfuzzer.burp.testsupport.HeaderRequestTestFactory.values(
+                authorization.request(), "Authorization"));
     }
 
     @Test
@@ -228,6 +266,39 @@ class CoverageSweepEngineTest {
             results.get(0).getPayloadEncoding());
         assertFalse(results.get(0).getRequest().hasHeader("Authorization"));
         assertEquals("", results.get(1).getPayloadEncoding());
+    }
+
+    @Test
+    void anonymousVerificationExcludesConfiguredCredentialsButKeepsOtherConfiguredHeaders() throws Exception {
+        HttpRequest originalRequest = requestWithHeaders("/account", "", "GET", Map.of(
+            "Authorization", "Bearer captured",
+            "Cookie", "session=captured; theme=dark"
+        ), "");
+        HttpResponse originalResponse = response(200, "application/json", "authenticated");
+        CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest, originalResponse, "key",
+            originalRequest.url(), "GET", "example.com", "/account", 200, 13,
+            "application/json", ZonedDateTime.now());
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+            defaults.throttleStatusCodes(), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("session"), false),
+            true, true, false, true, List.of(
+                new ConfiguredHeader("Authorization", "Bearer stable"),
+                new ConfiguredHeader("Cookie", "session=stable; theme=configured"),
+                new ConfiguredHeader("X-Tenant", "blue")
+            ));
+        List<AttackResult> results = new ArrayList<>();
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(403, "application/json", "blocked")),
+            new CoverageSweepProbeGenerator());
+
+        assertTrue(engine.start(List.of(candidate), options, results::add, () -> { }));
+        for (int i = 0; i < 50 && engine.isRunning(); i++) Thread.sleep(20);
+
+        HttpRequest anonymous = results.get(0).getRequest();
+        assertFalse(anonymous.hasHeader("Authorization"));
+        assertEquals("theme=configured", anonymous.headerValue("Cookie"));
+        assertEquals("blue", anonymous.headerValue("X-Tenant"));
     }
 
     @Test

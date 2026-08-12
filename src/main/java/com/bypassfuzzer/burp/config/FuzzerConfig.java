@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.config;
 
 import com.bypassfuzzer.burp.core.attacks.AttackType;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -34,6 +35,7 @@ public class FuzzerConfig {
     private int concurrency = 1;
     private Set<Integer> throttleStatusCodes = new java.util.HashSet<>();
     private boolean enableAutoThrottle = true;
+    private List<ConfiguredHeader> requestHeaders = List.of();
 
     // OOB payload
     private String oobPayload = null;
@@ -191,6 +193,14 @@ public class FuzzerConfig {
 
     public void setEnableAutoThrottle(boolean enableAutoThrottle) {
         this.enableAutoThrottle = enableAutoThrottle;
+    }
+
+    public List<ConfiguredHeader> getRequestHeaders() {
+        return requestHeaders;
+    }
+
+    public void setRequestHeaders(List<ConfiguredHeader> requestHeaders) {
+        this.requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
     }
 
     public String getOobPayload() {

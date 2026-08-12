@@ -9,6 +9,7 @@ import com.bypassfuzzer.burp.http.RequestSender;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 /**
  * Executes a prepared request using shared attack-loop semantics.
@@ -16,9 +17,15 @@ import java.util.function.Consumer;
 public class AttackExecutor {
 
     private final RequestSender requestSender;
+    private final UnaryOperator<HttpRequest> requestTransformer;
 
     public AttackExecutor(RequestSender requestSender) {
+        this(requestSender, UnaryOperator.identity());
+    }
+
+    public AttackExecutor(RequestSender requestSender, UnaryOperator<HttpRequest> requestTransformer) {
         this.requestSender = requestSender;
+        this.requestTransformer = requestTransformer == null ? UnaryOperator.identity() : requestTransformer;
     }
 
     public boolean execute(String attackType, String payload, HttpRequest request,
@@ -37,11 +44,12 @@ public class AttackExecutor {
             return false;
         }
 
-        HttpResponse response = requestSender.send(request, httpMode);
+        HttpRequest sentRequest = requestTransformer.apply(request);
+        HttpResponse response = requestSender.send(sentRequest, httpMode);
         if (rateLimiter != null) {
             rateLimiter.reportResponse(response);
         }
-        resultCallback.accept(new AttackResult(attackType, payload, request, response));
+        resultCallback.accept(new AttackResult(attackType, payload, sentRequest, response));
         return true;
     }
 
@@ -54,11 +62,13 @@ public class AttackExecutor {
             return false;
         }
 
-        HttpResponse response = requestSender.send(request);
+        HttpRequest sentRequest = requestTransformer.apply(request);
+        HttpResponse response = requestSender.send(sentRequest);
         if (rateLimiter != null) {
             rateLimiter.reportResponse(response);
         }
-        resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response));
+        resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily,
+            payloadEncoding, sentRequest, response));
         return true;
     }
 
@@ -72,7 +82,8 @@ public class AttackExecutor {
             return AttackExecutionResult.stopped();
         }
 
-        HttpResponse response = requestSender.send(request, timeout, timeUnit);
+        HttpRequest sentRequest = requestTransformer.apply(request);
+        HttpResponse response = requestSender.send(sentRequest, timeout, timeUnit);
         if (response == null) {
             return shouldContinue.getAsBoolean() && !Thread.currentThread().isInterrupted()
                 ? AttackExecutionResult.timedOut()
@@ -83,7 +94,7 @@ public class AttackExecutor {
             rateLimiter.reportResponse(response);
         }
 
-        resultCallback.accept(new AttackResult(attackType, payload, request, response));
+        resultCallback.accept(new AttackResult(attackType, payload, sentRequest, response));
         return AttackExecutionResult.executed(response);
     }
 }

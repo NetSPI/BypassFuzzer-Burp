@@ -6,8 +6,10 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,5 +84,41 @@ class OpenApiUrlFetcherTest {
 
         assertEquals("{}", source);
         verify(api.http()).sendRequest(outboundRequest, HttpMode.HTTP_2);
+    }
+
+    @Test
+    void configuredHeadersReplaceDefaultsAndPreserveDuplicatesOnSpecDownload() throws Exception {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        ByteArray body = mock(ByteArray.class);
+        HttpRequest outboundRequest = mock(HttpRequest.class);
+        AtomicReference<String> rawRequest = new AtomicReference<>();
+        when(api.http().sendRequest(outboundRequest, HttpMode.HTTP_1)).thenReturn(exchange);
+        when(exchange.response()).thenReturn(response);
+        when(response.statusCode()).thenReturn((short) 200);
+        when(response.body()).thenReturn(body);
+        when(body.length()).thenReturn(2);
+        when(response.bodyToString()).thenReturn("{}");
+
+        OpenApiUrlFetcher.burp(api, (target, raw) -> {
+            rawRequest.set(raw);
+            return outboundRequest;
+        }).fetch("https://specs.example.test/openapi.json", HttpMode.HTTP_1, List.of(
+            new ConfiguredHeader("User-Agent", "Custom Agent"),
+            new ConfiguredHeader("Authorization", "Bearer one"),
+            new ConfiguredHeader("authorization", "Bearer two")
+        ));
+
+        assertEquals(
+            "GET /openapi.json HTTP/1.1\r\n"
+                + "Host: specs.example.test\r\n"
+                + "Accept: application/json, application/yaml, text/yaml, */*;q=0.1\r\n"
+                + "Connection: close\r\n"
+                + "User-Agent: Custom Agent\r\n"
+                + "Authorization: Bearer one\r\n"
+                + "authorization: Bearer two\r\n\r\n",
+            rawRequest.get()
+        );
     }
 }

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
  * Cookie-header parsing and rewrite helpers that preserve cookie order.
@@ -89,6 +90,16 @@ public final class CookieHeaderUtils {
         }
 
         return appendCookie(cookieHeader, cookie);
+    }
+
+    public static String removeCookies(String cookieHeader, Set<String> cookieNames) {
+        if (cookieHeader == null || cookieNames == null || cookieNames.isEmpty()) {
+            return cookieHeader;
+        }
+        List<CookiePart> retained = parseCookieParts(cookieHeader).stream()
+            .filter(cookie -> cookieNames.stream().noneMatch(name -> name.equalsIgnoreCase(cookie.name())))
+            .toList();
+        return toHeaderValue(retained);
     }
 
     private static String toHeaderValue(List<CookiePart> cookies) {

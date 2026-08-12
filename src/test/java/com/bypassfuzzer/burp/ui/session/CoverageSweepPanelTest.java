@@ -18,6 +18,7 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbeGenerator;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -84,6 +85,16 @@ class CoverageSweepPanelTest {
         autoThrottle.doClick();
 
         assertFalse(currentOptions(panel).autoThrottleEnabled());
+    }
+
+    @Test
+    void sweepCollectsItsOwnRequestHeaders() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        RequestHeadersControl control = field(panel, "requestHeadersControl", RequestHeadersControl.class);
+        control.setHeaders(List.of(new ConfiguredHeader("X-Tenant", "blue")));
+
+        assertEquals(List.of(new ConfiguredHeader("X-Tenant", "blue")),
+            currentOptions(panel).requestHeaders());
     }
 
     @Test

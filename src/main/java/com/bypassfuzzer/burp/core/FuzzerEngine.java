@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.*;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
+import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
 
 import java.util.ArrayList;
@@ -153,8 +154,10 @@ public class FuzzerEngine {
             safeLog("Auto-throttle enabled for status codes: " + config.getThrottleStatusCodes());
         }
 
+        ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(config.getRequestHeaders());
         List<RegisteredAttack> attacks = attackRegistry.buildEnabledAttacks(config, targetUrl);
-        AttackExecutor attackExecutor = new AttackExecutor(new MontoyaRequestSender(api));
+        AttackExecutor attackExecutor = new AttackExecutor(
+            new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
         safeLog("Built " + attacks.size() + " attack strategies");
         int concurrency = Math.max(1, config.getConcurrency());
         safeLog("Concurrency: " + concurrency + " attack " + (concurrency == 1 ? "family" : "families"));

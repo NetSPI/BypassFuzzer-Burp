@@ -7,6 +7,7 @@ import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -35,6 +36,10 @@ interface OpenApiUrlFetcher {
 
     String fetch(String rawUrl, HttpMode httpMode) throws Exception;
 
+    default String fetch(String rawUrl, HttpMode httpMode, java.util.List<ConfiguredHeader> headers) throws Exception {
+        return fetch(rawUrl, httpMode);
+    }
+
     static OpenApiUrlFetcher burp(MontoyaApi api) {
         return burp(api, (target, rawRequest) -> {
             HttpService service = HttpService.httpService(target.host(), target.port(), target.secure());
@@ -43,25 +48,27 @@ interface OpenApiUrlFetcher {
     }
 
     static OpenApiUrlFetcher burp(MontoyaApi api, RawRequestFactory requestFactory) {
-        return (rawUrl, httpMode) -> fetchWithBurp(
-            api,
-            requestFactory,
-            rawUrl,
-            httpMode == null ? HttpMode.HTTP_1 : httpMode,
-            0
-        );
+        return new OpenApiUrlFetcher() {
+            @Override
+            public String fetch(String rawUrl, HttpMode httpMode) throws Exception {
+                return fetch(rawUrl, httpMode, java.util.List.of());
+            }
+
+            @Override
+            public String fetch(String rawUrl, HttpMode httpMode,
+                                java.util.List<ConfiguredHeader> headers) throws Exception {
+                return fetchWithBurp(api, requestFactory, rawUrl,
+                    httpMode == null ? HttpMode.HTTP_1 : httpMode, headers, 0);
+            }
+        };
     }
 
     private static String fetchWithBurp(MontoyaApi api, RawRequestFactory requestFactory,
                                         String rawUrl, HttpMode httpMode,
+                                        java.util.List<ConfiguredHeader> configuredHeaders,
                                         int redirectCount) throws Exception {
         ParsedUrl target = parse(rawUrl);
-        String rawRequest = "GET " + target.requestTarget() + " HTTP/1.1\r\n"
-            + "Host: " + target.hostHeader() + "\r\n"
-            + "User-Agent: " + BROWSER_USER_AGENT + "\r\n"
-            + "Accept: application/json, application/yaml, text/yaml, */*;q=0.1\r\n"
-            + "Connection: close\r\n"
-            + "\r\n";
+        String rawRequest = buildRawRequest(target, configuredHeaders);
         HttpRequest request = requestFactory.create(target, rawRequest);
         HttpRequestResponse exchange = sendWithTimeout(api, request, httpMode);
         HttpResponse response = exchange == null ? null : exchange.response();
@@ -79,7 +86,7 @@ interface OpenApiUrlFetcher {
                 throw new IOException("OpenAPI URL exceeded " + MAX_REDIRECTS + " redirects");
             }
             return fetchWithBurp(api, requestFactory, resolveRedirect(target, location.trim()),
-                httpMode, redirectCount + 1);
+                httpMode, configuredHeaders, redirectCount + 1);
         }
         if (status < 200 || status >= 300) {
             throw new IOException("OpenAPI URL returned HTTP " + status);
@@ -88,6 +95,28 @@ interface OpenApiUrlFetcher {
             throw new IOException("OpenAPI document exceeds the 10 MB import limit");
         }
         return response.bodyToString();
+    }
+
+    private static String buildRawRequest(ParsedUrl target, java.util.List<ConfiguredHeader> configuredHeaders) {
+        java.util.List<ConfiguredHeader> defaults = java.util.List.of(
+            new ConfiguredHeader("Host", target.hostHeader()),
+            new ConfiguredHeader("User-Agent", BROWSER_USER_AGENT),
+            new ConfiguredHeader("Accept", "application/json, application/yaml, text/yaml, */*;q=0.1"),
+            new ConfiguredHeader("Connection", "close")
+        );
+        java.util.List<ConfiguredHeader> configured = configuredHeaders == null
+            ? java.util.List.of() : java.util.List.copyOf(configuredHeaders);
+        java.util.Set<String> configuredNames = configured.stream()
+            .map(header -> header.name().toLowerCase(Locale.ROOT))
+            .collect(java.util.stream.Collectors.toSet());
+        StringBuilder request = new StringBuilder("GET ")
+            .append(target.requestTarget()).append(" HTTP/1.1\r\n");
+        defaults.stream()
+            .filter(header -> !configuredNames.contains(header.name().toLowerCase(Locale.ROOT)))
+            .forEach(header -> request.append(header.name()).append(": ").append(header.value()).append("\r\n"));
+        configured.forEach(header -> request.append(header.name()).append(": ")
+            .append(header.value()).append("\r\n"));
+        return request.append("\r\n").toString();
     }
 
     private static HttpRequestResponse sendWithTimeout(MontoyaApi api, HttpRequest request,

@@ -7,6 +7,7 @@ import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
+import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
 
 import java.util.Set;
 import java.util.function.Consumer;
@@ -79,8 +80,10 @@ public class UrlValidationEngine {
             options.autoThrottleEnabled()
         );
 
+        ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.requestHeaders());
         UrlValidationAttack attack = new UrlValidationAttack(options);
-        AttackExecutor attackExecutor = new AttackExecutor(new MontoyaRequestSender(api));
+        AttackExecutor attackExecutor = new AttackExecutor(
+            new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
         attack.execute(api, request, targetUrl, result -> {
             if (running) {
                 resultCallback.accept(result);

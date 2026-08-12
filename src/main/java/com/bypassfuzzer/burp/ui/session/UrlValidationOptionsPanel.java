@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationAttackSetting;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationContext;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationEncoding;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -49,6 +50,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
     private final JCheckBox autoThrottleCheckbox;
+    private final RequestHeadersControl requestHeadersControl;
 
     public UrlValidationOptionsPanel(HttpRequest request, boolean collaboratorAvailable) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -99,6 +101,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         autoThrottleCheckbox = new JCheckBox("Enable auto throttle", true);
         autoThrottleCheckbox.setToolTipText(
             "Automatically back off when a configured throttle response is received.");
+        requestHeadersControl = new RequestHeadersControl(this);
 
         add(createTargetingSection());
         add(Box.createVerticalStrut(10));
@@ -193,6 +196,10 @@ public class UrlValidationOptionsPanel extends JPanel {
         return autoThrottleCheckbox.isSelected();
     }
 
+    public java.util.List<ConfiguredHeader> requestHeaders() {
+        return requestHeadersControl.headers();
+    }
+
     public int requestDelayMs() {
         try {
             return Math.max(0, Integer.parseInt(requestDelayField.getText().trim()));
@@ -226,6 +233,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckbox.setEnabled(enabled);
+        requestHeadersControl.setEnabled(enabled);
     }
 
     private JPanel createTargetingSection() {
@@ -262,6 +270,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         panel.add(formRow("Delay (ms)", requestDelayField, "minimum between requests"));
         panel.add(formRow("", autoThrottleCheckbox));
         panel.add(formRow("Throttle codes", throttleStatusCodesField, "comma-separated"));
+        panel.add(formRow("Request headers", requestHeadersControl.button(), "sent with every request"));
         return finalizeSection(panel);
     }
 

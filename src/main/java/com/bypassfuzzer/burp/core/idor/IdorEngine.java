@@ -10,6 +10,7 @@ import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybookRegistry;
 import com.bypassfuzzer.burp.core.idor.playbooks.IdorRequestVariant;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestSender;
+import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
 
 import java.util.HashSet;
 import java.util.List;
@@ -97,6 +98,7 @@ public class IdorEngine {
             return;
         }
 
+        ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.runOptions().requestHeaders());
         IdorRequestContext context = contextAnalyzer.analyze(request, options);
         HttpRequest targetRequest = context.targetRequest();
         if (!running) {
@@ -108,7 +110,8 @@ public class IdorEngine {
             options.runOptions().requestDelayMs(), throttleCodes,
             options.runOptions().autoThrottleEnabled());
 
-        AttackExecutor attackExecutor = new AttackExecutor(requestSender);
+        AttackExecutor attackExecutor = new AttackExecutor(
+            requestSender, mutated -> headerPolicy.reconcileMutation(request, mutated));
         Consumer<AttackResult> publishingCallback = result -> {
             if (!running) {
                 return;
@@ -161,10 +164,8 @@ public class IdorEngine {
                     return;
                 }
 
-                // Dedup key: method + path (includes query) + body
-                String dedupKey = variant.request().method()
-                    + " " + variant.request().path()
-                    + " " + variant.request().bodyToString();
+                // Include headers so Accept, Content-Type, and method-override variants remain distinct.
+                String dedupKey = variant.request().toString();
                 if (!sentRequests.add(dedupKey)) {
                     continue;
                 }

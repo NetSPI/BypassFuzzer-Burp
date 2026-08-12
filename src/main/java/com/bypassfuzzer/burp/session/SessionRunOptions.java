@@ -2,8 +2,10 @@ package com.bypassfuzzer.burp.session;
 
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.AttackType;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 public record SessionRunOptions(
@@ -25,8 +27,26 @@ public record SessionRunOptions(
     int requestDelayMs,
     int concurrency,
     Set<Integer> throttleStatusCodes,
-    boolean autoThrottleEnabled
+    boolean autoThrottleEnabled,
+    List<ConfiguredHeader> requestHeaders
 ) {
+
+    public SessionRunOptions {
+        requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
+    }
+
+    public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
+                             boolean paramAttack, boolean trailingDotAttack, boolean trailingSlashAttack,
+                             boolean extensionAttack, boolean contentTypeAttack, boolean encodingAttack,
+                             boolean protocolAttack, boolean caseAttack, boolean collaboratorPayloads,
+                             boolean cookieParamAttack, boolean fuzzExistingCookies, int requestsPerSecond,
+                             int requestDelayMs, int concurrency, Set<Integer> throttleStatusCodes,
+                             boolean autoThrottleEnabled) {
+        this(headerAttack, pathAttack, verbAttack, paramAttack, trailingDotAttack, trailingSlashAttack,
+            extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
+            collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond,
+            requestDelayMs, concurrency, throttleStatusCodes, autoThrottleEnabled, List.of());
+    }
 
     public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
                              boolean paramAttack, boolean trailingDotAttack, boolean trailingSlashAttack,
@@ -38,7 +58,7 @@ public record SessionRunOptions(
             extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
             collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond,
             requestDelayMs, concurrency, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
     }
 
     public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
@@ -51,7 +71,7 @@ public record SessionRunOptions(
             extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
             collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond, 0,
             concurrency, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
     }
 
     public Set<AttackType> enabledAttackTypes() {
@@ -95,7 +115,8 @@ public record SessionRunOptions(
             requestDelayMs,
             concurrency,
             throttleStatusCodes,
-            autoThrottleEnabled
+            autoThrottleEnabled,
+            requestHeaders
         );
     }
 
@@ -119,5 +140,6 @@ public record SessionRunOptions(
         config.setConcurrency(concurrency);
         config.setThrottleStatusCodes(throttleStatusCodes);
         config.setEnableAutoThrottle(autoThrottleEnabled);
+        config.setRequestHeaders(requestHeaders);
     }
 }

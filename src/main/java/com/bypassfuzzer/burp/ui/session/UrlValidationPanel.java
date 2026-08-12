@@ -354,7 +354,8 @@ public class UrlValidationPanel extends JPanel {
             requestsPerSecond,
             optionsPanel.requestDelayMs(),
             SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText()),
-            optionsPanel.isAutoThrottleEnabled()
+            optionsPanel.isAutoThrottleEnabled(),
+            optionsPanel.requestHeaders()
         );
     }
 

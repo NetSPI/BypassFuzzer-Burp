@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import com.bypassfuzzer.burp.core.idor.IdorRunOptions;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -23,6 +24,7 @@ public class IdorRunOptionsPanel extends JPanel {
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
     private final JCheckBox autoThrottleCheckbox;
+    private final RequestHeadersControl requestHeadersControl;
 
     public IdorRunOptionsPanel(IdorRunOptions defaults) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -53,6 +55,12 @@ public class IdorRunOptionsPanel extends JPanel {
         throttleHelp.setForeground(Color.GRAY);
         throttleRow.add(throttleHelp);
         add(throttleRow);
+
+        JPanel headersRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        requestHeadersControl = new RequestHeadersControl(this);
+        requestHeadersControl.setHeaders(defaults.requestHeaders());
+        headersRow.add(requestHeadersControl.button());
+        add(headersRow);
     }
 
     public IdorRunOptions collect() {
@@ -73,7 +81,8 @@ public class IdorRunOptionsPanel extends JPanel {
             requestsPerSecond,
             requestDelayMs,
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
-            autoThrottleCheckbox.isSelected()
+            autoThrottleCheckbox.isSelected(),
+            requestHeadersControl.headers()
         );
     }
 
@@ -82,6 +91,7 @@ public class IdorRunOptionsPanel extends JPanel {
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckbox.setEnabled(enabled);
+        requestHeadersControl.setEnabled(enabled);
     }
 
     private String formatStatusCodes(Set<Integer> codes) {

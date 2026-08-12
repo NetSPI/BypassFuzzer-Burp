@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import com.bypassfuzzer.burp.config.FuzzerConfig;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import javax.swing.*;
 import java.awt.*;
@@ -15,6 +16,7 @@ public class RunOptionsPanel extends JPanel {
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
     private final JCheckBox autoThrottleCheckbox;
+    private final RequestHeadersControl requestHeadersControl;
 
     public RunOptionsPanel(FuzzerConfig config, boolean collaboratorAvailable) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -75,6 +77,12 @@ public class RunOptionsPanel extends JPanel {
         throttleHelp.setForeground(Color.GRAY);
         throttleRow.add(throttleHelp);
         add(throttleRow);
+
+        JPanel headersRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        requestHeadersControl = new RequestHeadersControl(this);
+        requestHeadersControl.setHeaders(config.getRequestHeaders());
+        headersRow.add(requestHeadersControl.button());
+        add(headersRow);
     }
 
     public boolean isCollaboratorEnabled() {
@@ -105,12 +113,17 @@ public class RunOptionsPanel extends JPanel {
         return autoThrottleCheckbox.isSelected();
     }
 
+    public java.util.List<ConfiguredHeader> requestHeaders() {
+        return requestHeadersControl.headers();
+    }
+
     public void setControlsEnabled(boolean enabled, boolean collaboratorAvailable) {
         fuzzExistingCookiesCheckbox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckbox.setEnabled(enabled);
+        requestHeadersControl.setEnabled(enabled);
         collaboratorCheckbox.setEnabled(enabled && collaboratorAvailable);
     }
 

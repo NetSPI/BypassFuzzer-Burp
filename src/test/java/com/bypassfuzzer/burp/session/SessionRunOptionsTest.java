@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.session;
 
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.AttackType;
+import com.bypassfuzzer.burp.http.ConfiguredHeader;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -55,5 +56,20 @@ class SessionRunOptionsTest {
 
         assertFalse(config.isEnableAutoThrottle());
         assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
+    }
+
+    @Test
+    void appliesPerRunRequestHeadersToFuzzerConfig() {
+        SessionRunOptions options = new SessionRunOptions(
+            true, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, 0, 0, 1, Set.of(429), true,
+            java.util.List.of(new ConfiguredHeader("Authorization", "Bearer stable"))
+        );
+        FuzzerConfig config = new FuzzerConfig();
+
+        options.applyTo(config);
+
+        assertEquals(java.util.List.of(new ConfiguredHeader("Authorization", "Bearer stable")),
+            config.getRequestHeaders());
     }
 }
