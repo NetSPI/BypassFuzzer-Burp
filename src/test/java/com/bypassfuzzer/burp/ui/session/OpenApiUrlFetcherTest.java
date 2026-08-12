@@ -1,0 +1,64 @@
+package com.bypassfuzzer.burp.ui.session;
+
+import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpMode;
+import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.http.message.requests.HttpRequest;
+import burp.api.montoya.http.message.responses.HttpResponse;
+import org.junit.jupiter.api.Test;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class OpenApiUrlFetcherTest {
+
+    @Test
+    void parserPreservesLiteralBackslashInRequestTarget() {
+        String rawUrl = "https://iquery.finance.yahoo.com/ws/user-analytics/\\docs/handcrafted/swagger/openapi.json";
+
+        OpenApiUrlFetcher.ParsedUrl parsed = OpenApiUrlFetcher.parse(rawUrl);
+
+        assertEquals("iquery.finance.yahoo.com", parsed.host());
+        assertEquals(443, parsed.port());
+        assertEquals("/ws/user-analytics/\\docs/handcrafted/swagger/openapi.json", parsed.requestTarget());
+        assertEquals(rawUrl, parsed.rawUrl());
+    }
+
+    @Test
+    void burpFetcherSendsLiteralBackslashOverHttp1() throws Exception {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        ByteArray body = mock(ByteArray.class);
+        HttpRequest outboundRequest = mock(HttpRequest.class);
+        AtomicReference<String> rawRequest = new AtomicReference<>();
+        when(api.http().sendRequest(any(HttpRequest.class), eq(HttpMode.HTTP_1))).thenReturn(exchange);
+        when(exchange.response()).thenReturn(response);
+        when(response.statusCode()).thenReturn((short) 200);
+        when(response.body()).thenReturn(body);
+        when(body.length()).thenReturn(37);
+        when(response.bodyToString()).thenReturn("{\"openapi\":\"3.0.0\",\"paths\":{}}");
+        String rawUrl = "https://iquery.finance.yahoo.com/ws/user-analytics/\\docs/handcrafted/swagger/openapi.json";
+
+        String source = OpenApiUrlFetcher.burp(api, (target, raw) -> {
+            rawRequest.set(raw);
+            return outboundRequest;
+        }).fetch(rawUrl);
+
+        assertEquals("{\"openapi\":\"3.0.0\",\"paths\":{}}", source);
+        verify(api.http()).sendRequest(outboundRequest, HttpMode.HTTP_1);
+        assertEquals(
+            "GET /ws/user-analytics/\\docs/handcrafted/swagger/openapi.json HTTP/1.1\r\n"
+                + "Host: iquery.finance.yahoo.com\r\n"
+                + "Accept: application/json, application/yaml, text/yaml, */*;q=0.1\r\n"
+                + "Connection: close\r\n\r\n",
+            rawRequest.get()
+        );
+    }
+}

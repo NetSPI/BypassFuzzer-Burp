@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.requestWithHeaders;
@@ -326,18 +327,22 @@ class CoverageSweepPanelTest {
         when(engine.collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
             any(CoverageSweepOptions.class))).thenReturn(preview);
         AtomicBoolean fetchedOnEventThread = new AtomicBoolean(true);
+        AtomicReference<String> fetchedUrl = new AtomicReference<>();
         CountDownLatch fetchStarted = new CountDownLatch(1);
-        OpenApiUrlFetcher fetcher = uri -> {
+        OpenApiUrlFetcher fetcher = url -> {
             fetchedOnEventThread.set(SwingUtilities.isEventDispatchThread());
+            fetchedUrl.set(url);
             fetchStarted.countDown();
             return "{\"openapi\":\"3.0.0\",\"paths\":{}}";
         };
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine, fetcher);
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+        String malformedUrl = "https://iquery.finance.yahoo.com/ws/user-analytics/\\docs/handcrafted/swagger/openapi.json";
 
-        assertTrue(panel.importTargetsFromUrl("https://specs.example.test/openapi.json?version=1"));
+        assertTrue(panel.importTargetsFromUrl(malformedUrl));
         assertTrue(fetchStarted.await(2, TimeUnit.SECONDS));
         assertFalse(fetchedOnEventThread.get());
+        assertEquals(malformedUrl, fetchedUrl.get());
         waitForRemoteImport(panel);
 
         JTable table = field(panel, "candidateTable", JTable.class);

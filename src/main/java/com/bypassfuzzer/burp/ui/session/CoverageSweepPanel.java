@@ -38,7 +38,6 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -97,18 +96,18 @@ public class CoverageSweepPanel extends JPanel {
     private boolean authDefaultsInitialized;
 
     public CoverageSweepPanel(MontoyaApi api) {
-        this(api, new CoverageSweepEngine(api), OpenApiUrlFetcher.http());
+        this(api, new CoverageSweepEngine(api), OpenApiUrlFetcher.burp(api));
     }
 
     CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine) {
-        this(api, engine, OpenApiUrlFetcher.http());
+        this(api, engine, OpenApiUrlFetcher.burp(api));
     }
 
     CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine, OpenApiUrlFetcher openApiUrlFetcher) {
         super(new BorderLayout());
         this.api = api;
         this.engine = engine;
-        this.openApiUrlFetcher = openApiUrlFetcher == null ? OpenApiUrlFetcher.http() : openApiUrlFetcher;
+        this.openApiUrlFetcher = openApiUrlFetcher == null ? OpenApiUrlFetcher.burp(api) : openApiUrlFetcher;
         initializeUi();
     }
 
@@ -428,23 +427,23 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     boolean importTargetsFromUrl(String rawUrl) {
-        URI uri;
+        OpenApiUrlFetcher.ParsedUrl target;
         try {
-            uri = validateOpenApiUri(rawUrl);
+            target = OpenApiUrlFetcher.parse(rawUrl);
         } catch (IllegalArgumentException e) {
             statusLabel.setText("Unable to import targets: " + e.getMessage());
             return false;
         }
 
         setControlsForLoading();
-        statusLabel.setText("Downloading OpenAPI document from " + uri.getHost() + "...");
+        statusLabel.setText("Downloading OpenAPI document from " + target.host() + "...");
         CoverageSweepOptions options = currentOptions();
         String baseUrl = openApiBaseUrlField.getText().trim();
         SwingWorker<RemoteOpenApiImport, Void> worker = new SwingWorker<>() {
             @Override
             protected RemoteOpenApiImport doInBackground() throws Exception {
-                String fileName = remoteFileName(uri);
-                String source = openApiUrlFetcher.fetch(uri);
+                String fileName = remoteFileName(target.requestTarget());
+                String source = openApiUrlFetcher.fetch(target.rawUrl());
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
                     source, fileName, baseUrl, options);
                 return new RemoteOpenApiImport(preview);
@@ -515,29 +514,17 @@ public class CoverageSweepPanel extends JPanel {
         setCandidateActionButtonsEnabled(false);
     }
 
-    private URI validateOpenApiUri(String rawUrl) {
-        try {
-            URI uri = URI.create(rawUrl == null ? "" : rawUrl.trim());
-            String scheme = uri.getScheme();
-            if (uri.getHost() == null
-                || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
-                throw new IllegalArgumentException("Enter an absolute HTTP or HTTPS OpenAPI URL.");
-            }
-            return uri;
-        } catch (IllegalArgumentException e) {
-            if (e.getMessage() != null && e.getMessage().startsWith("Enter an absolute")) {
-                throw e;
-            }
-            throw new IllegalArgumentException("Enter a valid absolute HTTP or HTTPS OpenAPI URL.");
+    private String remoteFileName(String requestTarget) {
+        String path = requestTarget;
+        int query = path == null ? -1 : path.indexOf('?');
+        if (query >= 0) {
+            path = path.substring(0, query);
         }
-    }
-
-    private String remoteFileName(URI uri) {
-        String path = uri.getPath();
         if (path == null || path.isBlank() || path.endsWith("/")) {
             return "openapi.json";
         }
-        String name = path.substring(path.lastIndexOf('/') + 1);
+        int separator = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String name = path.substring(separator + 1);
         return name.isBlank() ? "openapi.json" : name;
     }
 
