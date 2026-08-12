@@ -4,6 +4,7 @@ import com.bypassfuzzer.burp.core.idor.IdorRunOptions;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -21,6 +22,7 @@ public class IdorRunOptionsPanel extends JPanel {
     private final JTextField requestsPerSecondField;
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
+    private final JCheckBox autoThrottleCheckbox;
 
     public IdorRunOptionsPanel(IdorRunOptions defaults) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -39,7 +41,11 @@ public class IdorRunOptionsPanel extends JPanel {
         add(delayRow);
 
         JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
+        autoThrottleCheckbox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
+        autoThrottleCheckbox.setToolTipText(
+            "Automatically back off when a configured throttle response is received.");
+        throttleRow.add(autoThrottleCheckbox);
+        throttleRow.add(new JLabel("Status code(s):"));
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 10);
         throttleRow.add(throttleStatusCodesField);
         JLabel throttleHelp = new JLabel("(comma-separated, e.g., 429,503)");
@@ -66,7 +72,8 @@ public class IdorRunOptionsPanel extends JPanel {
         return new IdorRunOptions(
             requestsPerSecond,
             requestDelayMs,
-            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText())
+            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
+            autoThrottleCheckbox.isSelected()
         );
     }
 
@@ -74,6 +81,7 @@ public class IdorRunOptionsPanel extends JPanel {
         requestsPerSecondField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
+        autoThrottleCheckbox.setEnabled(enabled);
     }
 
     private String formatStatusCodes(Set<Integer> codes) {

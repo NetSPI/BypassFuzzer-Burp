@@ -221,7 +221,7 @@ public class CoverageSweepEngine {
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
         rateLimiter = new RateLimiter(api, options.requestsPerSecond(), options.requestDelayMs(),
-            safeThrottleCodes(options.throttleStatusCodes()), !safeThrottleCodes(options.throttleStatusCodes()).isEmpty());
+            safeThrottleCodes(options.throttleStatusCodes()), options.autoThrottleEnabled());
         int concurrency = Math.max(1, options.concurrency());
         AtomicInteger workerCounter = new AtomicInteger(1);
         executor = Executors.newFixedThreadPool(concurrency, runnable -> {

@@ -214,7 +214,8 @@ public class FuzzingSessionTab extends JPanel {
 
         runOptions.applyTo(config);
         resultsWorkspace.configureThrottleRetries(runOptions.throttleStatusCodes(),
-            runOptions.requestsPerSecond(), runOptions.requestDelayMs());
+            runOptions.requestsPerSecond(), runOptions.requestDelayMs(),
+            runOptions.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
         warningLabel.setVisible(false);
         setAttackControlsEnabled(false);

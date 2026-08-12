@@ -13,8 +13,20 @@ public record UrlValidationOptions(
     Set<UrlValidationEncoding> encodings,
     int requestsPerSecond,
     int requestDelayMs,
-    Set<Integer> throttleStatusCodes
+    Set<Integer> throttleStatusCodes,
+    boolean autoThrottleEnabled
 ) {
+
+    public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
+                                boolean collaboratorPayloads, String attackerScheme,
+                                Set<UrlValidationContext> payloadFamilies,
+                                Set<UrlValidationAttackSetting> attackSettings,
+                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
+                                int requestDelayMs, Set<Integer> throttleStatusCodes) {
+        this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
+            payloadFamilies, attackSettings, encodings, requestsPerSecond, requestDelayMs,
+            throttleStatusCodes, throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
+    }
 
     public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
                                 boolean collaboratorPayloads, String attackerScheme,
@@ -23,7 +35,8 @@ public record UrlValidationOptions(
                                 Set<UrlValidationEncoding> encodings, int requestsPerSecond,
                                 Set<Integer> throttleStatusCodes) {
         this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
-            payloadFamilies, attackSettings, encodings, requestsPerSecond, 0, throttleStatusCodes);
+            payloadFamilies, attackSettings, encodings, requestsPerSecond, 0, throttleStatusCodes,
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
     }
 
     private static final Set<UrlValidationContext> DEFAULT_PAYLOAD_FAMILIES = Set.of(

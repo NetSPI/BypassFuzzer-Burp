@@ -74,6 +74,19 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void autoThrottleIsEnabledByDefaultAndCanBeDisabled() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JCheckBox autoThrottle = checkbox(panel, "autoThrottleCheckBox");
+
+        assertTrue(autoThrottle.isSelected());
+        assertTrue(currentOptions(panel).autoThrottleEnabled());
+
+        autoThrottle.doClick();
+
+        assertFalse(currentOptions(panel).autoThrottleEnabled());
+    }
+
+    @Test
     void authenticatedModePassivelyFiltersBySelectedIdentifiersAndSafeMethods() throws Exception {
         HttpRequest get = requestWithHeaders("/account", "", "GET",
             Map.of("Cookie", "theme=dark; JSESSIONID=secret"), "");

@@ -42,4 +42,18 @@ class SessionRunOptionsTest {
         assertEquals(4, config.getConcurrency());
         assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
     }
+
+    @Test
+    void appliesExplicitAutoThrottleSelectionIndependentlyOfStatusCodes() {
+        SessionRunOptions options = new SessionRunOptions(
+            true, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, 0, 0, 1, Set.of(429, 503), false
+        );
+        FuzzerConfig config = new FuzzerConfig();
+
+        options.applyTo(config);
+
+        assertFalse(config.isEnableAutoThrottle());
+        assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
+    }
 }

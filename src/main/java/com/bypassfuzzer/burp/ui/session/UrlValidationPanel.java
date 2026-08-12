@@ -256,7 +256,7 @@ public class UrlValidationPanel extends JPanel {
         stopButton.setEnabled(true);
         statusLabel.setText("URL validation fuzzing in progress...");
         resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
-            options.requestsPerSecond(), options.requestDelayMs());
+            options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
 
         boolean started = engine.start(activeRequest, options, this::addResult, this::handleCompletion);
@@ -353,7 +353,8 @@ public class UrlValidationPanel extends JPanel {
             optionsPanel.encodings(),
             requestsPerSecond,
             optionsPanel.requestDelayMs(),
-            SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText())
+            SessionInputParsers.parseStatusCodes(optionsPanel.throttleStatusCodesText()),
+            optionsPanel.isAutoThrottleEnabled()
         );
     }
 

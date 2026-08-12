@@ -48,6 +48,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JTextField requestsPerSecondField;
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
+    private final JCheckBox autoThrottleCheckbox;
 
     public UrlValidationOptionsPanel(HttpRequest request, boolean collaboratorAvailable) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -95,6 +96,9 @@ public class UrlValidationOptionsPanel extends JPanel {
         requestsPerSecondField = new JTextField("0", 5);
         requestDelayField = new JTextField("0", 5);
         throttleStatusCodesField = new JTextField("429,503", 10);
+        autoThrottleCheckbox = new JCheckBox("Enable auto throttle", true);
+        autoThrottleCheckbox.setToolTipText(
+            "Automatically back off when a configured throttle response is received.");
 
         add(createTargetingSection());
         add(Box.createVerticalStrut(10));
@@ -185,6 +189,10 @@ public class UrlValidationOptionsPanel extends JPanel {
         return throttleStatusCodesField.getText();
     }
 
+    public boolean isAutoThrottleEnabled() {
+        return autoThrottleCheckbox.isSelected();
+    }
+
     public int requestDelayMs() {
         try {
             return Math.max(0, Integer.parseInt(requestDelayField.getText().trim()));
@@ -217,6 +225,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         requestsPerSecondField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
+        autoThrottleCheckbox.setEnabled(enabled);
     }
 
     private JPanel createTargetingSection() {
@@ -251,6 +260,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         JPanel panel = createSectionPanel("Execution");
         panel.add(formRow("Requests/sec", requestsPerSecondField, "0 = unlimited"));
         panel.add(formRow("Delay (ms)", requestDelayField, "minimum between requests"));
+        panel.add(formRow("", autoThrottleCheckbox));
         panel.add(formRow("Throttle codes", throttleStatusCodesField, "comma-separated"));
         return finalizeSection(panel);
     }

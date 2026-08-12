@@ -76,7 +76,7 @@ public class UrlValidationEngine {
             options.requestsPerSecond(),
             options.requestDelayMs(),
             throttleCodes,
-            !throttleCodes.isEmpty()
+            options.autoThrottleEnabled()
         );
 
         UrlValidationAttack attack = new UrlValidationAttack(options);

@@ -379,7 +379,8 @@ public class IdorPanel extends JPanel {
         stopButton.setEnabled(true);
         statusLabel.setText("IDOR analysis in progress...");
         resultsWorkspace.configureThrottleRetries(options.runOptions().throttleStatusCodes(),
-            options.runOptions().requestsPerSecond(), options.runOptions().requestDelayMs());
+            options.runOptions().requestsPerSecond(), options.runOptions().requestDelayMs(),
+            options.runOptions().autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
 
         boolean started = engine.start(originalRequest, options, this::addResult, this::handleCompletion);

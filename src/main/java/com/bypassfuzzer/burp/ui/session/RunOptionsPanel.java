@@ -14,6 +14,7 @@ public class RunOptionsPanel extends JPanel {
     private final JTextField concurrencyField;
     private final JTextField requestDelayField;
     private final JTextField throttleStatusCodesField;
+    private final JCheckBox autoThrottleCheckbox;
 
     public RunOptionsPanel(FuzzerConfig config, boolean collaboratorAvailable) {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -62,7 +63,11 @@ public class RunOptionsPanel extends JPanel {
         add(delayRow);
 
         JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        throttleRow.add(new JLabel("Auto-throttle for status code(s):"));
+        autoThrottleCheckbox = new JCheckBox("Auto throttle", config.isEnableAutoThrottle());
+        autoThrottleCheckbox.setToolTipText(
+            "Automatically back off when a configured throttle response is received.");
+        throttleRow.add(autoThrottleCheckbox);
+        throttleRow.add(new JLabel("Status code(s):"));
         throttleStatusCodesField = new JTextField(formatStatusCodes(config.getThrottleStatusCodes()), 10);
         throttleRow.add(throttleStatusCodesField);
         JLabel throttleHelp = new JLabel("(comma-separated, e.g., 429,503)");
@@ -96,11 +101,16 @@ public class RunOptionsPanel extends JPanel {
         return throttleStatusCodesField.getText();
     }
 
+    public boolean isAutoThrottleEnabled() {
+        return autoThrottleCheckbox.isSelected();
+    }
+
     public void setControlsEnabled(boolean enabled, boolean collaboratorAvailable) {
         fuzzExistingCookiesCheckbox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
+        autoThrottleCheckbox.setEnabled(enabled);
         collaboratorCheckbox.setEnabled(enabled && collaboratorAvailable);
     }
 

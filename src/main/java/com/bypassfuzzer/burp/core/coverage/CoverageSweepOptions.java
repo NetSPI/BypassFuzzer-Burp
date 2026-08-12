@@ -15,12 +15,25 @@ public record CoverageSweepOptions(
     CoverageSweepAuthSelection authSelection,
     boolean excludeStaticAssets,
     boolean verifyUnauthenticatedAccess,
-    boolean doublePortHostProbes
+    boolean doublePortHostProbes,
+    boolean autoThrottleEnabled
 ) {
 
     public CoverageSweepOptions {
         mode = mode == null ? CoverageSweepMode.BLOCKED_RESPONSES : mode;
         authSelection = authSelection == null ? CoverageSweepAuthSelection.defaults() : authSelection;
+    }
+
+    public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
+                                int maxProbesPerCandidate, int concurrency, int requestsPerSecond,
+                                int requestDelayMs, Set<Integer> throttleStatusCodes,
+                                CoverageSweepMode mode, CoverageSweepAuthSelection authSelection,
+                                boolean excludeStaticAssets, boolean verifyUnauthenticatedAccess,
+                                boolean doublePortHostProbes) {
+        this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
+            requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection,
+            excludeStaticAssets, verifyUnauthenticatedAccess, doublePortHostProbes,
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty());
     }
 
     public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
@@ -81,7 +94,8 @@ public record CoverageSweepOptions(
             CoverageSweepAuthSelection.defaults(),
             true,
             true,
-            false
+            false,
+            true
         );
     }
 
@@ -89,12 +103,12 @@ public record CoverageSweepOptions(
         return new CoverageSweepOptions(Set.of(), inScopeOnly, maxCandidates, maxProbesPerCandidate,
             concurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes,
             CoverageSweepMode.AUTHENTICATED_TRAFFIC, selection, excludeStaticAssets,
-            verifyUnauthenticatedAccess, doublePortHostProbes);
+            verifyUnauthenticatedAccess, doublePortHostProbes, autoThrottleEnabled);
     }
 
     public CoverageSweepOptions withDoublePortHostProbes(boolean enabled) {
         return new CoverageSweepOptions(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate,
             concurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection,
-            excludeStaticAssets, verifyUnauthenticatedAccess, enabled);
+            excludeStaticAssets, verifyUnauthenticatedAccess, enabled, autoThrottleEnabled);
     }
 }

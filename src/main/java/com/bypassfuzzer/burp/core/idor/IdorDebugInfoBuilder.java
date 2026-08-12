@@ -87,6 +87,7 @@ public class IdorDebugInfoBuilder {
         if (options.runOptions() != null) {
             debug.append("Requests/second: ").append(options.runOptions().requestsPerSecond()).append("\n");
             debug.append("Throttle status codes: ").append(options.runOptions().throttleStatusCodes()).append("\n");
+            debug.append("Auto throttle: ").append(options.runOptions().autoThrottleEnabled()).append("\n");
         } else {
             debug.append("Run options: <null>\n");
         }

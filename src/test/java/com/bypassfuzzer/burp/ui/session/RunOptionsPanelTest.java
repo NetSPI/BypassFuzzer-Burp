@@ -21,4 +21,13 @@ class RunOptionsPanelTest {
 
         assertFalse(panel.isCollaboratorEnabled());
     }
+
+    @Test
+    void autoThrottleIsEnabledByDefaultAndReflectsConfig() {
+        FuzzerConfig defaults = new FuzzerConfig();
+        assertTrue(new RunOptionsPanel(defaults, true).isAutoThrottleEnabled());
+
+        defaults.setEnableAutoThrottle(false);
+        assertFalse(new RunOptionsPanel(defaults, true).isAutoThrottleEnabled());
+    }
 }

@@ -73,6 +73,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
     private JCheckBox doublePortHostProbesCheckBox;
+    private JCheckBox autoThrottleCheckBox;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
@@ -163,6 +164,9 @@ public class CoverageSweepPanel extends JPanel {
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
+        autoThrottleCheckBox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
+        autoThrottleCheckBox.setToolTipText(
+            "Automatically back off when a configured throttle response is received.");
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
@@ -205,6 +209,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(requestDelayField);
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
+        executionRow.add(autoThrottleCheckBox);
         executionRow.add(includeUnsafeMethodsCheckBox);
         executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(verifyUnauthenticatedAccessCheckBox);
@@ -637,7 +642,7 @@ public class CoverageSweepPanel extends JPanel {
 
         CoverageSweepOptions options = currentOptions();
         resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
-            options.requestsPerSecond(), options.requestDelayMs());
+            options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
         if (!engine.start(selected, options, this::addResult, this::handleCompletion)) {
             resultsWorkspace.setPrimaryRunActive(false);
@@ -734,7 +739,8 @@ public class CoverageSweepPanel extends JPanel {
             currentAuthSelection(),
             excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
             verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
-            doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected()
+            doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected(),
+            autoThrottleCheckBox == null || autoThrottleCheckBox.isSelected()
         );
     }
 
@@ -768,6 +774,7 @@ public class CoverageSweepPanel extends JPanel {
         status4xxCheckBox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
+        autoThrottleCheckBox.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
         doublePortHostProbesCheckBox.setEnabled(enabled);

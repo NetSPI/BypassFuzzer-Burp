@@ -57,6 +57,7 @@ public class SessionResultsWorkspace {
     private Set<Integer> throttleStatusCodes = Set.of(429, 503);
     private int retryRequestsPerSecond;
     private int retryDelayMs;
+    private boolean retryAutoThrottleEnabled = true;
     private boolean primaryRunActive;
     private boolean retryRunning;
     private long queueGeneration;
@@ -132,9 +133,16 @@ public class SessionResultsWorkspace {
     }
 
     public void configureThrottleRetries(Set<Integer> statusCodes, int requestsPerSecond, int requestDelayMs) {
+        configureThrottleRetries(statusCodes, requestsPerSecond, requestDelayMs,
+            statusCodes != null && !statusCodes.isEmpty());
+    }
+
+    public void configureThrottleRetries(Set<Integer> statusCodes, int requestsPerSecond,
+                                         int requestDelayMs, boolean autoThrottleEnabled) {
         throttleStatusCodes = statusCodes == null ? Set.of() : Set.copyOf(statusCodes);
         retryRequestsPerSecond = Math.max(0, requestsPerSecond);
         retryDelayMs = Math.max(0, requestDelayMs);
+        retryAutoThrottleEnabled = autoThrottleEnabled;
         updateRetryControls();
     }
 
@@ -176,7 +184,7 @@ public class SessionResultsWorkspace {
         retryStatusLabel.setText("Retrying " + selected.size() + " throttled request(s) serially...");
         updateRetryControls();
         RateLimiter rateLimiter = new RateLimiter(null, retryRequestsPerSecond, retryDelayMs,
-            throttleStatusCodes, !throttleStatusCodes.isEmpty());
+            throttleStatusCodes, retryAutoThrottleEnabled);
         retryWorker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() {

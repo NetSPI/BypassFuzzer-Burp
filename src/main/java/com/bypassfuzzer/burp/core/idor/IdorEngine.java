@@ -105,7 +105,8 @@ public class IdorEngine {
 
         Set<Integer> throttleCodes = safeThrottleCodes(options.runOptions().throttleStatusCodes());
         rateLimiter = new RateLimiter(api, options.runOptions().requestsPerSecond(),
-            options.runOptions().requestDelayMs(), throttleCodes, !throttleCodes.isEmpty());
+            options.runOptions().requestDelayMs(), throttleCodes,
+            options.runOptions().autoThrottleEnabled());
 
         AttackExecutor attackExecutor = new AttackExecutor(requestSender);
         Consumer<AttackResult> publishingCallback = result -> {
