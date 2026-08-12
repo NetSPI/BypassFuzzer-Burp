@@ -142,11 +142,13 @@ class CoverageSweepPanelTest {
         JButton load = button(panel, "loadButton");
         JButton importTargets = button(panel, "importButton");
         JButton clearImport = button(panel, "clearImportButton");
+        JButton applyBaseUrl = button(panel, "applyOpenApiBaseUrlButton");
 
         assertEquals(3, mode.getItemCount());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
         assertFalse(clearImport.isVisible());
+        assertFalse(applyBaseUrl.isVisible());
         assertTrue(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
 
         mode.setSelectedIndex(1);
@@ -154,6 +156,7 @@ class CoverageSweepPanelTest {
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
         assertFalse(clearImport.isVisible());
+        assertFalse(applyBaseUrl.isVisible());
         assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
 
         mode.setSelectedIndex(2);
@@ -163,6 +166,8 @@ class CoverageSweepPanelTest {
         assertTrue(importTargets.isEnabled());
         assertTrue(clearImport.isVisible());
         assertFalse(clearImport.isEnabled());
+        assertTrue(applyBaseUrl.isVisible());
+        assertFalse(applyBaseUrl.isEnabled());
         assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
         assertFalse(checkbox(panel, "status401CheckBox").isVisible());
         assertFalse(checkbox(panel, "status403CheckBox").isVisible());
@@ -351,6 +356,69 @@ class CoverageSweepPanelTest {
         assertEquals(1, table.getRowCount());
         assertEquals("/users", table.getValueAt(0, 3));
         assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
+    }
+
+    @Test
+    void appliesBaseUrlToAlreadyImportedOpenApiDocument() throws Exception {
+        Path spec = tempDir.resolve("openapi.yaml");
+        String source = "openapi: 3.0.0\npaths: {}\n";
+        Files.writeString(spec, source);
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview originalPreview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://localhost/users", "/users")));
+        CoverageSweepPreview rebasedPreview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://api.example.test/v2/users", "/v2/users")));
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"), eq(""),
+            any(CoverageSweepOptions.class)))
+            .thenReturn(originalPreview);
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"),
+            eq("https://api.example.test/v2"), any(CoverageSweepOptions.class)))
+            .thenReturn(rebasedPreview);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+
+        assertTrue(panel.importTargetsFromFile(spec));
+        JButton apply = button(panel, "applyOpenApiBaseUrlButton");
+        assertTrue(apply.isEnabled());
+        field(panel, "openApiBaseUrlField", JTextField.class)
+            .setText("https://api.example.test/v2");
+
+        apply.doClick();
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/v2/users", table.getValueAt(0, 3));
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("Applied OpenAPI base URL"));
+        verify(engine).collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"),
+            eq("https://api.example.test/v2"), any(CoverageSweepOptions.class));
+    }
+
+    @Test
+    void invalidBaseUrlDoesNotDiscardExistingImportedTargets() throws Exception {
+        Path spec = tempDir.resolve("openapi.json");
+        String source = "{\"openapi\":\"3.0.0\",\"paths\":{}}";
+        Files.writeString(spec, source);
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview originalPreview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://localhost/users", "/users")));
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.json"), eq(""),
+            any(CoverageSweepOptions.class))).thenReturn(originalPreview);
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.json"), eq("not-a-url"),
+            any(CoverageSweepOptions.class))).thenThrow(
+                new IllegalArgumentException("OpenAPI base URL must be an absolute HTTP or HTTPS URL"));
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+        assertTrue(panel.importTargetsFromFile(spec));
+        field(panel, "openApiBaseUrlField", JTextField.class).setText("not-a-url");
+
+        button(panel, "applyOpenApiBaseUrlButton").doClick();
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/users", table.getValueAt(0, 3));
+        assertTrue(button(panel, "startButton").isEnabled());
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText()
+            .contains("Unable to apply OpenAPI base URL"));
     }
 
     @Test

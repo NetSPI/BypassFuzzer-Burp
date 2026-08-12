@@ -67,6 +67,7 @@ public class CoverageSweepPanel extends JPanel {
     private JButton viewCandidateButton;
     private JButton exportButton;
     private JButton authIdentifiersButton;
+    private JButton applyOpenApiBaseUrlButton;
     private JComboBox<String> modeComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox excludeStaticAssetsCheckBox;
@@ -95,6 +96,7 @@ public class CoverageSweepPanel extends JPanel {
     private final Map<HttpRequest, HttpResponse> importedControlResponses = new IdentityHashMap<>();
     private volatile SwingWorker<CoverageSweepPreview, Void> candidateLoadWorker;
     private volatile SwingWorker<RemoteOpenApiImport, Void> remoteImportWorker;
+    private ImportedOpenApiDocument importedOpenApiDocument;
     private boolean authDefaultsInitialized;
 
     public CoverageSweepPanel(MontoyaApi api) {
@@ -164,7 +166,12 @@ public class CoverageSweepPanel extends JPanel {
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
+        openApiBaseUrlField.addActionListener(e -> applyOpenApiBaseUrl());
         openApiBaseUrlLabel = new JLabel("OpenAPI base URL:");
+        applyOpenApiBaseUrlButton = new JButton("Apply");
+        applyOpenApiBaseUrlButton.setToolTipText(
+            "Rebuild the imported OpenAPI targets using this base URL without importing the specification again.");
+        applyOpenApiBaseUrlButton.addActionListener(e -> applyOpenApiBaseUrl());
 
         statusRow.add(new JLabel("Mode:"));
         statusRow.add(modeComboBox);
@@ -205,6 +212,7 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(authIdentifiersButton);
         executionRow.add(openApiBaseUrlLabel);
         executionRow.add(openApiBaseUrlField);
+        executionRow.add(applyOpenApiBaseUrlButton);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
@@ -471,7 +479,8 @@ public class CoverageSweepPanel extends JPanel {
                 String source = openApiUrlFetcher.fetch(target.rawUrl(), httpMode);
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
                     source, fileName, baseUrl, options);
-                return new RemoteOpenApiImport(preview);
+                return new RemoteOpenApiImport(preview,
+                    new ImportedOpenApiDocument(source, fileName));
             }
 
             @Override
@@ -480,7 +489,9 @@ public class CoverageSweepPanel extends JPanel {
                     return;
                 }
                 try {
-                    applyImportedPreview(get().preview(), true);
+                    RemoteOpenApiImport imported = get();
+                    importedOpenApiDocument = imported.document();
+                    applyImportedPreview(imported.preview(), true);
                 } catch (CancellationException e) {
                     statusLabel.setText("OpenAPI URL import cancelled.");
                 } catch (InterruptedException e) {
@@ -506,15 +517,53 @@ public class CoverageSweepPanel extends JPanel {
         try {
             String source = Files.readString(path);
             boolean openApi = isOpenApiSource(path, source);
+            String fileName = path.getFileName().toString();
             CoverageSweepPreview preview = openApi
-                ? engine.collectPreviewFromOpenApi(source, path.getFileName().toString(),
+                ? engine.collectPreviewFromOpenApi(source, fileName,
                     openApiBaseUrlField.getText().trim(), currentOptions())
                 : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
+            importedOpenApiDocument = openApi
+                ? new ImportedOpenApiDocument(source, fileName)
+                : null;
             applyImportedPreview(preview, openApi);
             return true;
         } catch (Exception e) {
             handleImportFailure(e);
             return false;
+        } finally {
+            finishCandidateLoading();
+        }
+    }
+
+    private void applyOpenApiBaseUrl() {
+        if (currentMode() != CoverageSweepMode.IMPORTED_TARGETS || engine.isRunning()) {
+            return;
+        }
+        ImportedOpenApiDocument document = importedOpenApiDocument;
+        if (document == null) {
+            statusLabel.setText("Import an OpenAPI specification before applying a base URL.");
+            return;
+        }
+
+        String baseUrl = openApiBaseUrlField.getText().trim();
+        setControlsForLoading();
+        statusLabel.setText(baseUrl.isEmpty()
+            ? "Restoring server URLs declared by the imported OpenAPI specification..."
+            : "Applying OpenAPI base URL " + baseUrl + "...");
+        try {
+            CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
+                document.source(), document.fileName(), baseUrl, currentOptions());
+            applyImportedPreview(preview, true);
+            statusLabel.setText((baseUrl.isEmpty()
+                ? "Restored OpenAPI server URLs; "
+                : "Applied OpenAPI base URL " + baseUrl + "; ")
+                + preview.dedupedEndpointCount() + " deduped endpoints; showing "
+                + preview.candidates().size() + ".");
+        } catch (Exception e) {
+            String message = e.getMessage() == null ? "unknown error" : e.getMessage();
+            statusLabel.setText("Unable to apply OpenAPI base URL: " + message);
+            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
+            updatePreviewButton();
         } finally {
             finishCandidateLoading();
         }
@@ -532,6 +581,7 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void handleImportFailure(Throwable error) {
+        importedOpenApiDocument = null;
         setCandidateRows(List.of());
         String message = error == null || error.getMessage() == null ? "unknown error" : error.getMessage();
         statusLabel.setText("Unable to import targets: " + message);
@@ -663,7 +713,10 @@ public class CoverageSweepPanel extends JPanel {
         estimateLabel.setText("Selected " + selected + " endpoint(s); estimated max " + estimate + " request(s).");
     }
 
-    private record RemoteOpenApiImport(CoverageSweepPreview preview) {
+    private record RemoteOpenApiImport(CoverageSweepPreview preview, ImportedOpenApiDocument document) {
+    }
+
+    private record ImportedOpenApiDocument(String source, String fileName) {
     }
 
     private CoverageSweepOptions currentOptions() {
@@ -739,6 +792,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private void handleModeChange() {
         cachedHistoryCandidates = List.of();
+        importedOpenApiDocument = null;
         setCandidateRows(List.of());
         startButton.setEnabled(false);
         updateModeControls();
@@ -783,6 +837,8 @@ public class CoverageSweepPanel extends JPanel {
         openApiBaseUrlLabel.setVisible(imported);
         openApiBaseUrlField.setVisible(imported);
         openApiBaseUrlField.setEnabled(idle && imported);
+        applyOpenApiBaseUrlButton.setVisible(imported);
+        applyOpenApiBaseUrlButton.setEnabled(idle && imported && importedOpenApiDocument != null);
         loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
         revalidate();
         repaint();
@@ -793,12 +849,14 @@ public class CoverageSweepPanel extends JPanel {
             return;
         }
         setCandidateRows(List.of());
+        importedOpenApiDocument = null;
         openApiBaseUrlField.setText("");
         startButton.setEnabled(false);
         setCandidateActionButtonsEnabled(false);
         clearImportButton.setEnabled(false);
         statusLabel.setText("Imported targets cleared. Import a file or OpenAPI URL to start fresh.");
         updateEstimate();
+        updateModeControls();
     }
 
     private void selectObviousIdentifiers() {
