@@ -15,6 +15,7 @@ import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepCandidate;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepEngine;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepPayloadSet;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbeGenerator;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
@@ -100,6 +101,22 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void payloadSetDefaultsToHighSignalAndCanSelectAllPayloads() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JComboBox<?> payloadSet = field(panel, "payloadSetComboBox", JComboBox.class);
+        JLabel estimate = field(panel, "estimateLabel", JLabel.class);
+
+        assertEquals(2, payloadSet.getItemCount());
+        assertEquals("High signal", payloadSet.getSelectedItem());
+        assertEquals(CoverageSweepPayloadSet.HIGH_SIGNAL, currentOptions(panel).payloadSet());
+
+        payloadSet.setSelectedIndex(1);
+
+        assertEquals(CoverageSweepPayloadSet.ALL_PAYLOADS, currentOptions(panel).payloadSet());
+        assertTrue(estimate.getText().contains("all Bypass payload families"));
+    }
+
+    @Test
     void authenticatedModePassivelyFiltersBySelectedIdentifiersAndSafeMethods() throws Exception {
         HttpRequest get = requestWithHeaders("/account", "", "GET",
             Map.of("Cookie", "theme=dark; JSESSIONID=secret"), "");
@@ -172,8 +189,10 @@ class CoverageSweepPanelTest {
         JButton authIdentifiers = button(panel, "authIdentifiersButton");
         JButton requestHeaders = field(panel, "requestHeadersControl", RequestHeadersControl.class).button();
         JTextField concurrency = field(panel, "concurrencyField", JTextField.class);
+        JComboBox<?> payloadSet = field(panel, "payloadSetComboBox", JComboBox.class);
 
         assertEquals(3, mode.getItemCount());
+        assertTrue(payloadSet.isVisible());
         assertSame(requestHeaders.getParent(), authIdentifiers.getParent());
         assertNotSame(requestHeaders.getParent(), concurrency.getParent());
         assertTrue(requestHeaders.isVisible());
@@ -186,6 +205,7 @@ class CoverageSweepPanelTest {
 
         mode.setSelectedIndex(1);
 
+        assertTrue(payloadSet.isVisible());
         assertTrue(requestHeaders.isVisible());
         assertTrue(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
@@ -196,6 +216,7 @@ class CoverageSweepPanelTest {
 
         mode.setSelectedIndex(2);
 
+        assertTrue(payloadSet.isVisible());
         assertTrue(requestHeaders.isVisible());
         assertFalse(authIdentifiers.isVisible());
         assertFalse(load.isVisible());
@@ -634,6 +655,7 @@ class CoverageSweepPanelTest {
         assertTrue(button(panel, "stopButton").isEnabled());
         assertFalse(field(panel, "concurrencyField", JTextField.class).isEnabled());
         assertFalse(field(panel, "throttleStatusCodesField", JTextField.class).isEnabled());
+        assertFalse(field(panel, "payloadSetComboBox", JComboBox.class).isEnabled());
         JTable candidateTable = field(panel, "candidateTable", JTable.class);
         assertTrue(candidateTable.isEnabled());
         assertFalse(candidateTable.isCellEditable(0, 0));

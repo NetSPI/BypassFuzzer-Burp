@@ -12,6 +12,7 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepAuthSelection;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepEngine;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepMode;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepPayloadSet;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
 
@@ -69,6 +70,7 @@ public class CoverageSweepPanel extends JPanel {
     private JButton authIdentifiersButton;
     private JButton applyOpenApiBaseUrlButton;
     private JComboBox<String> modeComboBox;
+    private JComboBox<String> payloadSetComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
@@ -98,6 +100,7 @@ public class CoverageSweepPanel extends JPanel {
     private final Map<HttpRequest, HttpResponse> importedControlResponses = new IdentityHashMap<>();
     private volatile SwingWorker<CoverageSweepPreview, Void> candidateLoadWorker;
     private volatile SwingWorker<RemoteOpenApiImport, Void> remoteImportWorker;
+    private volatile SwingWorker<List<CoverageSweepProbe>, Void> probePreviewWorker;
     private ImportedOpenApiDocument importedOpenApiDocument;
     private boolean authDefaultsInitialized;
 
@@ -127,6 +130,11 @@ public class CoverageSweepPanel extends JPanel {
         remoteImportWorker = null;
         if (importWorker != null) {
             importWorker.cancel(true);
+        }
+        SwingWorker<List<CoverageSweepProbe>, Void> previewWorker = probePreviewWorker;
+        probePreviewWorker = null;
+        if (previewWorker != null) {
+            previewWorker.cancel(true);
         }
         engine.cleanup();
         if (resultsWorkspace != null) {
@@ -164,6 +172,10 @@ public class CoverageSweepPanel extends JPanel {
         status4xxCheckBox.addActionListener(e -> updateEstimate());
 
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        payloadSetComboBox = new JComboBox<>(new String[]{"High signal", "All payloads"});
+        payloadSetComboBox.setToolTipText(
+            "High signal uses the curated Sweep set; All payloads runs every Bypass attack family.");
+        payloadSetComboBox.addActionListener(e -> updateEstimate());
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
         autoThrottleCheckBox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
@@ -206,6 +218,8 @@ public class CoverageSweepPanel extends JPanel {
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
+        executionRow.add(new JLabel("Payload set:"));
+        executionRow.add(payloadSetComboBox);
         executionRow.add(new JLabel("Concurrency:"));
         executionRow.add(concurrencyField);
         executionRow.add(new JLabel("Delay (ms):"));
@@ -718,6 +732,11 @@ public class CoverageSweepPanel extends JPanel {
     private void updateEstimate() {
         int selected = candidateTableModel.selectedCandidates().size();
         CoverageSweepOptions options = currentOptions();
+        if (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS) {
+            estimateLabel.setText("Selected " + selected
+                + " endpoint(s); all Bypass payload families will run per endpoint.");
+            return;
+        }
         int probesPerCandidate = options.maxProbesPerCandidate()
             + (options.doublePortHostProbes() ? 2 : 0);
         int estimate = selected * probesPerCandidate;
@@ -747,8 +766,15 @@ public class CoverageSweepPanel extends JPanel {
             verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
             doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected(),
             autoThrottleCheckBox == null || autoThrottleCheckBox.isSelected(),
-            requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers()
+            requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers(),
+            currentPayloadSet()
         );
+    }
+
+    private CoverageSweepPayloadSet currentPayloadSet() {
+        return payloadSetComboBox != null && payloadSetComboBox.getSelectedIndex() == 1
+            ? CoverageSweepPayloadSet.ALL_PAYLOADS
+            : CoverageSweepPayloadSet.HIGH_SIGNAL;
     }
 
     private Set<Integer> selectedStatuses() {
@@ -782,6 +808,7 @@ public class CoverageSweepPanel extends JPanel {
         concurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckBox.setEnabled(enabled);
+        payloadSetComboBox.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
         requestDelayField.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
@@ -1013,7 +1040,8 @@ public class CoverageSweepPanel extends JPanel {
 
     private void updatePreviewButton() {
         boolean candidateAvailable = previewCandidate() != null;
-        previewProbesButton.setEnabled(candidateAvailable && !engine.isRunning());
+        previewProbesButton.setEnabled(candidateAvailable && !engine.isRunning()
+            && candidateLoadWorker == null && probePreviewWorker == null);
         viewCandidateButton.setEnabled(candidateAvailable && candidateLoadWorker == null);
     }
 
@@ -1143,7 +1171,50 @@ public class CoverageSweepPanel extends JPanel {
             return;
         }
 
-        List<CoverageSweepProbe> probes = engine.buildProbes(candidate, currentOptions());
+        CoverageSweepOptions options = currentOptions();
+        if (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS) {
+            if (probePreviewWorker != null) {
+                return;
+            }
+            statusLabel.setText("Building full Bypass probe preview...");
+            previewProbesButton.setEnabled(false);
+            SwingWorker<List<CoverageSweepProbe>, Void> worker = new SwingWorker<>() {
+                @Override
+                protected List<CoverageSweepProbe> doInBackground() {
+                    return engine.buildProbes(candidate, options);
+                }
+
+                @Override
+                protected void done() {
+                    if (probePreviewWorker != this) {
+                        return;
+                    }
+                    try {
+                        showProbePreview(candidate, get());
+                        statusLabel.setText("Full Bypass probe preview ready.");
+                    } catch (CancellationException e) {
+                        statusLabel.setText("Probe preview cancelled.");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        statusLabel.setText("Probe preview interrupted.");
+                    } catch (ExecutionException e) {
+                        Throwable cause = e.getCause() == null ? e : e.getCause();
+                        statusLabel.setText("Unable to build probe preview: "
+                            + (cause.getMessage() == null ? "unknown error" : cause.getMessage()));
+                    } finally {
+                        probePreviewWorker = null;
+                        updatePreviewButton();
+                    }
+                }
+            };
+            probePreviewWorker = worker;
+            worker.execute();
+            return;
+        }
+        showProbePreview(candidate, engine.buildProbes(candidate, options));
+    }
+
+    private void showProbePreview(CoverageSweepCandidate candidate, List<CoverageSweepProbe> probes) {
         JTextArea previewText = new JTextArea(renderProbePreview(candidate, probes));
         previewText.setEditable(false);
         previewText.setLineWrap(false);

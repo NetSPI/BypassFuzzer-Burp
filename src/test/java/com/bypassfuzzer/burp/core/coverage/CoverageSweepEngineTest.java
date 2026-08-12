@@ -35,6 +35,66 @@ import static org.mockito.Mockito.when;
 class CoverageSweepEngineTest {
 
     @Test
+    void allPayloadsUsesTheCompleteBypassCatalogWithoutTheHighSignalCap() {
+        HttpRequest original = requestWithHeaders("/admin/users", "id=7", "POST", Map.of(
+            "Content-Type", "application/json",
+            "Cookie", "session=secret; theme=dark",
+            "Host", "example.com"
+        ), "{\"id\":7}");
+        CoverageSweepCandidate candidate = candidate(original, 403);
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            defaults.statuses(), defaults.inScopeOnly(), defaults.maxCandidates(),
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
+            defaults.requestDelayMs(), defaults.throttleStatusCodes(), defaults.mode(),
+            defaults.authSelection(), defaults.excludeStaticAssets(),
+            defaults.verifyUnauthenticatedAccess(), defaults.doublePortHostProbes(),
+            defaults.autoThrottleEnabled(), defaults.requestHeaders(),
+            CoverageSweepPayloadSet.ALL_PAYLOADS);
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(403, "text/plain", "blocked")),
+            new CoverageSweepProbeGenerator());
+
+        List<CoverageSweepProbe> probes = engine.buildProbes(candidate, options);
+        Set<String> families = probes.stream().map(CoverageSweepProbe::family).collect(java.util.stream.Collectors.toSet());
+
+        assertTrue(probes.size() > defaults.maxProbesPerCandidate());
+        assertTrue(families.containsAll(Set.of(
+            "Control", "Header", "Path", "Verb", "Param", "Cookie", "TrailingDot",
+            "TrailingSlash", "Extension", "ContentType", "Encoding", "Protocol", "Case")));
+        assertTrue(probes.stream().anyMatch(probe ->
+            "Header".equals(probe.family()) && probe.httpMode() == HttpMode.HTTP_1));
+    }
+
+    @Test
+    void authenticatedAllPayloadsStripsSelectedCredentialsBeforeGeneratingFamilies() {
+        HttpRequest original = requestWithHeaders("/account", "", "GET", Map.of(
+            "Authorization", "Bearer secret",
+            "Cookie", "session=secret; theme=dark",
+            "X-Keep", "value"
+        ), "");
+        CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            Set.of(), defaults.inScopeOnly(), defaults.maxCandidates(),
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
+            defaults.requestDelayMs(), defaults.throttleStatusCodes(),
+            CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("session"), false),
+            true, true, false, true, List.of(), CoverageSweepPayloadSet.ALL_PAYLOADS);
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
+            new StaticSender(response(200, "text/plain", "ok")),
+            new CoverageSweepProbeGenerator());
+
+        CoverageSweepProbe pathProbe = engine.buildProbes(candidate(original, 200), options).stream()
+            .filter(probe -> "Path".equals(probe.family()))
+            .findFirst().orElseThrow();
+
+        assertFalse(pathProbe.request().hasHeader("Authorization"));
+        assertEquals("theme=dark", pathProbe.request().headerValue("Cookie"));
+        assertEquals("value", pathProbe.request().headerValue("X-Keep"));
+    }
+
+    @Test
     void optionalDoublePortHostProbesUseHttp1AndPreserveTheConnectionService() throws Exception {
         HttpRequest original = requestWithHeaders("/blocked", "", "GET",
             Map.of("Host", "example.com:8443"), "");

@@ -45,6 +45,7 @@ public class CoverageSweepEngine {
     private final MontoyaApi api;
     private final RequestSender requestSender;
     private final CoverageSweepProbeGenerator probeGenerator;
+    private final FullBypassSweepProbeGenerator fullProbeGenerator;
     private final UrlRequestFactory urlRequestFactory;
     private final TargetUrlResolver targetUrlResolver = new TargetUrlResolver();
 
@@ -68,6 +69,7 @@ public class CoverageSweepEngine {
         this.api = api;
         this.requestSender = requestSender;
         this.probeGenerator = probeGenerator;
+        this.fullProbeGenerator = new FullBypassSweepProbeGenerator(api);
         this.urlRequestFactory = urlRequestFactory == null ? CoverageSweepEngine::defaultImportedRequest : urlRequestFactory;
     }
 
@@ -167,11 +169,20 @@ public class CoverageSweepEngine {
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(effective.requestHeaders());
         if (effective.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
             HttpRequest anonymousRequest = stripAuthentication(candidate.request(), effective.authSelection());
-            return reconcileProbes(probeGenerator.buildProbes(anonymousRequest, effective, false),
+            return reconcileProbes(generateProbes(anonymousRequest, effective, false),
                 anonymousRequest, headerPolicy);
         }
-        return reconcileProbes(probeGenerator.buildProbes(candidate.request(), effective, true),
+        return reconcileProbes(generateProbes(candidate.request(), effective, true),
             candidate.request(), headerPolicy);
+    }
+
+    private List<CoverageSweepProbe> generateProbes(HttpRequest request,
+                                                     CoverageSweepOptions options,
+                                                     boolean includeControl) {
+        if (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS) {
+            return fullProbeGenerator.buildProbes(request, includeControl);
+        }
+        return probeGenerator.buildProbes(request, options, includeControl);
     }
 
     public boolean start(List<CoverageSweepCandidate> candidates,
