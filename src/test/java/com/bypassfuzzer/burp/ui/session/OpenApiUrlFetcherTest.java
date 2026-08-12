@@ -56,6 +56,7 @@ class OpenApiUrlFetcherTest {
         assertEquals(
             "GET /ws/user-analytics/\\docs/handcrafted/swagger/openapi.json HTTP/1.1\r\n"
                 + "Host: iquery.finance.yahoo.com\r\n"
+                + "User-Agent: " + OpenApiUrlFetcher.BROWSER_USER_AGENT + "\r\n"
                 + "Accept: application/json, application/yaml, text/yaml, */*;q=0.1\r\n"
                 + "Connection: close\r\n\r\n",
             rawRequest.get()

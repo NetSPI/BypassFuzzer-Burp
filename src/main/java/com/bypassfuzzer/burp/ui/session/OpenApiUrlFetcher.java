@@ -23,6 +23,8 @@ interface OpenApiUrlFetcher {
 
     int MAX_SOURCE_BYTES = 10 * 1024 * 1024;
     int MAX_REDIRECTS = 5;
+    String BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
     AtomicInteger FETCH_THREAD_COUNTER = new AtomicInteger(1);
     ExecutorService FETCH_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable,
@@ -49,6 +51,7 @@ interface OpenApiUrlFetcher {
         ParsedUrl target = parse(rawUrl);
         String rawRequest = "GET " + target.requestTarget() + " HTTP/1.1\r\n"
             + "Host: " + target.hostHeader() + "\r\n"
+            + "User-Agent: " + BROWSER_USER_AGENT + "\r\n"
             + "Accept: application/json, application/yaml, text/yaml, */*;q=0.1\r\n"
             + "Connection: close\r\n"
             + "\r\n";
