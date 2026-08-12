@@ -14,4 +14,8 @@ public interface RequestSender {
     }
 
     HttpResponse send(HttpRequest request, long timeout, TimeUnit timeUnit);
+
+    default HttpResponse send(HttpRequest request, HttpMode httpMode, long timeout, TimeUnit timeUnit) {
+        return send(request, timeout, timeUnit);
+    }
 }

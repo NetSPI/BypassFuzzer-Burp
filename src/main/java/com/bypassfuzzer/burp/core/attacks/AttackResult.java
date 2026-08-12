@@ -22,6 +22,7 @@ public class AttackResult {
     private final int contentLength;
     private final String contentType;
     private final long timestamp;
+    private final int throttleRetryAttempt;
 
     public AttackResult(String attackType, String payload, HttpRequest request, HttpResponse response) {
         this(attackType, payload, null, null, null, request, response, null);
@@ -50,6 +51,15 @@ public class AttackResult {
                         String payloadEncoding, HttpRequest request, HttpResponse response,
                         HttpRequest originalRequest, HttpResponse originalResponse,
                         HttpRequest verificationRequest, HttpResponse verificationResponse) {
+        this(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request, response,
+            originalRequest, originalResponse, verificationRequest, verificationResponse, 0);
+    }
+
+    private AttackResult(String attackType, String payload, String targetLabel, String payloadFamily,
+                         String payloadEncoding, HttpRequest request, HttpResponse response,
+                         HttpRequest originalRequest, HttpResponse originalResponse,
+                         HttpRequest verificationRequest, HttpResponse verificationResponse,
+                         int throttleRetryAttempt) {
         this.attackType = attackType;
         this.payload = payload;
         this.targetLabel = targetLabel == null ? "" : targetLabel;
@@ -65,6 +75,24 @@ public class AttackResult {
         this.contentLength = response != null ? response.body().length() : 0;
         this.contentType = response != null ? extractContentType(response) : "";
         this.timestamp = System.currentTimeMillis();
+        this.throttleRetryAttempt = Math.max(0, throttleRetryAttempt);
+    }
+
+    public static AttackResult throttleRetryOf(AttackResult original, HttpResponse response, int attempt) {
+        return new AttackResult(
+            original.attackType,
+            original.payload,
+            original.targetLabel,
+            original.payloadFamily,
+            original.payloadEncoding,
+            original.request,
+            response,
+            original.originalRequest,
+            original.originalResponse,
+            original.verificationRequest,
+            original.verificationResponse,
+            attempt
+        );
     }
 
     private String extractContentType(HttpResponse response) {
@@ -141,6 +169,10 @@ public class AttackResult {
 
     public long getTimestamp() {
         return timestamp;
+    }
+
+    public int getThrottleRetryAttempt() {
+        return throttleRetryAttempt;
     }
 
     @Override

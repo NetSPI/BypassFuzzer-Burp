@@ -88,6 +88,9 @@ public class FuzzingSessionTab extends JPanel {
     public void cleanup() {
         shuttingDown = true;
         sessionController.dispose();
+        if (resultsWorkspace != null) {
+            resultsWorkspace.cleanup();
+        }
         if (urlValidationPanel != null) {
             urlValidationPanel.cleanup();
         }
@@ -181,6 +184,10 @@ public class FuzzingSessionTab extends JPanel {
     }
 
     private void startFuzzing() {
+        if (resultsWorkspace.isRetryRunning()) {
+            statusLabel.setText("Wait for the throttled-request retry pass to finish.");
+            return;
+        }
         SessionRunOptions runOptions = collectRunOptions();
         if (!runOptions.hasEnabledAttacks()) {
             warningLabel.setText("Please select at least one attack type before starting.");
@@ -206,6 +213,9 @@ public class FuzzingSessionTab extends JPanel {
         }
 
         runOptions.applyTo(config);
+        resultsWorkspace.configureThrottleRetries(runOptions.throttleStatusCodes(),
+            runOptions.requestsPerSecond(), runOptions.requestDelayMs());
+        resultsWorkspace.setPrimaryRunActive(true);
         warningLabel.setVisible(false);
         setAttackControlsEnabled(false);
         startButton.setEnabled(false);
@@ -219,6 +229,7 @@ public class FuzzingSessionTab extends JPanel {
         }
 
         if (!sessionController.start()) {
+            resultsWorkspace.setPrimaryRunActive(false);
             startButton.setEnabled(true);
             stopButton.setEnabled(false);
             setAttackControlsEnabled(true);
@@ -265,6 +276,7 @@ public class FuzzingSessionTab extends JPanel {
     private void handleSessionStateChange(SessionState state) {
         SwingUtilities.invokeLater(() -> {
             if (state == SessionState.RUNNING) {
+                resultsWorkspace.setPrimaryRunActive(true);
                 statusLabel.setText("Fuzzing in progress...");
                 startButton.setEnabled(false);
                 stopButton.setEnabled(true);
@@ -280,9 +292,16 @@ public class FuzzingSessionTab extends JPanel {
             int showing = resultsWorkspace.shownResultsCount();
 
             switch (state) {
-                case STOPPED -> updateIdleUi("Stopped: " + totalSent + " requests sent, showing " + showing);
-                case COMPLETED -> updateIdleUi("Completed: " + totalSent + " requests sent, showing " + showing);
+                case STOPPED -> {
+                    resultsWorkspace.setPrimaryRunActive(false);
+                    updateIdleUi("Stopped: " + totalSent + " requests sent, showing " + showing);
+                }
+                case COMPLETED -> {
+                    resultsWorkspace.setPrimaryRunActive(false);
+                    updateIdleUi("Completed: " + totalSent + " requests sent, showing " + showing);
+                }
                 case DISPOSED -> {
+                    resultsWorkspace.setPrimaryRunActive(false);
                     startButton.setEnabled(false);
                     stopButton.setEnabled(false);
                 }

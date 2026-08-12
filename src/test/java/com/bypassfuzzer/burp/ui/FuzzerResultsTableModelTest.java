@@ -99,4 +99,16 @@ class FuzzerResultsTableModelTest {
         assertEquals(signal, model.getValueAt(0, 3));
         assertEquals(payload, model.getValueAt(0, 4));
     }
+
+    @Test
+    void throttleRetryIsLabeledWithoutChangingItsPayloadMetadata() {
+        FuzzerResultsTableModel model = new FuzzerResultsTableModel();
+        AttackResult original = new AttackResult("Header", "X-Forwarded-For: 127.0.0.1", null, null);
+        AttackResult retry = AttackResult.throttleRetryOf(original, null, 2);
+
+        model.addResult(retry, true);
+
+        assertEquals("X-Forwarded-For: 127.0.0.1", retry.getPayload());
+        assertEquals("X-Forwarded-For: 127.0.0.1 [throttle retry #2]", model.getValueAt(0, 2));
+    }
 }

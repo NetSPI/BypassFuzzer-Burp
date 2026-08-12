@@ -74,10 +74,20 @@ public class MontoyaRequestSender implements RequestSender {
 
     @Override
     public HttpResponse send(HttpRequest request, long timeout, TimeUnit timeUnit) {
+        return sendWithTimeout(() -> api.http().sendRequest(request).response(), timeout, timeUnit);
+    }
+
+    @Override
+    public HttpResponse send(HttpRequest request, HttpMode httpMode, long timeout, TimeUnit timeUnit) {
+        return sendWithTimeout(() -> api.http().sendRequest(request, httpMode).response(), timeout, timeUnit);
+    }
+
+    private HttpResponse sendWithTimeout(java.util.concurrent.Callable<HttpResponse> requestCall,
+                                         long timeout, TimeUnit timeUnit) {
         Future<HttpResponse> future = null;
 
         try {
-            future = timeoutExecutor.submit(() -> api.http().sendRequest(request).response());
+            future = timeoutExecutor.submit(requestCall);
             return future.get(timeout, timeUnit);
         } catch (TimeoutException e) {
             if (future != null) {

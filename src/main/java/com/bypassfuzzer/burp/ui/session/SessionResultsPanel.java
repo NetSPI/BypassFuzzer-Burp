@@ -164,6 +164,10 @@ public class SessionResultsPanel extends JPanel {
         return tableModel.getAllResultsCount();
     }
 
+    public List<AttackResult> allResults() {
+        return tableModel.getAllResults();
+    }
+
     public String visibleRowsAsTsv() {
         StringBuilder sb = new StringBuilder(Math.max(256, resultsTable.getRowCount() * 96));
         appendHeader(sb);

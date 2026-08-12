@@ -75,4 +75,20 @@ class MontoyaRequestSenderTest {
             executor.shutdownNow();
         }
     }
+
+    @Test
+    void timedSendPreservesExplicitHttpMode() {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        when(api.http().sendRequest(request, HttpMode.HTTP_2)).thenReturn(exchange);
+        when(exchange.response()).thenReturn(response);
+
+        HttpResponse sent = new MontoyaRequestSender(api).send(
+            request, HttpMode.HTTP_2, 1, TimeUnit.SECONDS);
+
+        assertSame(response, sent);
+        verify(api.http()).sendRequest(request, HttpMode.HTTP_2);
+    }
 }

@@ -72,6 +72,9 @@ public class UrlValidationPanel extends JPanel {
     public void cleanup() {
         shuttingDown = true;
         engine.cleanup();
+        if (resultsWorkspace != null) {
+            resultsWorkspace.cleanup();
+        }
         if (configDialog != null) {
             configDialog.dispose();
         }
@@ -228,6 +231,10 @@ public class UrlValidationPanel extends JPanel {
     }
 
     private void startValidation() {
+        if (resultsWorkspace.isRetryRunning()) {
+            statusLabel.setText("Wait for the throttled-request retry pass to finish.");
+            return;
+        }
         HttpRequest activeRequest = currentRequest();
         UrlValidationOptions options = collectOptions();
         if (options == null) {
@@ -248,9 +255,13 @@ public class UrlValidationPanel extends JPanel {
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
         statusLabel.setText("URL validation fuzzing in progress...");
+        resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
+            options.requestsPerSecond(), options.requestDelayMs());
+        resultsWorkspace.setPrimaryRunActive(true);
 
         boolean started = engine.start(activeRequest, options, this::addResult, this::handleCompletion);
         if (!started) {
+            resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start URL validation fuzzing");
             return;
         }
@@ -287,6 +298,7 @@ public class UrlValidationPanel extends JPanel {
 
     private void handleCompletion() {
         SwingUtilities.invokeLater(() -> {
+            resultsWorkspace.setPrimaryRunActive(false);
             if (shuttingDown) {
                 startButton.setEnabled(false);
                 stopButton.setEnabled(false);

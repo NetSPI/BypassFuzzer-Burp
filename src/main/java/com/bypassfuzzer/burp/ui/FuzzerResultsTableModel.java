@@ -91,7 +91,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
             case DEFAULT -> switch (columnIndex) {
                 case 0 -> resultIds.getOrDefault(result, 0);
                 case 1 -> result.getAttackType();
-                case 2 -> truncatePayload(result.getPayload(), 100);
+                case 2 -> truncatePayload(displayPayload(result), 100);
                 case 3 -> result.getStatusCode();
                 case 4 -> result.getContentLength();
                 case 5 -> truncatePayload(result.getContentType(), 50);
@@ -101,7 +101,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 0 -> resultIds.getOrDefault(result, 0);
                 case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 20);
                 case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 34);
-                case 3 -> truncatePayload(result.getPayload(), 78);
+                case 3 -> truncatePayload(displayPayload(result), 78);
                 case 4 -> result.getStatusCode();
                 case 5 -> result.getContentLength();
                 case 6 -> truncatePayload(result.getContentType(), 40);
@@ -112,7 +112,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 1 -> truncatePayload(emptyToDash(result.getTargetLabel()), 28);
                 case 2 -> truncatePayload(emptyToDash(result.getPayloadFamily()), 18);
                 case 3 -> truncatePayload(emptyToDash(result.getPayloadEncoding()), 18);
-                case 4 -> truncatePayload(result.getPayload(), 64);
+                case 4 -> truncatePayload(displayPayload(result), 64);
                 case 5 -> result.getStatusCode();
                 case 6 -> result.getContentLength();
                 case 7 -> truncatePayload(result.getContentType(), 40);
@@ -123,7 +123,7 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
                 case 1 -> emptyToDash(result.getTargetLabel());
                 case 2 -> emptyToDash(result.getPayloadFamily());
                 case 3 -> emptyToDash(result.getPayloadEncoding());
-                case 4 -> result.getPayload();
+                case 4 -> displayPayload(result);
                 case 5 -> result.getResponse() == null ? "No response" : result.getStatusCode();
                 case 6 -> result.getContentLength();
                 case 7 -> result.getContentType();
@@ -224,6 +224,13 @@ public class FuzzerResultsTableModel extends AbstractTableModel {
             return payload;
         }
         return payload.substring(0, maxLength - 3) + "...";
+    }
+
+    private String displayPayload(AttackResult result) {
+        if (result == null || result.getThrottleRetryAttempt() <= 0) {
+            return result == null ? "" : result.getPayload();
+        }
+        return result.getPayload() + " [throttle retry #" + result.getThrottleRetryAttempt() + "]";
     }
 
     private String emptyToDash(String value) {

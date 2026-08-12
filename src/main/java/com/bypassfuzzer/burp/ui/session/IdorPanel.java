@@ -76,6 +76,9 @@ public class IdorPanel extends JPanel {
     public void cleanup() {
         shuttingDown = true;
         engine.cleanup();
+        if (resultsWorkspace != null) {
+            resultsWorkspace.cleanup();
+        }
     }
 
     private void initializeUi() {
@@ -355,6 +358,10 @@ public class IdorPanel extends JPanel {
     }
 
     private void startAnalysis() {
+        if (resultsWorkspace.isRetryRunning()) {
+            statusLabel.setText("Wait for the throttled-request retry pass to finish.");
+            return;
+        }
         IdorOptions options = collectOptions();
         if (options == null) {
             return;
@@ -371,9 +378,13 @@ public class IdorPanel extends JPanel {
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
         statusLabel.setText("IDOR analysis in progress...");
+        resultsWorkspace.configureThrottleRetries(options.runOptions().throttleStatusCodes(),
+            options.runOptions().requestsPerSecond(), options.runOptions().requestDelayMs());
+        resultsWorkspace.setPrimaryRunActive(true);
 
         boolean started = engine.start(originalRequest, options, this::addResult, this::handleCompletion);
         if (!started) {
+            resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start IDOR analysis");
         }
     }
@@ -432,6 +443,7 @@ public class IdorPanel extends JPanel {
 
     private void handleCompletion() {
         SwingUtilities.invokeLater(() -> {
+            resultsWorkspace.setPrimaryRunActive(false);
             if (shuttingDown) {
                 startButton.setEnabled(false);
                 stopButton.setEnabled(false);

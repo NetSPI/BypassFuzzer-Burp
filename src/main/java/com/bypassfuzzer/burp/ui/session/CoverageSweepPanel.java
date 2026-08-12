@@ -125,6 +125,9 @@ public class CoverageSweepPanel extends JPanel {
             importWorker.cancel(true);
         }
         engine.cleanup();
+        if (resultsWorkspace != null) {
+            resultsWorkspace.cleanup();
+        }
     }
 
     private void initializeUi() {
@@ -560,6 +563,10 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void startSweep() {
+        if (resultsWorkspace.isRetryRunning()) {
+            statusLabel.setText("Wait for the throttled-request retry pass to finish.");
+            return;
+        }
         List<CoverageSweepCandidate> selected = candidateTableModel.selectedCandidates();
         if (selected.isEmpty()) {
             statusLabel.setText("Select at least one candidate before starting.");
@@ -578,7 +585,12 @@ public class CoverageSweepPanel extends JPanel {
         candidateTable.setEnabled(true);
         statusLabel.setText("Coverage sweep in progress...");
 
-        if (!engine.start(selected, currentOptions(), this::addResult, this::handleCompletion)) {
+        CoverageSweepOptions options = currentOptions();
+        resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
+            options.requestsPerSecond(), options.requestDelayMs());
+        resultsWorkspace.setPrimaryRunActive(true);
+        if (!engine.start(selected, options, this::addResult, this::handleCompletion)) {
+            resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start coverage sweep.");
         }
     }
@@ -608,10 +620,11 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void handleCompletion() {
-        SwingUtilities.invokeLater(() -> updateIdleUi(
-            (stopRequested ? "Stopped" : "Completed")
-                + ": " + resultsWorkspace.allResultsCount() + " requests sent."
-        ));
+        SwingUtilities.invokeLater(() -> {
+            resultsWorkspace.setPrimaryRunActive(false);
+            updateIdleUi((stopRequested ? "Stopped" : "Completed")
+                + ": " + resultsWorkspace.allResultsCount() + " requests sent.");
+        });
     }
 
     private void setControlsForLoading() {
