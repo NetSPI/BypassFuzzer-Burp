@@ -38,6 +38,7 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -53,6 +54,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private final MontoyaApi api;
     private final CoverageSweepEngine engine;
+    private final OpenApiUrlFetcher openApiUrlFetcher;
     private final CandidateTableModel candidateTableModel = new CandidateTableModel();
 
     private JButton loadButton;
@@ -91,16 +93,22 @@ public class CoverageSweepPanel extends JPanel {
     private Set<String> selectedCookieNames = new LinkedHashSet<>();
     private final Map<HttpRequest, HttpResponse> importedControlResponses = new IdentityHashMap<>();
     private volatile SwingWorker<CoverageSweepPreview, Void> candidateLoadWorker;
+    private volatile SwingWorker<RemoteOpenApiImport, Void> remoteImportWorker;
     private boolean authDefaultsInitialized;
 
     public CoverageSweepPanel(MontoyaApi api) {
-        this(api, new CoverageSweepEngine(api));
+        this(api, new CoverageSweepEngine(api), OpenApiUrlFetcher.http());
     }
 
     CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine) {
+        this(api, engine, OpenApiUrlFetcher.http());
+    }
+
+    CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine, OpenApiUrlFetcher openApiUrlFetcher) {
         super(new BorderLayout());
         this.api = api;
         this.engine = engine;
+        this.openApiUrlFetcher = openApiUrlFetcher == null ? OpenApiUrlFetcher.http() : openApiUrlFetcher;
         initializeUi();
     }
 
@@ -109,6 +117,11 @@ public class CoverageSweepPanel extends JPanel {
         candidateLoadWorker = null;
         if (worker != null) {
             worker.cancel(true);
+        }
+        SwingWorker<RemoteOpenApiImport, Void> importWorker = remoteImportWorker;
+        remoteImportWorker = null;
+        if (importWorker != null) {
+            importWorker.cancel(true);
         }
         engine.cleanup();
     }
@@ -374,6 +387,34 @@ public class CoverageSweepPanel extends JPanel {
             statusLabel.setText("Select Import targets mode to load a URL list.");
             return;
         }
+
+        Object[] choices = {"Select a file", "Import via URL", "Cancel"};
+        int sourceChoice = JOptionPane.showOptionDialog(
+            this,
+            "How would you like to import sweep targets?",
+            "Import Targets",
+            JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE,
+            null,
+            choices,
+            choices[0]
+        );
+        if (sourceChoice == 1) {
+            String url = JOptionPane.showInputDialog(
+                this,
+                "OpenAPI JSON or YAML URL:",
+                "Import OpenAPI via URL",
+                JOptionPane.PLAIN_MESSAGE
+            );
+            if (url != null && !url.isBlank()) {
+                importTargetsFromUrl(url);
+            }
+            return;
+        }
+        if (sourceChoice != 0) {
+            return;
+        }
+
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import Sweep Targets");
         chooser.setFileFilter(new FileNameExtensionFilter(
@@ -386,6 +427,56 @@ public class CoverageSweepPanel extends JPanel {
         importTargetsFromFile(chooser.getSelectedFile().toPath());
     }
 
+    boolean importTargetsFromUrl(String rawUrl) {
+        URI uri;
+        try {
+            uri = validateOpenApiUri(rawUrl);
+        } catch (IllegalArgumentException e) {
+            statusLabel.setText("Unable to import targets: " + e.getMessage());
+            return false;
+        }
+
+        setControlsForLoading();
+        statusLabel.setText("Downloading OpenAPI document from " + uri.getHost() + "...");
+        CoverageSweepOptions options = currentOptions();
+        String baseUrl = openApiBaseUrlField.getText().trim();
+        SwingWorker<RemoteOpenApiImport, Void> worker = new SwingWorker<>() {
+            @Override
+            protected RemoteOpenApiImport doInBackground() throws Exception {
+                String fileName = remoteFileName(uri);
+                String source = openApiUrlFetcher.fetch(uri);
+                CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
+                    source, fileName, baseUrl, options);
+                return new RemoteOpenApiImport(preview);
+            }
+
+            @Override
+            protected void done() {
+                if (remoteImportWorker != this) {
+                    return;
+                }
+                try {
+                    applyImportedPreview(get().preview(), true);
+                } catch (CancellationException e) {
+                    statusLabel.setText("OpenAPI URL import cancelled.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    handleImportFailure(e);
+                } catch (ExecutionException e) {
+                    handleImportFailure(e.getCause() == null ? e : e.getCause());
+                } catch (Exception e) {
+                    handleImportFailure(e);
+                } finally {
+                    remoteImportWorker = null;
+                    finishCandidateLoading();
+                }
+            }
+        };
+        remoteImportWorker = worker;
+        worker.execute();
+        return true;
+    }
+
     boolean importTargetsFromFile(Path path) {
         setControlsForLoading();
         try {
@@ -395,24 +486,59 @@ public class CoverageSweepPanel extends JPanel {
                 ? engine.collectPreviewFromOpenApi(source, path.getFileName().toString(),
                     openApiBaseUrlField.getText().trim(), currentOptions())
                 : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
-            setCandidateRows(preview.candidates());
-            applyImportedMethodSelection();
-            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
-            updatePreviewButton();
-            statusLabel.setText("Imported " + preview.blockedHistoryCount()
-                + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ") + preview.dedupedEndpointCount()
-                + " deduped endpoints; showing " + preview.candidates().size() + ".");
-            updateEstimate();
+            applyImportedPreview(preview, openApi);
             return true;
         } catch (Exception e) {
-            setCandidateRows(List.of());
-            statusLabel.setText("Unable to import targets: " + e.getMessage());
-            startButton.setEnabled(false);
-            setCandidateActionButtonsEnabled(false);
+            handleImportFailure(e);
             return false;
         } finally {
             finishCandidateLoading();
         }
+    }
+
+    private void applyImportedPreview(CoverageSweepPreview preview, boolean openApi) {
+        setCandidateRows(preview.candidates());
+        applyImportedMethodSelection();
+        startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
+        updatePreviewButton();
+        statusLabel.setText("Imported " + preview.blockedHistoryCount()
+            + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ") + preview.dedupedEndpointCount()
+            + " deduped endpoints; showing " + preview.candidates().size() + ".");
+        updateEstimate();
+    }
+
+    private void handleImportFailure(Throwable error) {
+        setCandidateRows(List.of());
+        String message = error == null || error.getMessage() == null ? "unknown error" : error.getMessage();
+        statusLabel.setText("Unable to import targets: " + message);
+        startButton.setEnabled(false);
+        setCandidateActionButtonsEnabled(false);
+    }
+
+    private URI validateOpenApiUri(String rawUrl) {
+        try {
+            URI uri = URI.create(rawUrl == null ? "" : rawUrl.trim());
+            String scheme = uri.getScheme();
+            if (uri.getHost() == null
+                || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException("Enter an absolute HTTP or HTTPS OpenAPI URL.");
+            }
+            return uri;
+        } catch (IllegalArgumentException e) {
+            if (e.getMessage() != null && e.getMessage().startsWith("Enter an absolute")) {
+                throw e;
+            }
+            throw new IllegalArgumentException("Enter a valid absolute HTTP or HTTPS OpenAPI URL.");
+        }
+    }
+
+    private String remoteFileName(URI uri) {
+        String path = uri.getPath();
+        if (path == null || path.isBlank() || path.endsWith("/")) {
+            return "openapi.json";
+        }
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        return name.isBlank() ? "openapi.json" : name;
     }
 
     private boolean isOpenApiSource(Path path, String source) {
@@ -510,6 +636,9 @@ public class CoverageSweepPanel extends JPanel {
             + (options.doublePortHostProbes() ? 2 : 0);
         int estimate = selected * probesPerCandidate;
         estimateLabel.setText("Selected " + selected + " endpoint(s); estimated max " + estimate + " request(s).");
+    }
+
+    private record RemoteOpenApiImport(CoverageSweepPreview preview) {
     }
 
     private CoverageSweepOptions currentOptions() {

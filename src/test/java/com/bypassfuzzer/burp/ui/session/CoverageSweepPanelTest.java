@@ -48,7 +48,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CoverageSweepPanelTest {
@@ -313,6 +315,52 @@ class CoverageSweepPanelTest {
         assertEquals(1, table.getRowCount());
         assertEquals("/users", table.getValueAt(0, 3));
         assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
+    }
+
+    @Test
+    void importsOpenApiFromHttpUrlWithoutBlockingTheSwingThread() throws Exception {
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview preview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://api.example.test/users", "/users")
+        ));
+        when(engine.collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
+            any(CoverageSweepOptions.class))).thenReturn(preview);
+        AtomicBoolean fetchedOnEventThread = new AtomicBoolean(true);
+        CountDownLatch fetchStarted = new CountDownLatch(1);
+        OpenApiUrlFetcher fetcher = uri -> {
+            fetchedOnEventThread.set(SwingUtilities.isEventDispatchThread());
+            fetchStarted.countDown();
+            return "{\"openapi\":\"3.0.0\",\"paths\":{}}";
+        };
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine, fetcher);
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+
+        assertTrue(panel.importTargetsFromUrl("https://specs.example.test/openapi.json?version=1"));
+        assertTrue(fetchStarted.await(2, TimeUnit.SECONDS));
+        assertFalse(fetchedOnEventThread.get());
+        waitForRemoteImport(panel);
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(1, table.getRowCount());
+        assertEquals("/users", table.getValueAt(0, 3));
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
+        verify(engine).collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
+            any(CoverageSweepOptions.class));
+    }
+
+    @Test
+    void rejectsNonHttpOpenApiUrlBeforeStartingImport() throws Exception {
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        AtomicBoolean fetched = new AtomicBoolean(false);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine, uri -> {
+            fetched.set(true);
+            return "";
+        });
+
+        assertFalse(panel.importTargetsFromUrl("file:///tmp/openapi.json"));
+
+        assertFalse(fetched.get());
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("HTTP or HTTPS"));
     }
 
     @Test
@@ -609,6 +657,15 @@ class CoverageSweepPanelTest {
         Method method = CoverageSweepPanel.class.getDeclaredMethod("currentOptions");
         method.setAccessible(true);
         return (CoverageSweepOptions) method.invoke(panel);
+    }
+
+    private void waitForRemoteImport(CoverageSweepPanel panel) throws Exception {
+        for (int i = 0; i < 100
+            && field(panel, "remoteImportWorker", javax.swing.SwingWorker.class) != null; i++) {
+            Thread.sleep(20);
+            SwingUtilities.invokeAndWait(() -> { });
+        }
+        assertTrue(field(panel, "remoteImportWorker", javax.swing.SwingWorker.class) == null);
     }
 
     private <T> T field(Object target, String fieldName, Class<T> type) throws Exception {
