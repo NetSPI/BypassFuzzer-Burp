@@ -47,6 +47,8 @@ import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.requestWithHeaders;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -167,8 +169,15 @@ class CoverageSweepPanelTest {
         JButton importTargets = button(panel, "importButton");
         JButton clearImport = button(panel, "clearImportButton");
         JButton applyBaseUrl = button(panel, "applyOpenApiBaseUrlButton");
+        JButton authIdentifiers = button(panel, "authIdentifiersButton");
+        JButton requestHeaders = field(panel, "requestHeadersControl", RequestHeadersControl.class).button();
+        JTextField concurrency = field(panel, "concurrencyField", JTextField.class);
 
         assertEquals(3, mode.getItemCount());
+        assertSame(requestHeaders.getParent(), authIdentifiers.getParent());
+        assertNotSame(requestHeaders.getParent(), concurrency.getParent());
+        assertTrue(requestHeaders.isVisible());
+        assertFalse(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
         assertFalse(clearImport.isVisible());
@@ -177,6 +186,8 @@ class CoverageSweepPanelTest {
 
         mode.setSelectedIndex(1);
 
+        assertTrue(requestHeaders.isVisible());
+        assertTrue(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
         assertFalse(clearImport.isVisible());
@@ -185,6 +196,8 @@ class CoverageSweepPanelTest {
 
         mode.setSelectedIndex(2);
 
+        assertTrue(requestHeaders.isVisible());
+        assertFalse(authIdentifiers.isVisible());
         assertFalse(load.isVisible());
         assertTrue(importTargets.isVisible());
         assertTrue(importTargets.isEnabled());

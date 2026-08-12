@@ -145,6 +145,7 @@ public class CoverageSweepPanel extends JPanel {
         controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
         JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel requestContextRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         modeComboBox = new JComboBox<>(new String[]{
             "Blocked responses",
@@ -212,15 +213,16 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
         executionRow.add(autoThrottleCheckBox);
-        executionRow.add(requestHeadersControl.button());
         executionRow.add(includeUnsafeMethodsCheckBox);
         executionRow.add(excludeStaticAssetsCheckBox);
         executionRow.add(verifyUnauthenticatedAccessCheckBox);
         executionRow.add(doublePortHostProbesCheckBox);
-        executionRow.add(authIdentifiersButton);
         executionRow.add(openApiBaseUrlLabel);
         executionRow.add(openApiBaseUrlField);
         executionRow.add(applyOpenApiBaseUrlButton);
+
+        requestContextRow.add(requestHeadersControl.button());
+        requestContextRow.add(authIdentifiersButton);
 
         loadButton = new JButton("Load from Proxy History");
         loadButton.addActionListener(e -> loadCandidates());
@@ -257,6 +259,7 @@ public class CoverageSweepPanel extends JPanel {
 
         controls.add(statusRow);
         controls.add(executionRow);
+        controls.add(requestContextRow);
 
         statusLabel = new JLabel("Load in-scope Proxy history responses to preview sweep candidates.");
         estimateLabel = new JLabel("No candidates loaded.");
@@ -844,6 +847,8 @@ public class CoverageSweepPanel extends JPanel {
         excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
         verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
+        requestHeadersControl.button().setVisible(true);
+        authIdentifiersButton.setVisible(authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
         doublePortHostProbesCheckBox.setEnabled(idle);
         openApiBaseUrlLabel.setVisible(imported);
