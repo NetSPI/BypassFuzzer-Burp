@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.ui.session;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
@@ -329,9 +330,11 @@ class CoverageSweepPanelTest {
         AtomicBoolean fetchedOnEventThread = new AtomicBoolean(true);
         AtomicReference<String> fetchedUrl = new AtomicReference<>();
         CountDownLatch fetchStarted = new CountDownLatch(1);
-        OpenApiUrlFetcher fetcher = url -> {
+        AtomicReference<HttpMode> fetchedMode = new AtomicReference<>();
+        OpenApiUrlFetcher fetcher = (url, httpMode) -> {
             fetchedOnEventThread.set(SwingUtilities.isEventDispatchThread());
             fetchedUrl.set(url);
+            fetchedMode.set(httpMode);
             fetchStarted.countDown();
             return "{\"openapi\":\"3.0.0\",\"paths\":{}}";
         };
@@ -339,10 +342,11 @@ class CoverageSweepPanelTest {
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
         String malformedUrl = "https://iquery.finance.yahoo.com/ws/user-analytics/\\docs/handcrafted/swagger/openapi.json";
 
-        assertTrue(panel.importTargetsFromUrl(malformedUrl));
+        assertTrue(panel.importTargetsFromUrl(malformedUrl, HttpMode.HTTP_2));
         assertTrue(fetchStarted.await(2, TimeUnit.SECONDS));
         assertFalse(fetchedOnEventThread.get());
         assertEquals(malformedUrl, fetchedUrl.get());
+        assertEquals(HttpMode.HTTP_2, fetchedMode.get());
         waitForRemoteImport(panel);
 
         JTable table = field(panel, "candidateTable", JTable.class);
@@ -357,7 +361,7 @@ class CoverageSweepPanelTest {
     void rejectsNonHttpOpenApiUrlBeforeStartingImport() throws Exception {
         CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
         AtomicBoolean fetched = new AtomicBoolean(false);
-        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine, uri -> {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine, (url, httpMode) -> {
             fetched.set(true);
             return "";
         });

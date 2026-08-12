@@ -49,7 +49,7 @@ class OpenApiUrlFetcherTest {
         String source = OpenApiUrlFetcher.burp(api, (target, raw) -> {
             rawRequest.set(raw);
             return outboundRequest;
-        }).fetch(rawUrl);
+        }).fetch(rawUrl, HttpMode.HTTP_1);
 
         assertEquals("{\"openapi\":\"3.0.0\",\"paths\":{}}", source);
         verify(api.http()).sendRequest(outboundRequest, HttpMode.HTTP_1);
@@ -61,5 +61,26 @@ class OpenApiUrlFetcherTest {
                 + "Connection: close\r\n\r\n",
             rawRequest.get()
         );
+    }
+
+    @Test
+    void burpFetcherUsesSelectedHttp2Mode() throws Exception {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequestResponse exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        ByteArray body = mock(ByteArray.class);
+        HttpRequest outboundRequest = mock(HttpRequest.class);
+        when(api.http().sendRequest(outboundRequest, HttpMode.HTTP_2)).thenReturn(exchange);
+        when(exchange.response()).thenReturn(response);
+        when(response.statusCode()).thenReturn((short) 200);
+        when(response.body()).thenReturn(body);
+        when(body.length()).thenReturn(2);
+        when(response.bodyToString()).thenReturn("{}");
+
+        String source = OpenApiUrlFetcher.burp(api, (target, raw) -> outboundRequest)
+            .fetch("https://specs.example.test/openapi.json", HttpMode.HTTP_2);
+
+        assertEquals("{}", source);
+        verify(api.http()).sendRequest(outboundRequest, HttpMode.HTTP_2);
     }
 }

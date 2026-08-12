@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.ui.editor.HttpRequestEditor;
@@ -399,14 +400,27 @@ public class CoverageSweepPanel extends JPanel {
             choices[0]
         );
         if (sourceChoice == 1) {
-            String url = JOptionPane.showInputDialog(
+            JTextField urlField = new JTextField(48);
+            JComboBox<String> httpModeComboBox = new JComboBox<>(new String[]{"HTTP/1.1", "HTTP/2"});
+            JPanel remoteImportPanel = new JPanel();
+            remoteImportPanel.setLayout(new BoxLayout(remoteImportPanel, BoxLayout.Y_AXIS));
+            remoteImportPanel.add(new JLabel("OpenAPI JSON or YAML URL:"));
+            remoteImportPanel.add(urlField);
+            JPanel protocolRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 6));
+            protocolRow.add(new JLabel("HTTP version: "));
+            protocolRow.add(httpModeComboBox);
+            remoteImportPanel.add(protocolRow);
+            int result = JOptionPane.showConfirmDialog(
                 this,
-                "OpenAPI JSON or YAML URL:",
+                remoteImportPanel,
                 "Import OpenAPI via URL",
+                JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE
             );
-            if (url != null && !url.isBlank()) {
-                importTargetsFromUrl(url);
+            if (result == JOptionPane.OK_OPTION && !urlField.getText().isBlank()) {
+                HttpMode httpMode = httpModeComboBox.getSelectedIndex() == 1
+                    ? HttpMode.HTTP_2 : HttpMode.HTTP_1;
+                importTargetsFromUrl(urlField.getText(), httpMode);
             }
             return;
         }
@@ -427,6 +441,10 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     boolean importTargetsFromUrl(String rawUrl) {
+        return importTargetsFromUrl(rawUrl, HttpMode.HTTP_1);
+    }
+
+    boolean importTargetsFromUrl(String rawUrl, HttpMode httpMode) {
         OpenApiUrlFetcher.ParsedUrl target;
         try {
             target = OpenApiUrlFetcher.parse(rawUrl);
@@ -443,7 +461,7 @@ public class CoverageSweepPanel extends JPanel {
             @Override
             protected RemoteOpenApiImport doInBackground() throws Exception {
                 String fileName = remoteFileName(target.requestTarget());
-                String source = openApiUrlFetcher.fetch(target.rawUrl());
+                String source = openApiUrlFetcher.fetch(target.rawUrl(), httpMode);
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
                     source, fileName, baseUrl, options);
                 return new RemoteOpenApiImport(preview);

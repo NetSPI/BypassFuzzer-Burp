@@ -33,7 +33,7 @@ interface OpenApiUrlFetcher {
         return thread;
     });
 
-    String fetch(String rawUrl) throws Exception;
+    String fetch(String rawUrl, HttpMode httpMode) throws Exception;
 
     static OpenApiUrlFetcher burp(MontoyaApi api) {
         return burp(api, (target, rawRequest) -> {
@@ -43,11 +43,18 @@ interface OpenApiUrlFetcher {
     }
 
     static OpenApiUrlFetcher burp(MontoyaApi api, RawRequestFactory requestFactory) {
-        return rawUrl -> fetchWithBurp(api, requestFactory, rawUrl, 0);
+        return (rawUrl, httpMode) -> fetchWithBurp(
+            api,
+            requestFactory,
+            rawUrl,
+            httpMode == null ? HttpMode.HTTP_1 : httpMode,
+            0
+        );
     }
 
     private static String fetchWithBurp(MontoyaApi api, RawRequestFactory requestFactory,
-                                        String rawUrl, int redirectCount) throws Exception {
+                                        String rawUrl, HttpMode httpMode,
+                                        int redirectCount) throws Exception {
         ParsedUrl target = parse(rawUrl);
         String rawRequest = "GET " + target.requestTarget() + " HTTP/1.1\r\n"
             + "Host: " + target.hostHeader() + "\r\n"
@@ -56,7 +63,7 @@ interface OpenApiUrlFetcher {
             + "Connection: close\r\n"
             + "\r\n";
         HttpRequest request = requestFactory.create(target, rawRequest);
-        HttpRequestResponse exchange = sendWithTimeout(api, request);
+        HttpRequestResponse exchange = sendWithTimeout(api, request, httpMode);
         HttpResponse response = exchange == null ? null : exchange.response();
         if (response == null) {
             throw new IOException("OpenAPI URL returned no response");
@@ -71,7 +78,8 @@ interface OpenApiUrlFetcher {
             if (redirectCount >= MAX_REDIRECTS) {
                 throw new IOException("OpenAPI URL exceeded " + MAX_REDIRECTS + " redirects");
             }
-            return fetchWithBurp(api, requestFactory, resolveRedirect(target, location.trim()), redirectCount + 1);
+            return fetchWithBurp(api, requestFactory, resolveRedirect(target, location.trim()),
+                httpMode, redirectCount + 1);
         }
         if (status < 200 || status >= 300) {
             throw new IOException("OpenAPI URL returned HTTP " + status);
@@ -82,9 +90,10 @@ interface OpenApiUrlFetcher {
         return response.bodyToString();
     }
 
-    private static HttpRequestResponse sendWithTimeout(MontoyaApi api, HttpRequest request) throws Exception {
+    private static HttpRequestResponse sendWithTimeout(MontoyaApi api, HttpRequest request,
+                                                       HttpMode httpMode) throws Exception {
         Future<HttpRequestResponse> future = FETCH_EXECUTOR.submit(
-            () -> api.http().sendRequest(request, HttpMode.HTTP_1));
+            () -> api.http().sendRequest(request, httpMode));
         try {
             return future.get(30, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
