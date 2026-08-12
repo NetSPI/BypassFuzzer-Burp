@@ -141,16 +141,19 @@ class CoverageSweepPanelTest {
         JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
         JButton load = button(panel, "loadButton");
         JButton importTargets = button(panel, "importButton");
+        JButton clearImport = button(panel, "clearImportButton");
 
         assertEquals(3, mode.getItemCount());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
+        assertFalse(clearImport.isVisible());
         assertTrue(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
 
         mode.setSelectedIndex(1);
 
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
+        assertFalse(clearImport.isVisible());
         assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
 
         mode.setSelectedIndex(2);
@@ -158,6 +161,8 @@ class CoverageSweepPanelTest {
         assertFalse(load.isVisible());
         assertTrue(importTargets.isVisible());
         assertTrue(importTargets.isEnabled());
+        assertTrue(clearImport.isVisible());
+        assertFalse(clearImport.isEnabled());
         assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
         assertFalse(checkbox(panel, "status401CheckBox").isVisible());
         assertFalse(checkbox(panel, "status403CheckBox").isVisible());
@@ -297,6 +302,35 @@ class CoverageSweepPanelTest {
                 || "/admin/users".equals(table.getValueAt(0, 3))
         );
         assertEquals(0, field(panel, "resultsWorkspace", SessionResultsWorkspace.class).allResultsCount());
+    }
+
+    @Test
+    void clearImportRemovesCandidatesAndBaseUrlForFreshStart() throws Exception {
+        Path targets = tempDir.resolve("sweep-targets.txt");
+        Files.writeString(targets, "https://victim.example/admin/users\n");
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview preview = new CoverageSweepPreview(1, 1, List.of(
+            candidate("https://victim.example/admin/users", "/admin/users")
+        ));
+        when(engine.collectPreviewFromUrls(anyList(), any(CoverageSweepOptions.class))).thenReturn(preview);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+        field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
+        JTextField baseUrl = field(panel, "openApiBaseUrlField", JTextField.class);
+        baseUrl.setText("https://api.example.test/v1");
+
+        assertTrue(panel.importTargetsFromFile(targets));
+        assertEquals(1, field(panel, "candidateTable", JTable.class).getRowCount());
+        assertTrue(button(panel, "clearImportButton").isEnabled());
+
+        button(panel, "clearImportButton").doClick();
+
+        assertEquals(0, field(panel, "candidateTable", JTable.class).getRowCount());
+        assertEquals("", baseUrl.getText());
+        assertFalse(button(panel, "startButton").isEnabled());
+        assertFalse(button(panel, "viewCandidateButton").isEnabled());
+        assertFalse(button(panel, "previewProbesButton").isEnabled());
+        assertFalse(button(panel, "clearImportButton").isEnabled());
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("cleared"));
     }
 
     @Test

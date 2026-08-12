@@ -59,6 +59,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private JButton loadButton;
     private JButton importButton;
+    private JButton clearImportButton;
     private JButton startButton;
     private JButton stopButton;
     private JButton clearButton;
@@ -206,6 +207,8 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.addActionListener(e -> loadCandidates());
         importButton = new JButton("Import Targets");
         importButton.addActionListener(e -> importTargetsWithChooser());
+        clearImportButton = new JButton("Clear Import");
+        clearImportButton.addActionListener(e -> clearImport());
         startButton = new JButton("Start Sweep");
         startButton.setEnabled(false);
         startButton.addActionListener(e -> startSweep());
@@ -225,6 +228,7 @@ public class CoverageSweepPanel extends JPanel {
         exportButton.addActionListener(e -> exportResultsWithChooser());
         statusRow.add(loadButton);
         statusRow.add(importButton);
+        statusRow.add(clearImportButton);
         statusRow.add(viewCandidateButton);
         statusRow.add(previewProbesButton);
         statusRow.add(startButton);
@@ -613,6 +617,7 @@ public class CoverageSweepPanel extends JPanel {
     private void setControlsForLoading() {
         loadButton.setEnabled(false);
         importButton.setEnabled(false);
+        clearImportButton.setEnabled(false);
         setStatusControlsEnabled(false);
         setCandidateActionButtonsEnabled(false);
         candidateTableModel.setSelectionEditingEnabled(false);
@@ -625,6 +630,8 @@ public class CoverageSweepPanel extends JPanel {
         statusLabel.setText(message);
         loadButton.setEnabled(true);
         importButton.setEnabled(true);
+        clearImportButton.setEnabled(currentMode() == CoverageSweepMode.IMPORTED_TARGETS
+            && candidateTableModel.getRowCount() > 0);
         setStatusControlsEnabled(true);
         startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
         stopButton.setEnabled(false);
@@ -752,6 +759,8 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setEnabled(idle && !imported);
         importButton.setVisible(imported);
         importButton.setEnabled(idle && imported);
+        clearImportButton.setVisible(imported);
+        clearImportButton.setEnabled(idle && imported && candidateTableModel.getRowCount() > 0);
         includeUnsafeMethodsCheckBox.setEnabled(idle && (authenticated || imported));
         excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
@@ -764,6 +773,19 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setText(authenticated ? "Load Authenticated History" : "Load from Proxy History");
         revalidate();
         repaint();
+    }
+
+    private void clearImport() {
+        if (currentMode() != CoverageSweepMode.IMPORTED_TARGETS || engine.isRunning()) {
+            return;
+        }
+        setCandidateRows(List.of());
+        openApiBaseUrlField.setText("");
+        startButton.setEnabled(false);
+        setCandidateActionButtonsEnabled(false);
+        clearImportButton.setEnabled(false);
+        statusLabel.setText("Imported targets cleared. Import a file or OpenAPI URL to start fresh.");
+        updateEstimate();
     }
 
     private void selectObviousIdentifiers() {
