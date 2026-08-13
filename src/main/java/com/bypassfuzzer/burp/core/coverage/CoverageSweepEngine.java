@@ -75,7 +75,18 @@ public class CoverageSweepEngine {
 
     public CoverageSweepPreview collectPreview(CoverageSweepOptions options) {
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
-        List<ProxyHttpRequestResponse> matchingHistory = api.proxy().history(item -> eligible(item, effectiveOptions));
+        List<ProxyHttpRequestResponse> history = api.proxy().history();
+        history = history == null ? List.of() : history;
+        int successfulResponseCount = effectiveOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
+            ? (int) history.stream().filter(this::hasSuccessfulResponse).count()
+            : 0;
+        int inScopeSuccessfulResponseCount = effectiveOptions.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
+            ? (int) history.stream().filter(this::hasSuccessfulResponse)
+                .filter(item -> !effectiveOptions.inScopeOnly() || isInScope(item)).count()
+            : 0;
+        List<ProxyHttpRequestResponse> matchingHistory = history.stream()
+            .filter(item -> eligible(item, effectiveOptions))
+            .toList();
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
         Set<String> discoveredHeaders = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         Set<String> discoveredCookies = new TreeSet<>();
@@ -106,7 +117,8 @@ public class CoverageSweepEngine {
         }
 
         return new CoverageSweepPreview(matchingHistory.size(), deduped.size(), List.copyOf(candidates),
-            Set.copyOf(discoveredHeaders), Set.copyOf(discoveredCookies));
+            Set.copyOf(discoveredHeaders), Set.copyOf(discoveredCookies), history.size(),
+            successfulResponseCount, inScopeSuccessfulResponseCount);
     }
 
     public CoverageSweepPreview collectPreviewFromUrls(List<String> urls, CoverageSweepOptions options) {
@@ -394,7 +406,8 @@ public class CoverageSweepEngine {
     }
 
     private boolean eligible(ProxyHttpRequestResponse item, CoverageSweepOptions options) {
-        if (item == null || !item.hasResponse() || item.response() == null || item.request() == null) {
+        HttpRequest request = effectiveRequest(item);
+        if (item == null || item.response() == null || request == null) {
             return false;
         }
         if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
@@ -402,7 +415,6 @@ public class CoverageSweepEngine {
             if (status < 200 || status >= 300) {
                 return false;
             }
-            HttpRequest request = item.finalRequest() != null ? item.finalRequest() : item.request();
             if (options.excludeStaticAssets() && isStaticAsset(request, item.response())) {
                 return false;
             }
@@ -413,10 +425,39 @@ public class CoverageSweepEngine {
             return true;
         }
         try {
-            HttpRequest request = item.finalRequest() != null ? item.finalRequest() : item.request();
-            return api.scope().isInScope(safeUrl(request));
+            return isInScope(item);
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private boolean hasSuccessfulResponse(ProxyHttpRequestResponse item) {
+        HttpRequest request = effectiveRequest(item);
+        if (item == null || request == null || item.response() == null) return false;
+        int status = item.response().statusCode();
+        return status >= 200 && status < 300;
+    }
+
+    private boolean isInScope(ProxyHttpRequestResponse item) {
+        try {
+            HttpRequest request = effectiveRequest(item);
+            return request != null && api.scope().isInScope(safeUrl(request));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private HttpRequest effectiveRequest(ProxyHttpRequestResponse item) {
+        if (item == null) return null;
+        try {
+            HttpRequest finalRequest = item.finalRequest();
+            return finalRequest != null ? finalRequest : item.request();
+        } catch (Exception e) {
+            try {
+                return item.request();
+            } catch (Exception ignored) {
+                return null;
+            }
         }
     }
 
@@ -528,7 +569,7 @@ public class CoverageSweepEngine {
 
 
     private CoverageSweepCandidate toCandidate(ProxyHttpRequestResponse item) {
-        HttpRequest request = item.finalRequest() != null ? item.finalRequest() : item.request();
+        HttpRequest request = effectiveRequest(item);
         HttpResponse response = item.response();
         if (request == null || response == null) {
             return null;

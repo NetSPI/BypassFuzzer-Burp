@@ -94,6 +94,7 @@ public class CoverageSweepPanel extends JPanel {
     private SessionResultsWorkspace resultsWorkspace;
     private volatile boolean stopRequested = false;
     private List<CoverageSweepCandidate> cachedHistoryCandidates = List.of();
+    private CoverageSweepPreview cachedHistoryPreview;
     private Set<String> discoveredAuthHeaders = Set.of();
     private Set<String> discoveredCookieNames = Set.of();
     private Set<String> selectedAuthHeaders = new LinkedHashSet<>(Set.of("Authorization"));
@@ -388,6 +389,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private void applyLoadedCandidates(CoverageSweepPreview preview, CoverageSweepOptions options) {
         cachedHistoryCandidates = preview.candidates();
+        cachedHistoryPreview = preview;
         discoveredAuthHeaders = preview.discoveredHeaderNames();
         discoveredCookieNames = preview.discoveredCookieNames();
         if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
@@ -405,7 +407,7 @@ public class CoverageSweepPanel extends JPanel {
             + " matching history items; " + preview.dedupedEndpointCount()
             + " deduped endpoints; showing " + preview.candidates().size() + ".");
         if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-            updateAuthenticatedStatus(preview.blockedHistoryCount(), preview.dedupedEndpointCount());
+            updateAuthenticatedStatus(preview);
         }
         updateEstimate();
     }
@@ -858,6 +860,7 @@ public class CoverageSweepPanel extends JPanel {
 
     private void handleModeChange() {
         cachedHistoryCandidates = List.of();
+        cachedHistoryPreview = null;
         importedOpenApiDocument = null;
         setCandidateRows(List.of());
         startButton.setEnabled(false);
@@ -956,7 +959,9 @@ public class CoverageSweepPanel extends JPanel {
             .toList();
         setCandidateRows(filtered);
         startButton.setEnabled(!filtered.isEmpty() && !engine.isRunning());
-        updateAuthenticatedStatus(cachedHistoryCandidates.size(), cachedHistoryCandidates.size());
+        if (cachedHistoryPreview != null) {
+            updateAuthenticatedStatus(cachedHistoryPreview);
+        }
         updateEstimate();
         updatePreviewButton();
     }
@@ -983,10 +988,12 @@ public class CoverageSweepPanel extends JPanel {
         candidateTable.setRowSelectionInterval(0, 0);
     }
 
-    private void updateAuthenticatedStatus(int historyCount, int dedupedCount) {
-        statusLabel.setText("Inspected " + historyCount + " in-scope 2xx history item(s); "
-            + dedupedCount + " deduped; " + candidateTableModel.getRowCount()
-            + " match the selected auth identifiers.");
+    private void updateAuthenticatedStatus(CoverageSweepPreview preview) {
+        statusLabel.setText("Inspected " + preview.inspectedHistoryCount() + " Proxy history item(s); "
+            + preview.successfulResponseCount() + " had 2xx responses; "
+            + preview.inScopeSuccessfulResponseCount() + " were in scope; "
+            + preview.blockedHistoryCount() + " remained after static filtering; "
+            + candidateTableModel.getRowCount() + " match the selected auth identifiers.");
     }
 
     private void openAuthIdentifiersDialog() {

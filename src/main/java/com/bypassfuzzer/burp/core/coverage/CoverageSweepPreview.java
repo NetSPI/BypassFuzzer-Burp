@@ -8,8 +8,19 @@ public record CoverageSweepPreview(
     int dedupedEndpointCount,
     List<CoverageSweepCandidate> candidates,
     Set<String> discoveredHeaderNames,
-    Set<String> discoveredCookieNames
+    Set<String> discoveredCookieNames,
+    int inspectedHistoryCount,
+    int successfulResponseCount,
+    int inScopeSuccessfulResponseCount
 ) {
+
+    public CoverageSweepPreview(int blockedHistoryCount, int dedupedEndpointCount,
+                                List<CoverageSweepCandidate> candidates,
+                                Set<String> discoveredHeaderNames,
+                                Set<String> discoveredCookieNames) {
+        this(blockedHistoryCount, dedupedEndpointCount, candidates, discoveredHeaderNames,
+            discoveredCookieNames, blockedHistoryCount, blockedHistoryCount, blockedHistoryCount);
+    }
 
     public CoverageSweepPreview(int blockedHistoryCount, int dedupedEndpointCount,
                                 List<CoverageSweepCandidate> candidates) {

@@ -735,6 +735,7 @@ class CoverageSweepPanelTest {
         when(requestEditor.uiComponent()).thenReturn(new JPanel());
         when(responseEditor.uiComponent()).thenReturn(new JPanel());
         when(api.scope().isInScope(any())).thenReturn(true);
+        when(api.proxy().history()).thenReturn(history);
         when(api.proxy().history(any())).thenAnswer(invocation -> {
             ProxyHistoryFilter filter = invocation.getArgument(0);
             return history.stream().filter(filter::matches).toList();

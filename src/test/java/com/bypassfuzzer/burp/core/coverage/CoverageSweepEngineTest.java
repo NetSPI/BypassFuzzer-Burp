@@ -162,6 +162,30 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void authenticatedDiscoveryFiltersAHistorySnapshotOutsideBurpsCallback() {
+        HttpRequest request = requestWithHeaders("/analytics/chat-messages", "aggregation=month",
+            "GET", Map.of("Authorization", "Bearer secret", "Content-Type", "application/json"), "");
+        ProxyHttpRequestResponse item = history(request, 200, 1, "application/json");
+        when(item.hasResponse()).thenReturn(false);
+        MontoyaApi api = api(List.of(item));
+        burp.api.montoya.proxy.Proxy proxy = api.proxy();
+        org.mockito.Mockito.doReturn(List.of()).when(proxy)
+            .history(any(ProxyHistoryFilter.class));
+        CoverageSweepEngine engine = new CoverageSweepEngine(api,
+            new StaticSender(response(200, "application/json", "ok")),
+            new CoverageSweepProbeGenerator());
+
+        CoverageSweepPreview preview = engine.collectPreview(
+            CoverageSweepOptions.defaults().withAuthenticatedTraffic(CoverageSweepAuthSelection.defaults()));
+
+        assertEquals(1, preview.inspectedHistoryCount());
+        assertEquals(1, preview.successfulResponseCount());
+        assertEquals(1, preview.inScopeSuccessfulResponseCount());
+        assertEquals(1, preview.candidates().size());
+        assertTrue(preview.discoveredHeaderNames().contains("Authorization"));
+    }
+
+    @Test
     void authenticatedDiscoveryExcludesStaticAssetsByDefaultAndCanIncludeThem() {
         HttpRequest account = requestWithHeaders("/account", "", "GET",
             Map.of("Authorization", "Bearer secret"), "");
@@ -845,6 +869,7 @@ class CoverageSweepEngineTest {
     private MontoyaApi api(List<ProxyHttpRequestResponse> history) {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         when(api.scope().isInScope(any())).thenAnswer(invocation -> !invocation.getArgument(0, String.class).contains("/out"));
+        when(api.proxy().history()).thenReturn(history);
         when(api.proxy().history(any())).thenAnswer(invocation -> {
             ProxyHistoryFilter filter = invocation.getArgument(0);
             return history.stream().filter(filter::matches).toList();
