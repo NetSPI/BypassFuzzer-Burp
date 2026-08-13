@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -183,6 +184,24 @@ class CoverageSweepEngineTest {
         assertEquals(1, preview.inScopeSuccessfulResponseCount());
         assertEquals(1, preview.candidates().size());
         assertTrue(preview.discoveredHeaderNames().contains("Authorization"));
+    }
+
+    @Test
+    void authenticatedDiscoveryUsesProxyRequestsNativeScopeResult() {
+        HttpRequest request = requestWithHeaders("/analytics/chat-messages", "aggregation=month",
+            "GET", Map.of("Authorization", "Bearer secret"), "");
+        ProxyHttpRequestResponse item = history(request, 200, 1, "application/json");
+        MontoyaApi api = api(List.of(item));
+        burp.api.montoya.scope.Scope scope = api.scope();
+        org.mockito.Mockito.doReturn(false).when(scope).isInScope(any());
+
+        CoverageSweepPreview preview = new CoverageSweepEngine(api,
+            new StaticSender(response(200, "application/json", "ok")),
+            new CoverageSweepProbeGenerator()).collectPreview(
+                CoverageSweepOptions.defaults().withAuthenticatedTraffic(CoverageSweepAuthSelection.defaults()));
+
+        assertEquals(1, preview.inScopeSuccessfulResponseCount());
+        assertEquals(1, preview.candidates().size());
     }
 
     @Test
@@ -894,16 +913,17 @@ class CoverageSweepEngineTest {
 
     private ProxyHttpRequestResponse history(String path, int status, boolean inScope, int minutes) {
         ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
-        HttpRequest request = request(path, "", "GET", null, "");
+        HttpRequest request = withScope(request(path, "", "GET", null, ""), inScope);
         return history(item, request, status, minutes);
     }
 
     private ProxyHttpRequestResponse history(HttpRequest request, int status, int minutes) {
-        return history(mock(ProxyHttpRequestResponse.class), request, status, minutes);
+        return history(mock(ProxyHttpRequestResponse.class), withScope(request, true), status, minutes);
     }
 
     private ProxyHttpRequestResponse history(HttpRequest request, int status, int minutes, String contentType) {
         ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
+        request = withScope(request, true);
         HttpResponse response = response(status, contentType, "body");
         when(item.request()).thenReturn(request);
         when(item.finalRequest()).thenReturn(request);
@@ -913,6 +933,12 @@ class CoverageSweepEngineTest {
         return item;
     }
 
+    private HttpRequest withScope(HttpRequest request, boolean inScope) {
+        HttpRequest scoped = mock(HttpRequest.class, delegatesTo(request));
+        when(scoped.isInScope()).thenReturn(inScope);
+        return scoped;
+    }
+
     private ProxyHttpRequestResponse history(ProxyHttpRequestResponse item, HttpRequest request, int status, int minutes) {
         HttpResponse response = response(status, "text/plain", "blocked");
         when(item.request()).thenReturn(request);
@@ -920,10 +946,6 @@ class CoverageSweepEngineTest {
         when(item.response()).thenReturn(response);
         when(item.hasResponse()).thenReturn(true);
         when(item.time()).thenReturn(ZonedDateTime.now().plusMinutes(minutes));
-        if (request.path().equals("/out")) {
-            when(item.request()).thenReturn(request("/out", "", "GET", null, ""));
-            when(item.finalRequest()).thenReturn(request("/out", "", "GET", null, ""));
-        }
         return item;
     }
 

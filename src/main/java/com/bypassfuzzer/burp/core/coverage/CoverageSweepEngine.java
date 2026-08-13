@@ -439,11 +439,20 @@ public class CoverageSweepEngine {
     }
 
     private boolean isInScope(ProxyHttpRequestResponse item) {
-        try {
-            HttpRequest request = effectiveRequest(item);
-            return request != null && api.scope().isInScope(safeUrl(request));
-        } catch (Exception e) {
+        HttpRequest request = effectiveRequest(item);
+        if (request == null) {
             return false;
+        }
+        try {
+            // Ask Burp about the exact request from proxy history. Reconstructing a URL
+            // can lose HTTP/2 service/authority details and disagree with Burp's scope UI.
+            return request.isInScope();
+        } catch (RuntimeException | LinkageError ignored) {
+            try {
+                return api.scope().isInScope(safeUrl(request));
+            } catch (RuntimeException | LinkageError fallbackFailure) {
+                return false;
+            }
         }
     }
 

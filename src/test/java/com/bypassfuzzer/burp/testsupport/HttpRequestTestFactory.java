@@ -47,6 +47,7 @@ public final class HttpRequestTestFactory {
                 case "bodyToString" -> body;
                 case "body" -> byteArray;
                 case "url" -> "https://example.com" + pathWithQuery;
+                case "isInScope" -> true;
                 case "withMethod" -> requestWithHeaders(path, query, (String) args[0], headers, body);
                 case "withUpdatedHeader" -> requestWithHeaders(path, query, method, updatedHeaders(headers, (String) args[0], (String) args[1]), body);
                 case "withAddedHeader" -> requestWithHeaders(path, query, method, addedHeader(headers, (String) args[0], (String) args[1]), body);
