@@ -18,12 +18,18 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @FunctionalInterface
 interface OpenApiUrlFetcher {
 
     int MAX_SOURCE_BYTES = 10 * 1024 * 1024;
     int MAX_REDIRECTS = 5;
+    int MAX_DOCUMENT_DISCOVERY_STEPS = 3;
+    Pattern DOCUMENT_URL = Pattern.compile("(?is)\\b(?:configUrl|url)\\s*:\\s*(['\"])(.*?)\\1");
+    Pattern INITIALIZER_SCRIPT = Pattern.compile(
+        "(?is)<script[^>]+src\\s*=\\s*(['\"])([^'\"]*(?:initializer|swagger-ui-init)[^'\"]*)\\1");
     String BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         + "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
     AtomicInteger FETCH_THREAD_COUNTER = new AtomicInteger(1);
@@ -38,6 +44,11 @@ interface OpenApiUrlFetcher {
 
     default String fetch(String rawUrl, HttpMode httpMode, java.util.List<ConfiguredHeader> headers) throws Exception {
         return fetch(rawUrl, httpMode);
+    }
+
+    default FetchedDocument fetchDocument(String rawUrl, HttpMode httpMode,
+                                           java.util.List<ConfiguredHeader> headers) throws Exception {
+        return new FetchedDocument(fetch(rawUrl, httpMode, headers), rawUrl);
     }
 
     static OpenApiUrlFetcher burp(MontoyaApi api) {
@@ -57,16 +68,23 @@ interface OpenApiUrlFetcher {
             @Override
             public String fetch(String rawUrl, HttpMode httpMode,
                                 java.util.List<ConfiguredHeader> headers) throws Exception {
+                return fetchDocument(rawUrl, httpMode, headers).source();
+            }
+
+            @Override
+            public FetchedDocument fetchDocument(String rawUrl, HttpMode httpMode,
+                                                  java.util.List<ConfiguredHeader> headers) throws Exception {
                 return fetchWithBurp(api, requestFactory, rawUrl,
-                    httpMode == null ? HttpMode.HTTP_1 : httpMode, headers, 0);
+                    httpMode == null ? HttpMode.HTTP_1 : httpMode, headers, 0, 0);
             }
         };
     }
 
-    private static String fetchWithBurp(MontoyaApi api, RawRequestFactory requestFactory,
-                                        String rawUrl, HttpMode httpMode,
-                                        java.util.List<ConfiguredHeader> configuredHeaders,
-                                        int redirectCount) throws Exception {
+    private static FetchedDocument fetchWithBurp(MontoyaApi api, RawRequestFactory requestFactory,
+                                                 String rawUrl, HttpMode httpMode,
+                                                 java.util.List<ConfiguredHeader> configuredHeaders,
+                                                 int redirectCount,
+                                                 int discoveryCount) throws Exception {
         ParsedUrl target = parse(rawUrl);
         String rawRequest = buildRawRequest(target, configuredHeaders);
         HttpRequest request = requestFactory.create(target, rawRequest);
@@ -85,8 +103,8 @@ interface OpenApiUrlFetcher {
             if (redirectCount >= MAX_REDIRECTS) {
                 throw new IOException("OpenAPI URL exceeded " + MAX_REDIRECTS + " redirects");
             }
-            return fetchWithBurp(api, requestFactory, resolveRedirect(target, location.trim()),
-                httpMode, configuredHeaders, redirectCount + 1);
+            return fetchWithBurp(api, requestFactory, resolveReference(target, location.trim()),
+                httpMode, configuredHeaders, redirectCount + 1, discoveryCount);
         }
         if (status < 200 || status >= 300) {
             throw new IOException("OpenAPI URL returned HTTP " + status);
@@ -94,7 +112,20 @@ interface OpenApiUrlFetcher {
         if (response.body() != null && response.body().length() > MAX_SOURCE_BYTES) {
             throw new IOException("OpenAPI document exceeds the 10 MB import limit");
         }
-        return response.bodyToString();
+        String source = response.bodyToString();
+        String reference = discoverDocumentReference(source, response.headerValue("Content-Type"));
+        if (reference != null) {
+            if (discoveryCount >= MAX_DOCUMENT_DISCOVERY_STEPS) {
+                throw new IOException("OpenAPI URL exceeded " + MAX_DOCUMENT_DISCOVERY_STEPS
+                    + " document discovery steps");
+            }
+            return fetchWithBurp(api, requestFactory, resolveReference(target, reference),
+                httpMode, configuredHeaders, 0, discoveryCount + 1);
+        }
+        if (looksLikeHtml(source, response.headerValue("Content-Type"))) {
+            throw new IOException("URL returned HTML without a discoverable API document reference");
+        }
+        return new FetchedDocument(source, target.rawUrl());
     }
 
     private static String buildRawRequest(ParsedUrl target, java.util.List<ConfiguredHeader> configuredHeaders) {
@@ -239,11 +270,12 @@ interface OpenApiUrlFetcher {
         }
     }
 
-    private static String resolveRedirect(ParsedUrl current, String location) {
+    static String resolveReference(ParsedUrl current, String location) {
         if (location.regionMatches(true, 0, "http://", 0, 7)
             || location.regionMatches(true, 0, "https://", 0, 8)) {
             return location;
         }
+        if (location.startsWith("//")) return current.scheme() + ":" + location;
         String origin = current.scheme() + "://" + current.hostHeader();
         if (location.startsWith("/") || location.startsWith("\\")) {
             return origin + location;
@@ -258,6 +290,27 @@ interface OpenApiUrlFetcher {
         return origin + directory + location;
     }
 
+    static String discoverDocumentReference(String source, String contentType) {
+        if (source == null || source.isBlank()) return null;
+        String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        String leading = source.stripLeading();
+        boolean htmlOrScript = type.contains("javascript") || type.contains("ecmascript")
+            || leading.startsWith("<");
+        if (!htmlOrScript) return null;
+        Matcher configuredUrl = DOCUMENT_URL.matcher(source);
+        if (configuredUrl.find()) return configuredUrl.group(2);
+        Matcher initializer = INITIALIZER_SCRIPT.matcher(source);
+        return initializer.find() ? initializer.group(2) : null;
+    }
+
+    private static boolean looksLikeHtml(String source, String contentType) {
+        String type = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+        String leading = source == null ? "" : source.stripLeading().toLowerCase(Locale.ROOT);
+        return leading.startsWith("<") && (type.contains("html")
+            || leading.startsWith("<!doctype html") || leading.startsWith("<html")
+            || leading.startsWith("<!--"));
+    }
+
     private static IllegalArgumentException invalidUrl() {
         return new IllegalArgumentException("Enter a valid absolute HTTP or HTTPS OpenAPI URL.");
     }
@@ -267,6 +320,9 @@ interface OpenApiUrlFetcher {
     }
 
     record HostPort(String host, int port) {
+    }
+
+    record FetchedDocument(String source, String effectiveUrl) {
     }
 
     @FunctionalInterface

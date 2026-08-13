@@ -155,4 +155,124 @@ class OpenApiSpecParserTest {
         assertEquals("http://localhost:8080/base/health", overridden.get(0).url());
         assertTrue(overridden.get(0).headers().isEmpty());
     }
+
+    @Test
+    void importsReferencedQueryHeaderCookieAndArrayParameters() {
+        String spec = """
+            openapi: 3.0.3
+            servers: [{url: https://finance.mobile.yahoo.com}]
+            components:
+              parameters:
+                RegionRef: {$ref: '#/components/parameters/Region'}
+                Region:
+                  name: region
+                  in: query
+                  examples:
+                    primary: {value: US}
+                Uuids:
+                  name: uuids
+                  in: query
+                  schema:
+                    type: array
+                    items: {type: string, example: abc-123}
+                Session:
+                  name: session
+                  in: cookie
+                  schema: {type: string, default: token}
+            paths:
+              /dp/v2/homerun/newsitems:
+                parameters:
+                  - {$ref: '#/components/parameters/RegionRef'}
+                  - {$ref: '#/components/parameters/Uuids'}
+                get:
+                  parameters:
+                    - {$ref: '#/components/parameters/Session'}
+                    - name: X-Client
+                      in: header
+                      content:
+                        text/plain:
+                          example: mobile
+                          schema: {type: string, default: desktop}
+            """;
+
+        OpenApiOperation operation = new OpenApiSpecParser().parse(spec, "openapi.yaml").get(0);
+
+        assertEquals("https://finance.mobile.yahoo.com/dp/v2/homerun/newsitems?region=US&uuids=abc-123",
+            operation.url());
+        assertEquals("mobile", operation.headers().get("X-Client"));
+        assertEquals("session=token", operation.headers().get("Cookie"));
+    }
+
+    @Test
+    void operationParametersOverridePathParametersAndRespectQueryStyle() {
+        String spec = """
+            openapi: 3.0.3
+            servers: [{url: https://api.example.test}]
+            paths:
+              /search:
+                parameters:
+                  - name: fields
+                    in: query
+                    schema: {type: string, default: path-value}
+                get:
+                  parameters:
+                    - name: fields
+                      in: query
+                      schema:
+                        type: array
+                        default: [one, two]
+                    - name: compact
+                      in: query
+                      style: form
+                      explode: false
+                      schema:
+                        type: array
+                        default: [three, four]
+            """;
+
+        OpenApiOperation operation = new OpenApiSpecParser().parse(spec, "openapi.yaml").get(0);
+
+        assertEquals("https://api.example.test/search?fields=one&fields=two&compact=three%2Cfour",
+            operation.url());
+    }
+
+    @Test
+    void resolvesRelativeAndImplicitServersAgainstUrlImportedSpec() {
+        String relative = """
+            openapi: 3.0.3
+            servers: [{url: /api/v2}]
+            paths: {/quotes: {get: {responses: {}}}}
+            """;
+        String implicit = """
+            openapi: 3.0.3
+            paths: {/health: {get: {responses: {}}}}
+            """;
+
+        OpenApiOperation relativeOperation = new OpenApiSpecParser().parse(relative, "openapi.yaml", "",
+            "https://example.test/docs/openapi.yaml").get(0);
+        OpenApiOperation implicitOperation = new OpenApiSpecParser().parse(implicit, "openapi.yaml", "",
+            "https://example.test/docs/openapi.yaml").get(0);
+
+        assertEquals("https://example.test/api/v2/quotes", relativeOperation.url());
+        assertEquals("https://example.test/health", implicitOperation.url());
+    }
+
+    @Test
+    void failsInsteadOfSilentlyDroppingUnresolvableParameters() {
+        String spec = """
+            openapi: 3.0.3
+            servers: [{url: https://api.example.test}]
+            paths:
+              /search:
+                get:
+                  parameters:
+                    - {$ref: '#/components/parameters/Missing'}
+            """;
+
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> new OpenApiSpecParser().parse(spec, "openapi.yaml"));
+
+        assertTrue(error.getMessage().contains("#/components/parameters/Missing"));
+    }
 }

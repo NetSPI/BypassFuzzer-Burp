@@ -501,11 +501,13 @@ public class CoverageSweepPanel extends JPanel {
             @Override
             protected RemoteOpenApiImport doInBackground() throws Exception {
                 String fileName = remoteFileName(target.requestTarget());
-                String source = openApiUrlFetcher.fetch(target.rawUrl(), httpMode, options.requestHeaders());
+                OpenApiUrlFetcher.FetchedDocument fetched = openApiUrlFetcher.fetchDocument(
+                    target.rawUrl(), httpMode, options.requestHeaders());
+                String source = fetched.source();
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
-                    source, fileName, baseUrl, options);
+                    source, fileName, baseUrl, fetched.effectiveUrl(), options);
                 return new RemoteOpenApiImport(preview,
-                    new ImportedOpenApiDocument(source, fileName));
+                    new ImportedOpenApiDocument(source, fileName, fetched.effectiveUrl()));
             }
 
             @Override
@@ -548,7 +550,7 @@ public class CoverageSweepPanel extends JPanel {
                     openApiBaseUrlField.getText().trim(), currentOptions())
                 : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
             importedOpenApiDocument = openApi
-                ? new ImportedOpenApiDocument(source, fileName)
+                ? new ImportedOpenApiDocument(source, fileName, "")
                 : null;
             applyImportedPreview(preview, openApi);
             return true;
@@ -576,8 +578,11 @@ public class CoverageSweepPanel extends JPanel {
             ? "Restoring server URLs declared by the imported OpenAPI specification..."
             : "Applying OpenAPI base URL " + baseUrl + "...");
         try {
-            CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
-                document.source(), document.fileName(), baseUrl, currentOptions());
+            CoverageSweepPreview preview = document.sourceUrl().isBlank()
+                ? engine.collectPreviewFromOpenApi(
+                    document.source(), document.fileName(), baseUrl, currentOptions())
+                : engine.collectPreviewFromOpenApi(
+                    document.source(), document.fileName(), baseUrl, document.sourceUrl(), currentOptions());
             applyImportedPreview(preview, true);
             statusLabel.setText((baseUrl.isEmpty()
                 ? "Restored OpenAPI server URLs; "
@@ -746,7 +751,7 @@ public class CoverageSweepPanel extends JPanel {
     private record RemoteOpenApiImport(CoverageSweepPreview preview, ImportedOpenApiDocument document) {
     }
 
-    private record ImportedOpenApiDocument(String source, String fileName) {
+    private record ImportedOpenApiDocument(String source, String fileName, String sourceUrl) {
     }
 
     private CoverageSweepOptions currentOptions() {

@@ -486,7 +486,7 @@ class CoverageSweepPanelTest {
             candidate("https://api.example.test/users", "/users")
         ));
         when(engine.collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
-            any(CoverageSweepOptions.class))).thenReturn(preview);
+            anyString(), any(CoverageSweepOptions.class))).thenReturn(preview);
         AtomicBoolean fetchedOnEventThread = new AtomicBoolean(true);
         AtomicReference<String> fetchedUrl = new AtomicReference<>();
         CountDownLatch fetchStarted = new CountDownLatch(1);
@@ -514,7 +514,7 @@ class CoverageSweepPanelTest {
         assertEquals("/users", table.getValueAt(0, 3));
         assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
         verify(engine).collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
-            any(CoverageSweepOptions.class));
+            eq(malformedUrl), any(CoverageSweepOptions.class));
     }
 
     @Test

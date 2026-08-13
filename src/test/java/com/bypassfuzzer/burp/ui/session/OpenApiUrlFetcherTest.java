@@ -33,6 +33,22 @@ class OpenApiUrlFetcherTest {
     }
 
     @Test
+    void discoversRelativeDocumentWithoutNormalizingRepeatedSlashes() {
+        OpenApiUrlFetcher.ParsedUrl page = OpenApiUrlFetcher.parse(
+            "https://finance.mobile.yahoo.com/docs//index.html");
+        String html = "<script>SwaggerUIBundle({url: \"newsfeedservice.yaml\"})</script>";
+
+        assertEquals("newsfeedservice.yaml",
+            OpenApiUrlFetcher.discoverDocumentReference(html, "text/html"));
+        assertEquals("https://finance.mobile.yahoo.com/docs//newsfeedservice.yaml",
+            OpenApiUrlFetcher.resolveReference(page, "newsfeedservice.yaml"));
+        assertEquals("https://cdn.example.test/openapi.yaml",
+            OpenApiUrlFetcher.resolveReference(page, "//cdn.example.test/openapi.yaml"));
+        assertEquals(null, OpenApiUrlFetcher.discoverDocumentReference(
+            "openapi: 3.0.0\nservers: [{url: /api}]", "application/yaml"));
+    }
+
+    @Test
     void burpFetcherSendsLiteralBackslashOverHttp1() throws Exception {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequestResponse exchange = mock(HttpRequestResponse.class);

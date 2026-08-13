@@ -72,7 +72,9 @@ https://victim.com/admin/info
 Blank lines, comment lines beginning with `#`, and invalid URLs are ignored. Imported targets are deduplicated and shown in the preview table before Sweep sends any requests. `View` opens the selected request and response side by side in a resizable window. The response side remains empty for imported URLs until the Control request runs because a URL list contains no stored response.
 Imported targets are unavailable in authenticated-traffic mode because they have no stored authenticated request or response.
 
-Import mode also accepts OpenAPI 3 and Swagger 2 specifications in JSON or YAML. Each documented operation becomes a candidate using its HTTP method and server/path combination. Documented path, query, and header parameters use examples/defaults when available, and request bodies are generated from media-type examples or schemas. An optional `OpenAPI base URL` overrides the specification's servers, which is useful for specifications with relative or missing server URLs.
+Import mode also accepts OpenAPI 3 and Swagger 2 specifications in JSON or YAML. Each documented operation becomes a candidate using its HTTP method and server/path combination. Documented path, query, header, cookie, form, and body parameters are retained, including reusable local parameter references and operation-level overrides. Examples/defaults are preferred; missing values receive type-appropriate samples so the parameter remains in the candidate request. Query arrays and objects follow their declared OpenAPI style/explode settings. Request bodies are generated from media-type examples or schemas.
+
+For URL imports, relative document links and redirects preserve unusual raw paths such as repeated slashes and backslashes. Relative servers—and OpenAPI's implicit `/` when no server is declared—resolve against the final document URL. An optional `OpenAPI base URL` overrides the resolved specification server.
 
 ## Authenticated Traffic
 

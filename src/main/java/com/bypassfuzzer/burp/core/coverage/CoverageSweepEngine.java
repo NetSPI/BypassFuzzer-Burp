@@ -146,7 +146,15 @@ public class CoverageSweepEngine {
     public CoverageSweepPreview collectPreviewFromOpenApi(String source, String fileName,
                                                            String baseUrlOverride,
                                                            CoverageSweepOptions options) {
-        List<OpenApiOperation> operations = new OpenApiSpecParser().parse(source, fileName, baseUrlOverride);
+        return collectPreviewFromOpenApi(source, fileName, baseUrlOverride, "", options);
+    }
+
+    public CoverageSweepPreview collectPreviewFromOpenApi(String source, String fileName,
+                                                           String baseUrlOverride,
+                                                           String sourceUrl,
+                                                           CoverageSweepOptions options) {
+        List<OpenApiOperation> operations = new OpenApiSpecParser().parse(
+            source, fileName, baseUrlOverride, sourceUrl);
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
         for (OpenApiOperation operation : operations) {
