@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OpenApiSpecParserTest {
 
     @Test
+    void removesResponseControlCharactersBeforeParsingYaml() {
+        String source = "\u0000openapi: 3.0.0\n"
+            + "info:\n  title: News\u000Bfeed\n  version: 1.0.0\n"
+            + "paths:\n  /items:\n    get:\n      responses: {}\n";
+
+        List<OpenApiOperation> operations = new OpenApiSpecParser().parse(
+            source, "index.html", "", "https://finance.mobile.yahoo.com/docs//newsfeedservice.yaml");
+
+        assertEquals(1, operations.size());
+        assertEquals("https://finance.mobile.yahoo.com/items", operations.get(0).url());
+    }
+
+    @Test
     void parsesYamlOperationsParametersAndJsonRequestBody() {
         String spec = """
             openapi: 3.0.3

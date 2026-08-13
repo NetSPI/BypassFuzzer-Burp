@@ -34,6 +34,7 @@ final class OpenApiSpecParser {
         if (source != null && !source.isEmpty() && source.charAt(0) == '\ufeff') {
             source = source.substring(1);
         }
+        source = removeYamlForbiddenCharacters(source);
         if (baseUrlOverride != null && !baseUrlOverride.isBlank() && !absoluteHttpUrl(baseUrlOverride)) {
             throw new IllegalArgumentException("OpenAPI base URL must be an absolute HTTP or HTTPS URL");
         }
@@ -70,6 +71,34 @@ final class OpenApiSpecParser {
             throw new IllegalArgumentException("OpenAPI specification contains no operations with an absolute HTTP(S) server URL");
         }
         return List.copyOf(operations);
+    }
+
+    private String removeYamlForbiddenCharacters(String source) {
+        if (source == null || source.isEmpty()) return source;
+        StringBuilder cleaned = null;
+        for (int offset = 0; offset < source.length();) {
+            int codePoint = source.codePointAt(offset);
+            int width = Character.charCount(codePoint);
+            if (!yamlCharacterAllowed(codePoint)) {
+                if (cleaned == null) {
+                    cleaned = new StringBuilder(source.length());
+                    cleaned.append(source, 0, offset);
+                }
+            } else if (cleaned != null) {
+                cleaned.appendCodePoint(codePoint);
+            }
+            offset += width;
+        }
+        return cleaned == null ? source : cleaned.toString();
+    }
+
+    private boolean yamlCharacterAllowed(int codePoint) {
+        return codePoint == 0x09 || codePoint == 0x0A || codePoint == 0x0D
+            || (codePoint >= 0x20 && codePoint <= 0x7E)
+            || codePoint == 0x85
+            || (codePoint >= 0xA0 && codePoint <= 0xD7FF)
+            || (codePoint >= 0xE000 && codePoint <= 0xFFFD)
+            || (codePoint >= 0x10000 && codePoint <= 0x10FFFF);
     }
 
     private RequestParts requestParts(Map<String, Object> root, String path,
