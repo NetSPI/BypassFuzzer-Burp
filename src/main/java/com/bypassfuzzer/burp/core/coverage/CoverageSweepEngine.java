@@ -21,6 +21,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -439,35 +440,91 @@ public class CoverageSweepEngine {
     }
 
     private boolean isInScope(ProxyHttpRequestResponse item) {
-        HttpRequest request = effectiveRequest(item);
-        if (request == null) {
+        if (item == null) {
             return false;
         }
+
+        // Scope belongs to the proxy-history transaction, not to one particular
+        // Montoya view of it. In particular, HTTP/2 history entries can report a
+        // different scope result from finalRequest() than Burp reports for the
+        // history row's final URL. Check every Burp-owned representation and only
+        // reject the row when all of them agree that it is out of scope.
+        Set<String> urls = new LinkedHashSet<>();
+        addScopeUrl(urls, proxyHistoryUrl(item));
+
+        HttpRequest originalRequest = originalRequest(item);
+        HttpRequest finalRequest = finalRequest(item);
+        if (requestReportsInScope(originalRequest) || requestReportsInScope(finalRequest)) {
+            return true;
+        }
+        addScopeUrl(urls, requestUrl(originalRequest));
+        addScopeUrl(urls, requestUrl(finalRequest));
+
+        for (String url : urls) {
+            try {
+                if (api.scope().isInScope(url)) {
+                    return true;
+                }
+            } catch (RuntimeException | LinkageError ignored) {
+            }
+        }
+        return false;
+    }
+
+    private boolean requestReportsInScope(HttpRequest request) {
+        if (request == null) return false;
         try {
-            // Ask Burp about the exact request from proxy history. Reconstructing a URL
-            // can lose HTTP/2 service/authority details and disagree with Burp's scope UI.
             return request.isInScope();
         } catch (RuntimeException | LinkageError ignored) {
-            try {
-                return api.scope().isInScope(safeUrl(request));
-            } catch (RuntimeException | LinkageError fallbackFailure) {
-                return false;
-            }
+            return false;
+        }
+    }
+
+    @SuppressWarnings("removal")
+    private String proxyHistoryUrl(ProxyHttpRequestResponse item) {
+        try {
+            return item.url();
+        } catch (RuntimeException | LinkageError ignored) {
+            return "";
+        }
+    }
+
+    private String requestUrl(HttpRequest request) {
+        if (request == null) return "";
+        try {
+            return safeUrl(request);
+        } catch (RuntimeException | LinkageError ignored) {
+            return "";
+        }
+    }
+
+    private void addScopeUrl(Set<String> urls, String url) {
+        if (url != null && !url.isBlank()) {
+            urls.add(url);
+        }
+    }
+
+    private HttpRequest originalRequest(ProxyHttpRequestResponse item) {
+        if (item == null) return null;
+        try {
+            return item.request();
+        } catch (RuntimeException | LinkageError ignored) {
+            return null;
+        }
+    }
+
+    private HttpRequest finalRequest(ProxyHttpRequestResponse item) {
+        if (item == null) return null;
+        try {
+            return item.finalRequest();
+        } catch (RuntimeException | LinkageError ignored) {
+            return null;
         }
     }
 
     private HttpRequest effectiveRequest(ProxyHttpRequestResponse item) {
-        if (item == null) return null;
-        try {
-            HttpRequest finalRequest = item.finalRequest();
-            return finalRequest != null ? finalRequest : item.request();
-        } catch (Exception e) {
-            try {
-                return item.request();
-            } catch (Exception ignored) {
-                return null;
-            }
-        }
+        HttpRequest finalRequest = finalRequest(item);
+        return finalRequest != null ? finalRequest : originalRequest(item);
     }
 
     private boolean isStaticAsset(HttpRequest request, HttpResponse response) {

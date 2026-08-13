@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.coverage;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.HttpMode;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -202,6 +203,55 @@ class CoverageSweepEngineTest {
 
         assertEquals(1, preview.inScopeSuccessfulResponseCount());
         assertEquals(1, preview.candidates().size());
+    }
+
+    @Test
+    @SuppressWarnings("removal")
+    void authenticatedDiscoveryImportsHttp2HistoryWhenProxyUrlIsInScope() {
+        String path = "/analytics/chat-messages";
+        String query = "aggregation=month&start_date=2026-08-06&end_date=2026-08-13&timezone=America%2FNew_York";
+        String url = "https://cdne-backend-2xn7aiksy5trg-c7gnhqd9gqgrgxap.a02.azurefd.net/"
+            + "analytics/chat-messages?" + query;
+        HttpRequest baseRequest = requestWithHeaders(path, query, "GET", Map.of(
+            "Authorization", "Bearer test-token",
+            "Cookie", "msal.cache.encryption=test-value",
+            "Content-Type", "application/json",
+            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/150"
+        ), "");
+        HttpRequest request = mock(HttpRequest.class, delegatesTo(baseRequest));
+        HttpService service = mock(HttpService.class);
+        when(service.host()).thenReturn("cdne-backend-2xn7aiksy5trg-c7gnhqd9gqgrgxap.a02.azurefd.net");
+        when(service.port()).thenReturn(443);
+        when(service.secure()).thenReturn(true);
+        when(request.httpService()).thenReturn(service);
+        when(request.url()).thenReturn(url);
+        when(request.httpVersion()).thenReturn("HTTP/2");
+        when(request.isInScope()).thenReturn(false);
+
+        ProxyHttpRequestResponse item = mock(ProxyHttpRequestResponse.class);
+        HttpResponse successfulResponse = response(200, "application/json", "{}");
+        when(item.request()).thenReturn(request);
+        when(item.finalRequest()).thenReturn(request);
+        when(item.url()).thenReturn(url);
+        when(item.response()).thenReturn(successfulResponse);
+        when(item.time()).thenReturn(ZonedDateTime.now());
+
+        MontoyaApi api = api(List.of(item));
+        burp.api.montoya.scope.Scope scope = api.scope();
+        org.mockito.Mockito.doAnswer(invocation -> url.equals(invocation.getArgument(0, String.class)))
+            .when(scope).isInScope(any());
+
+        CoverageSweepPreview preview = new CoverageSweepEngine(api,
+            new StaticSender(response(200, "application/json", "{}")),
+            new CoverageSweepProbeGenerator()).collectPreview(
+                CoverageSweepOptions.defaults().withAuthenticatedTraffic(CoverageSweepAuthSelection.defaults()));
+
+        assertEquals(1, preview.inspectedHistoryCount());
+        assertEquals(1, preview.successfulResponseCount());
+        assertEquals(1, preview.inScopeSuccessfulResponseCount());
+        assertEquals(1, preview.candidates().size());
+        assertTrue(preview.discoveredHeaderNames().contains("Authorization"));
+        assertTrue(preview.discoveredCookieNames().contains("msal.cache.encryption"));
     }
 
     @Test
