@@ -76,6 +76,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
     private JCheckBox doublePortHostProbesCheckBox;
     private JCheckBox autoThrottleCheckBox;
+    private JCheckBox dedupeImportedEndpointsCheckBox;
     private RequestHeadersControl requestHeadersControl;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
@@ -182,6 +183,9 @@ public class CoverageSweepPanel extends JPanel {
         autoThrottleCheckBox.setToolTipText(
             "Automatically back off when a configured throttle response is received.");
         requestHeadersControl = new RequestHeadersControl(this);
+        dedupeImportedEndpointsCheckBox = new JCheckBox("Dedupe endpoints", false);
+        dedupeImportedEndpointsCheckBox.setToolTipText(
+            "Collapse imported targets with the same method, path shape, query names, and content type.");
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
@@ -428,10 +432,14 @@ public class CoverageSweepPanel extends JPanel {
             return;
         }
 
+        JPanel importChoices = new JPanel();
+        importChoices.setLayout(new BoxLayout(importChoices, BoxLayout.Y_AXIS));
+        importChoices.add(new JLabel("How would you like to import sweep targets?"));
+        importChoices.add(dedupeImportedEndpointsCheckBox);
         Object[] choices = {"Select a file", "Import via URL", "Cancel"};
         int sourceChoice = JOptionPane.showOptionDialog(
             this,
-            "How would you like to import sweep targets?",
+            importChoices,
             "Import Targets",
             JOptionPane.DEFAULT_OPTION,
             JOptionPane.PLAIN_MESSAGE,
@@ -497,6 +505,7 @@ public class CoverageSweepPanel extends JPanel {
         statusLabel.setText("Downloading OpenAPI document from " + target.host() + "...");
         CoverageSweepOptions options = currentOptions();
         String baseUrl = openApiBaseUrlField.getText().trim();
+        boolean dedupeEndpoints = dedupeImportedEndpointsCheckBox.isSelected();
         SwingWorker<RemoteOpenApiImport, Void> worker = new SwingWorker<>() {
             @Override
             protected RemoteOpenApiImport doInBackground() throws Exception {
@@ -505,7 +514,7 @@ public class CoverageSweepPanel extends JPanel {
                     target.rawUrl(), httpMode, options.requestHeaders());
                 String source = fetched.source();
                 CoverageSweepPreview preview = engine.collectPreviewFromOpenApi(
-                    source, fileName, baseUrl, fetched.effectiveUrl(), options);
+                    source, fileName, baseUrl, fetched.effectiveUrl(), options, dedupeEndpoints);
                 return new RemoteOpenApiImport(preview,
                     new ImportedOpenApiDocument(source, fileName, fetched.effectiveUrl()));
             }
@@ -518,7 +527,7 @@ public class CoverageSweepPanel extends JPanel {
                 try {
                     RemoteOpenApiImport imported = get();
                     importedOpenApiDocument = imported.document();
-                    applyImportedPreview(imported.preview(), true);
+                    applyImportedPreview(imported.preview(), true, dedupeEndpoints);
                 } catch (CancellationException e) {
                     statusLabel.setText("OpenAPI URL import cancelled.");
                 } catch (InterruptedException e) {
@@ -547,12 +556,14 @@ public class CoverageSweepPanel extends JPanel {
             String fileName = path.getFileName().toString();
             CoverageSweepPreview preview = openApi
                 ? engine.collectPreviewFromOpenApi(source, fileName,
-                    openApiBaseUrlField.getText().trim(), currentOptions())
-                : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions());
+                    openApiBaseUrlField.getText().trim(), "", currentOptions(),
+                    dedupeImportedEndpointsCheckBox.isSelected())
+                : engine.collectPreviewFromUrls(Files.readAllLines(path), currentOptions(),
+                    dedupeImportedEndpointsCheckBox.isSelected());
             importedOpenApiDocument = openApi
                 ? new ImportedOpenApiDocument(source, fileName, "")
                 : null;
-            applyImportedPreview(preview, openApi);
+            applyImportedPreview(preview, openApi, dedupeImportedEndpointsCheckBox.isSelected());
             return true;
         } catch (Exception e) {
             handleImportFailure(e);
@@ -580,15 +591,16 @@ public class CoverageSweepPanel extends JPanel {
         try {
             CoverageSweepPreview preview = document.sourceUrl().isBlank()
                 ? engine.collectPreviewFromOpenApi(
-                    document.source(), document.fileName(), baseUrl, currentOptions())
+                    document.source(), document.fileName(), baseUrl, "", currentOptions(),
+                    dedupeImportedEndpointsCheckBox.isSelected())
                 : engine.collectPreviewFromOpenApi(
-                    document.source(), document.fileName(), baseUrl, document.sourceUrl(), currentOptions());
-            applyImportedPreview(preview, true);
+                    document.source(), document.fileName(), baseUrl, document.sourceUrl(), currentOptions(),
+                    dedupeImportedEndpointsCheckBox.isSelected());
+            applyImportedPreview(preview, true, dedupeImportedEndpointsCheckBox.isSelected());
             statusLabel.setText((baseUrl.isEmpty()
                 ? "Restored OpenAPI server URLs; "
                 : "Applied OpenAPI base URL " + baseUrl + "; ")
-                + preview.dedupedEndpointCount() + " deduped endpoints; showing "
-                + preview.candidates().size() + ".");
+                + importedPreviewCounts(preview, dedupeImportedEndpointsCheckBox.isSelected()));
         } catch (Exception e) {
             String message = e.getMessage() == null ? "unknown error" : e.getMessage();
             statusLabel.setText("Unable to apply OpenAPI base URL: " + message);
@@ -599,15 +611,22 @@ public class CoverageSweepPanel extends JPanel {
         }
     }
 
-    private void applyImportedPreview(CoverageSweepPreview preview, boolean openApi) {
+    private void applyImportedPreview(CoverageSweepPreview preview, boolean openApi,
+                                      boolean dedupeEndpoints) {
         setCandidateRows(preview.candidates());
         applyImportedMethodSelection();
         startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
         updatePreviewButton();
         statusLabel.setText("Imported " + preview.blockedHistoryCount()
-            + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ") + preview.dedupedEndpointCount()
-            + " deduped endpoints; showing " + preview.candidates().size() + ".");
+            + (openApi ? " OpenAPI operation(s); " : " valid target URL(s); ")
+            + importedPreviewCounts(preview, dedupeEndpoints));
         updateEstimate();
+    }
+
+    private String importedPreviewCounts(CoverageSweepPreview preview, boolean dedupeEndpoints) {
+        return preview.dedupedEndpointCount() + " unique endpoint shape(s); "
+            + (dedupeEndpoints ? "dedupe on" : "dedupe off") + "; showing "
+            + preview.candidates().size() + " row(s).";
     }
 
     private void handleImportFailure(Throwable error) {
@@ -900,6 +919,7 @@ public class CoverageSweepPanel extends JPanel {
         setCandidateRows(List.of());
         importedOpenApiDocument = null;
         openApiBaseUrlField.setText("");
+        dedupeImportedEndpointsCheckBox.setSelected(false);
         startButton.setEnabled(false);
         setCandidateActionButtonsEnabled(false);
         clearImportButton.setEnabled(false);

@@ -117,6 +117,13 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void importedEndpointDedupeIsOffByDefault() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+
+        assertFalse(checkbox(panel, "dedupeImportedEndpointsCheckBox").isSelected());
+    }
+
+    @Test
     void authenticatedModePassivelyFiltersBySelectedIdentifiersAndSafeMethods() throws Exception {
         HttpRequest get = requestWithHeaders("/account", "", "GET",
             Map.of("Cookie", "theme=dark; JSESSIONID=secret"), "");
@@ -348,7 +355,8 @@ class CoverageSweepPanelTest {
             candidate("https://victim.example/admin/users", "/admin/users"),
             candidate("https://victim.example/admin/info", "/admin/info")
         ));
-        when(engine.collectPreviewFromUrls(anyList(), any(CoverageSweepOptions.class))).thenReturn(preview);
+        when(engine.collectPreviewFromUrls(anyList(), any(CoverageSweepOptions.class), eq(false)))
+            .thenReturn(preview);
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
         JTable table = field(panel, "candidateTable", JTable.class);
 
@@ -365,6 +373,7 @@ class CoverageSweepPanelTest {
                 || "/admin/users".equals(table.getValueAt(0, 3))
         );
         assertEquals(0, field(panel, "resultsWorkspace", SessionResultsWorkspace.class).allResultsCount());
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("dedupe off"));
     }
 
     @Test
@@ -375,7 +384,8 @@ class CoverageSweepPanelTest {
         CoverageSweepPreview preview = new CoverageSweepPreview(1, 1, List.of(
             candidate("https://victim.example/admin/users", "/admin/users")
         ));
-        when(engine.collectPreviewFromUrls(anyList(), any(CoverageSweepOptions.class))).thenReturn(preview);
+        when(engine.collectPreviewFromUrls(anyList(), any(CoverageSweepOptions.class), eq(false)))
+            .thenReturn(preview);
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
         JTextField baseUrl = field(panel, "openApiBaseUrlField", JTextField.class);
@@ -404,7 +414,8 @@ class CoverageSweepPanelTest {
         CoverageSweepPreview preview = new CoverageSweepPreview(1, 1, List.of(
             candidate("https://api.example.test/users", "/users")
         ));
-        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), any(CoverageSweepOptions.class)))
+        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), eq(""),
+            any(CoverageSweepOptions.class), eq(false)))
             .thenReturn(preview);
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
 
@@ -426,11 +437,11 @@ class CoverageSweepPanelTest {
             candidate("https://localhost/users", "/users")));
         CoverageSweepPreview rebasedPreview = new CoverageSweepPreview(1, 1, List.of(
             candidate("https://api.example.test/v2/users", "/v2/users")));
-        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"), eq(""),
-            any(CoverageSweepOptions.class)))
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"), eq(""), eq(""),
+            any(CoverageSweepOptions.class), eq(false)))
             .thenReturn(originalPreview);
         when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"),
-            eq("https://api.example.test/v2"), any(CoverageSweepOptions.class)))
+            eq("https://api.example.test/v2"), eq(""), any(CoverageSweepOptions.class), eq(false)))
             .thenReturn(rebasedPreview);
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
@@ -448,7 +459,7 @@ class CoverageSweepPanelTest {
         assertEquals("/v2/users", table.getValueAt(0, 3));
         assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("Applied OpenAPI base URL"));
         verify(engine).collectPreviewFromOpenApi(eq(source), eq("openapi.yaml"),
-            eq("https://api.example.test/v2"), any(CoverageSweepOptions.class));
+            eq("https://api.example.test/v2"), eq(""), any(CoverageSweepOptions.class), eq(false));
     }
 
     @Test
@@ -459,10 +470,10 @@ class CoverageSweepPanelTest {
         CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
         CoverageSweepPreview originalPreview = new CoverageSweepPreview(1, 1, List.of(
             candidate("https://localhost/users", "/users")));
-        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.json"), eq(""),
-            any(CoverageSweepOptions.class))).thenReturn(originalPreview);
+        when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.json"), eq(""), eq(""),
+            any(CoverageSweepOptions.class), eq(false))).thenReturn(originalPreview);
         when(engine.collectPreviewFromOpenApi(eq(source), eq("openapi.json"), eq("not-a-url"),
-            any(CoverageSweepOptions.class))).thenThrow(
+            eq(""), any(CoverageSweepOptions.class), eq(false))).thenThrow(
                 new IllegalArgumentException("OpenAPI base URL must be an absolute HTTP or HTTPS URL"));
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);
@@ -486,7 +497,7 @@ class CoverageSweepPanelTest {
             candidate("https://api.example.test/users", "/users")
         ));
         when(engine.collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
-            anyString(), any(CoverageSweepOptions.class))).thenReturn(preview);
+            anyString(), any(CoverageSweepOptions.class), eq(false))).thenReturn(preview);
         AtomicBoolean fetchedOnEventThread = new AtomicBoolean(true);
         AtomicReference<String> fetchedUrl = new AtomicReference<>();
         CountDownLatch fetchStarted = new CountDownLatch(1);
@@ -514,7 +525,7 @@ class CoverageSweepPanelTest {
         assertEquals("/users", table.getValueAt(0, 3));
         assertTrue(field(panel, "statusLabel", JLabel.class).getText().contains("OpenAPI operation"));
         verify(engine).collectPreviewFromOpenApi(anyString(), eq("openapi.json"), anyString(),
-            eq(malformedUrl), any(CoverageSweepOptions.class));
+            eq(malformedUrl), any(CoverageSweepOptions.class), eq(false));
     }
 
     @Test
@@ -542,7 +553,8 @@ class CoverageSweepPanelTest {
             candidate("https://api.example.test/users", "/users", "POST"),
             candidate("https://api.example.test/users/1", "/users/1", "DELETE")
         ));
-        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), any(CoverageSweepOptions.class)))
+        when(engine.collectPreviewFromOpenApi(anyString(), anyString(), anyString(), eq(""),
+            any(CoverageSweepOptions.class), eq(false)))
             .thenReturn(preview);
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
         field(panel, "modeComboBox", JComboBox.class).setSelectedIndex(2);

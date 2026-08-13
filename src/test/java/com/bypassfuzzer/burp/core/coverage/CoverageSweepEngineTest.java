@@ -555,6 +555,44 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void importedTargetUrlsRemainSeparateWhenDedupeIsDisabled() {
+        CoverageSweepPreview preview = importedEngine()
+            .collectPreviewFromUrls(List.of(
+                "https://victim.example/admin/users/1?debug=true&id=1",
+                "https://victim.example/admin/users/2?id=2&debug=false",
+                "https://victim.example/admin/info"
+            ), CoverageSweepOptions.defaults(), false);
+
+        assertEquals(3, preview.blockedHistoryCount());
+        assertEquals(2, preview.dedupedEndpointCount());
+        assertEquals(3, preview.candidates().size());
+    }
+
+    @Test
+    void openApiOperationsRemainSeparateWhenDedupeIsDisabled() {
+        String spec = """
+            openapi: 3.0.0
+            servers: [{url: https://api.example.test}]
+            paths:
+              /users/{id}:
+                get:
+                  parameters: [{name: id, in: path, example: 1}]
+              /users/{userId}:
+                get:
+                  parameters: [{name: userId, in: path, example: 2}]
+            """;
+
+        CoverageSweepPreview preview = importedEngine().collectPreviewFromOpenApi(
+            spec, "openapi.yaml", "", "", CoverageSweepOptions.defaults(), false);
+
+        assertEquals(2, preview.blockedHistoryCount());
+        assertEquals(1, preview.dedupedEndpointCount());
+        assertEquals(2, preview.candidates().size());
+        assertEquals(List.of("/users/1", "/users/2"),
+            preview.candidates().stream().map(CoverageSweepCandidate::path).sorted().toList());
+    }
+
+    @Test
     void importsOpenApiOperationsAsMethodAwareCandidates() {
         String spec = """
             openapi: 3.0.0

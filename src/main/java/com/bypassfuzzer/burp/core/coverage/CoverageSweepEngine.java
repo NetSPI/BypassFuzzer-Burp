@@ -110,12 +110,18 @@ public class CoverageSweepEngine {
     }
 
     public CoverageSweepPreview collectPreviewFromUrls(List<String> urls, CoverageSweepOptions options) {
+        return collectPreviewFromUrls(urls, options, true);
+    }
+
+    public CoverageSweepPreview collectPreviewFromUrls(List<String> urls, CoverageSweepOptions options,
+                                                        boolean dedupeEndpoints) {
         if (urls == null || urls.isEmpty()) {
             return new CoverageSweepPreview(0, 0, List.of());
         }
 
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
+        List<CoverageSweepCandidate> imported = new ArrayList<>();
         int parsedTargets = 0;
 
         for (String url : urls) {
@@ -125,9 +131,11 @@ public class CoverageSweepEngine {
             }
             parsedTargets++;
             deduped.putIfAbsent(candidate.dedupeKey(), candidate);
+            imported.add(candidate);
         }
 
-        List<CoverageSweepCandidate> candidates = new ArrayList<>(deduped.values());
+        List<CoverageSweepCandidate> candidates = dedupeEndpoints
+            ? new ArrayList<>(deduped.values()) : imported;
         candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo)));
 
         int cap = Math.max(1, effectiveOptions.maxCandidates());
@@ -153,15 +161,28 @@ public class CoverageSweepEngine {
                                                            String baseUrlOverride,
                                                            String sourceUrl,
                                                            CoverageSweepOptions options) {
+        return collectPreviewFromOpenApi(source, fileName, baseUrlOverride, sourceUrl, options, true);
+    }
+
+    public CoverageSweepPreview collectPreviewFromOpenApi(String source, String fileName,
+                                                           String baseUrlOverride,
+                                                           String sourceUrl,
+                                                           CoverageSweepOptions options,
+                                                           boolean dedupeEndpoints) {
         List<OpenApiOperation> operations = new OpenApiSpecParser().parse(
             source, fileName, baseUrlOverride, sourceUrl);
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
+        List<CoverageSweepCandidate> imported = new ArrayList<>();
         for (OpenApiOperation operation : operations) {
             CoverageSweepCandidate candidate = toImportedCandidate(operation);
-            if (candidate != null) deduped.putIfAbsent(candidate.dedupeKey(), candidate);
+            if (candidate != null) {
+                deduped.putIfAbsent(candidate.dedupeKey(), candidate);
+                imported.add(candidate);
+            }
         }
-        List<CoverageSweepCandidate> candidates = new ArrayList<>(deduped.values());
+        List<CoverageSweepCandidate> candidates = dedupeEndpoints
+            ? new ArrayList<>(deduped.values()) : imported;
         candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo))
             .thenComparing(CoverageSweepCandidate::method));
         int cap = Math.max(1, effectiveOptions.maxCandidates());
