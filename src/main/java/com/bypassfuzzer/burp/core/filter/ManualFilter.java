@@ -4,6 +4,7 @@ import com.bypassfuzzer.burp.core.attacks.AttackResult;
 
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.net.URI;
 
 /**
  * Manual filter based on user-defined rules.
@@ -86,6 +87,14 @@ public class ManualFilter implements ResponseFilter {
             }
         }
 
+        String hostFilter = config.getHostContainsFilter();
+        if (hostFilter != null && !hostFilter.trim().isEmpty()) {
+            String host = requestHost(result);
+            if (host == null || !containsIgnoreCase(host, hostFilter)) {
+                return false;
+            }
+        }
+
         String signalFilter = config.getSignalContainsFilter();
         if (signalFilter != null && !signalFilter.trim().isEmpty()) {
             String signal = result.getSignal();
@@ -127,6 +136,23 @@ public class ManualFilter implements ResponseFilter {
 
     private boolean matchesResponseFilter(String responseText, String filter, boolean regex) {
         return matchesFilter(responseText, filter, regex);
+    }
+
+    private String requestHost(AttackResult result) {
+        if (result == null || result.getRequest() == null) {
+            return null;
+        }
+        try {
+            if (result.getRequest().httpService() != null) {
+                return result.getRequest().httpService().host();
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            return URI.create(result.getRequest().url()).getHost();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private boolean matchesFilter(String value, String filter, boolean regex) {

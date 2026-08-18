@@ -29,6 +29,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -56,6 +57,9 @@ public class CoverageSweepEngine {
     private ExecutorService executor;
     private CoverageSweepScheduler scheduler;
     private volatile ConcurrentLinkedQueue<RetryTask> deferredRetryQueue = new ConcurrentLinkedQueue<>();
+    private final Set<String> sweepHosts = ConcurrentHashMap.newKeySet();
+    private final Set<String> completedSweepHosts = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, AtomicInteger> pendingHostCandidates = new ConcurrentHashMap<>();
 
     public CoverageSweepEngine(MontoyaApi api) {
         this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
@@ -270,6 +274,18 @@ public class CoverageSweepEngine {
         return running;
     }
 
+    public int completedHostCount() {
+        return completedSweepHosts.size();
+    }
+
+    public int totalHostCount() {
+        return sweepHosts.size();
+    }
+
+    public List<String> completedHostSnapshot() {
+        return completedSweepHosts.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+    }
+
     public int deferredRetryCount() {
         return deferredRetryQueue.size();
     }
@@ -282,17 +298,6 @@ public class CoverageSweepEngine {
         return deferredRetryQueue.stream()
             .map(item -> new CoverageSweepRetryItem(item.result(), item.probe()))
             .toList();
-    }
-
-    public void importDeferredRetries(List<CoverageSweepRetryItem> items) {
-        if (items == null) {
-            return;
-        }
-        for (CoverageSweepRetryItem item : items) {
-            if (item != null && item.result() != null && item.probe() != null) {
-                deferredRetryQueue.add(new RetryTask(item.result(), item.probe()));
-            }
-        }
     }
 
     private void execute(List<CoverageSweepCandidate> candidates,
@@ -313,6 +318,14 @@ public class CoverageSweepEngine {
         });
         ConcurrentLinkedQueue<RetryTask> retryQueue = new ConcurrentLinkedQueue<>(deferredRetryQueue);
         deferredRetryQueue = retryQueue;
+        sweepHosts.clear();
+        completedSweepHosts.clear();
+        pendingHostCandidates.clear();
+        for (CoverageSweepCandidate candidate : candidates) {
+            String candidateHost = host(candidate.request(), candidate.displayUrl());
+            sweepHosts.add(candidateHost);
+            pendingHostCandidates.computeIfAbsent(candidateHost, ignored -> new AtomicInteger()).incrementAndGet();
+        }
 
         for (CoverageSweepCandidate candidate : candidates) {
             if (!canContinue()) {
@@ -324,6 +337,12 @@ public class CoverageSweepEngine {
                 } catch (Exception e) {
                     safeLogError("Coverage sweep candidate failed for " + candidate.displayUrl() + ": "
                         + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                } finally {
+                    String candidateHost = host(candidate.request(), candidate.displayUrl());
+                    AtomicInteger remaining = pendingHostCandidates.get(candidateHost);
+                    if (remaining != null && remaining.decrementAndGet() == 0) {
+                        completedSweepHosts.add(candidateHost);
+                    }
                 }
             });
         }

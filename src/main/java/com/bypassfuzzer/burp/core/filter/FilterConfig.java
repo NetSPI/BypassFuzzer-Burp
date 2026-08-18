@@ -20,6 +20,7 @@ public class FilterConfig {
     private Set<Integer> hiddenContentLengths = new HashSet<>();
     private Set<Integer> shownContentLengths = new HashSet<>();
     private String contentTypeFilter = null;
+    private String hostContainsFilter = null;
     private String payloadContainsFilter = null;
     private String signalContainsFilter = null;
     private boolean signalContainsRegex = false;
@@ -104,6 +105,14 @@ public class FilterConfig {
 
     public void setContentTypeFilter(String filter) {
         this.contentTypeFilter = filter;
+    }
+
+    public String getHostContainsFilter() {
+        return hostContainsFilter;
+    }
+
+    public void setHostContainsFilter(String filter) {
+        this.hostContainsFilter = filter;
     }
 
     public String getPayloadContainsFilter() {

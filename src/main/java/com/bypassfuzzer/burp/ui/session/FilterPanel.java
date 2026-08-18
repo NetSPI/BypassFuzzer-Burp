@@ -39,6 +39,7 @@ public class FilterPanel extends JPanel {
     private JTextField hideContentLengthsField;
     private JTextField showOnlyContentLengthsField;
     private JTextField contentTypeField;
+    private JTextField hostContainsField;
     private JTextField payloadContainsField;
     private JTextField signalContainsField;
     private JCheckBox signalRegexCheckbox;
@@ -128,6 +129,7 @@ public class FilterPanel extends JPanel {
         hideContentLengthsField = new JTextField(15);
         showOnlyContentLengthsField = new JTextField(15);
         contentTypeField = new JTextField(20);
+        hostContainsField = new JTextField(20);
         payloadContainsField = new JTextField(20);
         signalContainsField = new JTextField(20);
         signalRegexCheckbox = new JCheckBox("Regex");
@@ -142,6 +144,8 @@ public class FilterPanel extends JPanel {
         manualPanel.add(createLengthPanel());
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createContainsPanel("Content-Type", "Contains:", contentTypeField, "(e.g. html, json)"));
+        manualPanel.add(Box.createVerticalStrut(5));
+        manualPanel.add(createContainsPanel("Host", "Contains:", hostContainsField, "(e.g. api.example.com)"));
         manualPanel.add(Box.createVerticalStrut(5));
         manualPanel.add(createContainsPanel("Payload", "Contains:", payloadContainsField, null));
         manualPanel.add(Box.createVerticalStrut(5));
@@ -275,6 +279,7 @@ public class FilterPanel extends JPanel {
         hideContentLengthsField.setEnabled(enabled);
         showOnlyContentLengthsField.setEnabled(enabled);
         contentTypeField.setEnabled(enabled);
+        hostContainsField.setEnabled(enabled);
         payloadContainsField.setEnabled(enabled);
         signalContainsField.setEnabled(enabled);
         signalRegexCheckbox.setEnabled(enabled);
@@ -305,6 +310,7 @@ public class FilterPanel extends JPanel {
         filterConfig.setHiddenContentLengths(parseIntegerSet(hideContentLengthsField.getText(), "content length"));
         filterConfig.setShownContentLengths(parseIntegerSet(showOnlyContentLengthsField.getText(), "content length"));
         filterConfig.setContentTypeFilter(emptyToNull(contentTypeField.getText()));
+        filterConfig.setHostContainsFilter(emptyToNull(hostContainsField.getText()));
         filterConfig.setPayloadContainsFilter(emptyToNull(payloadContainsField.getText()));
         filterConfig.setSignalContainsFilter(signalFilter);
         filterConfig.setSignalContainsRegex(signalRegexCheckbox.isSelected());

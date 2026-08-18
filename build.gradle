@@ -91,6 +91,20 @@ shadowJar {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // The attack-playbook smoke suite starts a local lab and performs real
+    // HTTP traffic. Keep it out of the normal build loop; run it explicitly
+    // with smokeTestPlaybooks or -PincludeSmokeTests=true.
+    if (!providers.gradleProperty('includeSmokeTests').map { it.toBoolean() }.orElse(false).get()) {
+        exclude '**/AttackPlaybookSmokeTest.class'
+    }
+}
+
+tasks.register('fullTest', Test) {
+    useJUnitPlatform()
+    description = 'Runs the complete test suite, including attack-playbook smoke tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
 }
 
 tasks.register('smokeTestPlaybooks', Test) {
