@@ -111,7 +111,12 @@ public class SessionResultsWorkspace {
     public void addResult(AttackResult result) {
         filterController.track(result);
         resultsPanel.addResult(result, filterController.shouldShow(result));
-        trackThrottleResult(result);
+        if (result != null && result.getResponse() != null
+            && throttleStatusCodes.contains(result.getStatusCode())) {
+            trackThrottleResult(result);
+        } else {
+            removeThrottleRetry(result);
+        }
         updateFilterStatus();
     }
 
@@ -362,6 +367,16 @@ public class SessionResultsWorkspace {
         }
         synchronized (throttledRetries) {
             throttledRetries.put(retryKey(result), new DeferredRetry(result));
+        }
+        updateRetryControls();
+    }
+
+    private void removeThrottleRetry(AttackResult result) {
+        if (result == null || result.getRequest() == null) {
+            return;
+        }
+        synchronized (throttledRetries) {
+            throttledRetries.remove(retryKey(result));
         }
         updateRetryControls();
     }

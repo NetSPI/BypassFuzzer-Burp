@@ -37,9 +37,11 @@ import javax.swing.WindowConstants;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
+import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Window;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -69,6 +71,9 @@ public class CoverageSweepPanel extends JPanel {
     private JButton exportButton;
     private JButton authIdentifiersButton;
     private JButton applyOpenApiBaseUrlButton;
+    private JButton configurationToggleButton;
+    private JButton throttleButton;
+    private JButton retryQueueButton;
     private JComboBox<String> modeComboBox;
     private JComboBox<String> payloadSetComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
@@ -91,6 +96,7 @@ public class CoverageSweepPanel extends JPanel {
     private JLabel statusLabel;
     private JLabel estimateLabel;
     private JLabel pullResponsesLabel;
+    private JPanel configurationPanel;
     private JTable candidateTable;
     private SessionResultsWorkspace resultsWorkspace;
     private volatile boolean stopRequested = false;
@@ -161,6 +167,8 @@ public class CoverageSweepPanel extends JPanel {
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel requestContextRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel resultActionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        configurationPanel = new JPanel();
+        configurationPanel.setLayout(new BoxLayout(configurationPanel, BoxLayout.Y_AXIS));
 
         modeComboBox = new JComboBox<>(new String[]{
             "Blocked responses",
@@ -196,6 +204,8 @@ public class CoverageSweepPanel extends JPanel {
         dedupeImportedEndpointsCheckBox.setToolTipText(
             "Collapse imported targets with the same method, path shape, query names, and content type.");
         requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
+        requestDelayField.setToolTipText(
+            "Minimum delay between requests per host; smart throttle increases this after throttle responses.");
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
         openApiBaseUrlField.addActionListener(e -> applyOpenApiBaseUrl());
@@ -207,6 +217,10 @@ public class CoverageSweepPanel extends JPanel {
 
         modeRow.add(new JLabel("Mode:"));
         modeRow.add(modeComboBox);
+        configurationToggleButton = new JButton("Hide config");
+        configurationToggleButton.setToolTipText("Show or hide sweep configuration options to make more room for results.");
+        configurationToggleButton.addActionListener(e -> toggleConfigurationPanel());
+        modeRow.add(configurationToggleButton);
         pullResponsesLabel = new JLabel("Pull responses:");
         modeOptionsRow.add(pullResponsesLabel);
         modeOptionsRow.add(status401CheckBox);
@@ -237,11 +251,10 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(concurrencyField);
         executionRow.add(new JLabel("Per-host:"));
         executionRow.add(perHostConcurrencyField);
-        executionRow.add(new JLabel("Delay (ms):"));
-        executionRow.add(requestDelayField);
-        executionRow.add(new JLabel("Throttle codes:"));
-        executionRow.add(throttleStatusCodesField);
-        executionRow.add(autoThrottleCheckBox);
+        throttleButton = new JButton("Throttle...");
+        throttleButton.setToolTipText("Configure host-local backoff and recovery for throttle responses.");
+        throttleButton.addActionListener(e -> openThrottleDialog());
+        executionRow.add(throttleButton);
         executionRow.add(doublePortHostProbesCheckBox);
 
         modeOptionsRow.add(includeUnsafeMethodsCheckBox);
@@ -277,6 +290,10 @@ public class CoverageSweepPanel extends JPanel {
         exportButton = new JButton("Export TSV");
         exportButton.setEnabled(false);
         exportButton.addActionListener(e -> exportResultsWithChooser());
+        retryQueueButton = new JButton("Retry queue (0)");
+        retryQueueButton.setToolTipText("View payloads deferred because their host returned a throttle response.");
+        retryQueueButton.setEnabled(false);
+        retryQueueButton.addActionListener(e -> openRetryQueueDialog());
         modeActionsRow.add(loadButton);
         modeActionsRow.add(importButton);
         modeActionsRow.add(clearImportButton);
@@ -286,12 +303,14 @@ public class CoverageSweepPanel extends JPanel {
         resultActionsRow.add(stopButton);
         resultActionsRow.add(clearButton);
         resultActionsRow.add(exportButton);
+        resultActionsRow.add(retryQueueButton);
 
         controls.add(modeRow);
         controls.add(modeActionsRow);
-        controls.add(modeOptionsRow);
-        controls.add(executionRow);
-        controls.add(requestContextRow);
+        configurationPanel.add(modeOptionsRow);
+        configurationPanel.add(executionRow);
+        configurationPanel.add(requestContextRow);
+        controls.add(configurationPanel);
         controls.add(resultActionsRow);
 
         statusLabel = new JLabel("Load in-scope Proxy history responses to preview sweep candidates.");
@@ -305,6 +324,80 @@ public class CoverageSweepPanel extends JPanel {
         panel.add(labels, BorderLayout.CENTER);
         updateModeControls();
         return panel;
+    }
+
+    private void openThrottleDialog() {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(owner, "Sweep smart throttling", Dialog.ModalityType.MODELESS);
+        JPanel content = new JPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+
+        autoThrottleCheckBox.setText("Enable smart throttle");
+        autoThrottleCheckBox.setToolTipText(
+            "When a host returns a configured throttle response, pause that host, wait, and resume at a slower pace.");
+        content.add(autoThrottleCheckBox);
+
+        JTextArea explanation = new JTextArea(
+            "Matching responses pause requests to that host only. The next request waits for the configured delay; "
+                + "repeated throttle responses increase the delay. Successful responses gradually reduce it.");
+        explanation.setEditable(false);
+        explanation.setLineWrap(true);
+        explanation.setWrapStyleWord(true);
+        explanation.setOpaque(false);
+        explanation.setBorder(BorderFactory.createEmptyBorder(6, 0, 10, 0));
+        content.add(explanation);
+
+        JPanel delayRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        delayRow.add(new JLabel("Base delay between requests (ms):"));
+        delayRow.add(requestDelayField);
+        content.add(delayRow);
+
+        JPanel codesRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        codesRow.add(new JLabel("Throttle response codes:"));
+        codesRow.add(throttleStatusCodesField);
+        content.add(codesRow);
+
+        JButton closeButton = new JButton("Close");
+        closeButton.addActionListener(e -> dialog.dispose());
+        JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonRow.add(closeButton);
+        content.add(buttonRow);
+
+        dialog.setContentPane(content);
+        dialog.setSize(560, 250);
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+    }
+
+    private void openRetryQueueDialog() {
+        List<AttackResult> queued = engine.deferredRetrySnapshot();
+        String[] columns = {"Target", "Method", "Payload", "Status", "Attempt"};
+        Object[][] rows = new Object[queued.size()][columns.length];
+        for (int i = 0; i < queued.size(); i++) {
+            AttackResult result = queued.get(i);
+            rows[i][0] = result.getTargetLabel();
+            rows[i][1] = result.getRequest() == null ? "" : result.getRequest().method();
+            rows[i][2] = result.getPayload();
+            rows[i][3] = result.getStatusCode();
+            rows[i][4] = result.getThrottleRetryAttempt();
+        }
+        JTable table = new JTable(rows, columns);
+        table.setAutoCreateRowSorter(true);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setPreferredSize(new Dimension(900, 300));
+        JOptionPane.showMessageDialog(this, scrollPane,
+            "Deferred throttle retry queue (" + queued.size() + ")",
+            JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void toggleConfigurationPanel() {
+        boolean expanded = configurationPanel.isVisible();
+        configurationPanel.setVisible(!expanded);
+        configurationToggleButton.setText(expanded ? "Show config" : "Hide config");
+        revalidate();
+        repaint();
     }
 
     private JSplitPane buildCenterPanel() {
@@ -705,6 +798,7 @@ public class CoverageSweepPanel extends JPanel {
         resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
             options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
+        updateRetryQueueButton();
         if (!engine.start(selected, options, this::addResult, this::handleCompletion)) {
             resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start coverage sweep.");
@@ -731,6 +825,7 @@ public class CoverageSweepPanel extends JPanel {
             }
             resultsWorkspace.addResult(result);
             updateExportButton();
+            updateRetryQueueButton();
         statusLabel.setText("Coverage sweep running (" + payloadSetLabel(activePayloadSet) + "): "
             + resultsWorkspace.allResultsCount() + " requests sent.");
         });
@@ -742,7 +837,17 @@ public class CoverageSweepPanel extends JPanel {
             updateIdleUi((stopRequested ? "Stopped" : "Completed")
                 + " (" + payloadSetLabel(activePayloadSet) + "): "
                 + resultsWorkspace.allResultsCount() + " requests sent.");
+            updateRetryQueueButton();
         });
+    }
+
+    private void updateRetryQueueButton() {
+        if (retryQueueButton == null) {
+            return;
+        }
+        int count = engine.deferredRetryCount();
+        retryQueueButton.setText("Retry queue (" + count + ")");
+        retryQueueButton.setEnabled(count > 0);
     }
 
     private String payloadSetLabel(CoverageSweepPayloadSet payloadSet) {

@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -41,6 +42,7 @@ public class CoverageSweepEngine {
         ".*\\.(?:cjs|js|mjs|js\\.map)$");
     private static final Pattern STYLESHEET_OR_FONT_PATH_PATTERN = Pattern.compile(
         ".*\\.(?:css|woff2?)$");
+    private static final int MAX_AUTOMATIC_THROTTLE_RETRIES = 3;
 
     private final MontoyaApi api;
     private final RequestSender requestSender;
@@ -53,6 +55,7 @@ public class CoverageSweepEngine {
     private Thread runnerThread;
     private ExecutorService executor;
     private CoverageSweepScheduler scheduler;
+    private volatile ConcurrentLinkedQueue<RetryTask> deferredRetryQueue = new ConcurrentLinkedQueue<>();
 
     public CoverageSweepEngine(MontoyaApi api) {
         this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
@@ -253,6 +256,7 @@ public class CoverageSweepEngine {
 
     public void cleanup() {
         stop();
+        deferredRetryQueue.clear();
         if (runnerThread != null && runnerThread.isAlive()) {
             try {
                 runnerThread.join(2000);
@@ -264,6 +268,14 @@ public class CoverageSweepEngine {
 
     public boolean isRunning() {
         return running;
+    }
+
+    public int deferredRetryCount() {
+        return deferredRetryQueue.size();
+    }
+
+    public List<AttackResult> deferredRetrySnapshot() {
+        return deferredRetryQueue.stream().map(RetryTask::result).toList();
     }
 
     private void execute(List<CoverageSweepCandidate> candidates,
@@ -282,6 +294,8 @@ public class CoverageSweepEngine {
             thread.setDaemon(true);
             return thread;
         });
+        ConcurrentLinkedQueue<RetryTask> retryQueue = new ConcurrentLinkedQueue<>();
+        deferredRetryQueue = retryQueue;
 
         for (CoverageSweepCandidate candidate : candidates) {
             if (!canContinue()) {
@@ -289,7 +303,7 @@ public class CoverageSweepEngine {
             }
             executor.submit(() -> {
                 try {
-                    executeCandidate(candidate, options, resultCallback);
+                    executeCandidate(candidate, options, resultCallback, retryQueue);
                 } catch (Exception e) {
                     safeLogError("Coverage sweep candidate failed for " + candidate.displayUrl() + ": "
                         + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
@@ -309,13 +323,15 @@ public class CoverageSweepEngine {
                 executor.shutdownNow();
             }
         }
+        runDeferredRetries(retryQueue, options, resultCallback, concurrency);
         safeLog("Coverage sweep worker pool finished: " + candidates.size() + " candidate(s) submitted; payload set: "
-            + options.payloadSet());
+            + options.payloadSet() + "; deferred retries remaining: " + retryQueue.size());
     }
 
     private void executeCandidate(CoverageSweepCandidate candidate,
                                   CoverageSweepOptions options,
-                                  Consumer<AttackResult> resultCallback) {
+                                  Consumer<AttackResult> resultCallback,
+                                  ConcurrentLinkedQueue<RetryTask> retryQueue) {
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.requestHeaders());
         HttpResponse controlResponse = null;
         HttpResponse anonymousControlResponse = null;
@@ -359,29 +375,28 @@ public class CoverageSweepEngine {
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
             }
-            if (resultCallback != null) {
-                String signal;
-                if (response == null) {
-                    signal = "No response";
-                } else if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
-                    if (options.verifyUnauthenticatedAccess()) {
-                        signal = CoverageSweepClassifier.authenticatedBypassSignal(
-                            candidate, anonymousControlResponse, response);
-                        if (signal.isBlank()) {
-                            signal = CoverageSweepClassifier.unauthenticatedMutationSignal(
-                                anonymousControlResponse, response);
-                        }
-                    } else {
-                        signal = "";
+            String signal;
+            if (response == null) {
+                signal = "No response";
+            } else if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC) {
+                if (options.verifyUnauthenticatedAccess()) {
+                    signal = CoverageSweepClassifier.authenticatedBypassSignal(
+                        candidate, anonymousControlResponse, response);
+                    if (signal.isBlank()) {
+                        signal = CoverageSweepClassifier.unauthenticatedMutationSignal(
+                            anonymousControlResponse, response);
                     }
-                } else if ("Control".equals(probe.family())) {
-                    signal = "";
                 } else {
-                    signal = CoverageSweepClassifier.signal(candidate, controlResponse, response);
+                    signal = "";
                 }
-                HttpResponse originalResponse = candidate.originalResponse() != null
-                    ? candidate.originalResponse() : controlResponse;
-                resultCallback.accept(new AttackResult(
+            } else if ("Control".equals(probe.family())) {
+                signal = "";
+            } else {
+                signal = CoverageSweepClassifier.signal(candidate, controlResponse, response);
+            }
+            HttpResponse originalResponse = candidate.originalResponse() != null
+                ? candidate.originalResponse() : controlResponse;
+            AttackResult result = new AttackResult(
                     options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC ? "Authenticated Coverage Sweep" : "Coverage Sweep",
                     probe.label(),
                     candidate.method() + " " + candidate.displayUrl(),
@@ -393,9 +408,86 @@ public class CoverageSweepEngine {
                     originalResponse,
                     verificationRequest,
                     anonymousControlResponse
-                ));
+            );
+            if (resultCallback != null) {
+                resultCallback.accept(result);
+            }
+            if (isThrottleResponse(response, options)) {
+                retryQueue.add(new RetryTask(result, probe));
             }
         }
+    }
+
+    private void runDeferredRetries(ConcurrentLinkedQueue<RetryTask> retryQueue,
+                                    CoverageSweepOptions options,
+                                    Consumer<AttackResult> resultCallback,
+                                    int concurrency) {
+        for (int attempt = 1; attempt <= MAX_AUTOMATIC_THROTTLE_RETRIES
+            && canContinue() && !retryQueue.isEmpty(); attempt++) {
+            List<RetryTask> pending = new ArrayList<>();
+            RetryTask task;
+            while ((task = retryQueue.poll()) != null) {
+                pending.add(task);
+            }
+            if (pending.isEmpty()) {
+                return;
+            }
+            safeLog("Coverage sweep deferred throttle retry pass " + attempt + ": "
+                + pending.size() + " payload(s).");
+            int retryAttempt = attempt;
+            AtomicInteger workerCounter = new AtomicInteger(1);
+            executor = Executors.newFixedThreadPool(Math.max(1, Math.min(concurrency, pending.size())), runnable -> {
+                Thread thread = new Thread(runnable,
+                    "bypassfuzzer-coverage-sweep-retry-worker-" + workerCounter.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+            });
+            for (RetryTask retry : pending) {
+                executor.submit(() -> executeDeferredRetry(retry, retryAttempt, options, resultCallback, retryQueue));
+            }
+            executor.shutdown();
+            try {
+                while (canContinue() && !executor.awaitTermination(200, TimeUnit.MILLISECONDS)) {
+                    // Wait for this retry pass to finish before starting another pass.
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                if (!executor.isTerminated()) {
+                    executor.shutdownNow();
+                }
+            }
+        }
+        if (!retryQueue.isEmpty()) {
+            safeLog("Coverage sweep deferred retry limit reached; " + retryQueue.size()
+                + " throttled payload(s) remain available for manual retry.");
+        }
+    }
+
+    private void executeDeferredRetry(RetryTask retry,
+                                      int attempt,
+                                      CoverageSweepOptions options,
+                                      Consumer<AttackResult> resultCallback,
+                                      ConcurrentLinkedQueue<RetryTask> retryQueue) {
+        CoverageSweepProbe probe = retry.probe();
+        HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
+            ? requestSender.send(probe.request())
+            : requestSender.send(probe.request(), probe.httpMode()));
+        AttackResult retryResult = AttackResult.throttleRetryOf(retry.result(), response, attempt);
+        if (resultCallback != null) {
+            resultCallback.accept(retryResult);
+        }
+        if (isThrottleResponse(response, options)) {
+            retryQueue.add(new RetryTask(retryResult, probe));
+        }
+    }
+
+    private boolean isThrottleResponse(HttpResponse response, CoverageSweepOptions options) {
+        return response != null && options.autoThrottleEnabled()
+            && options.throttleStatusCodes().contains((int) response.statusCode());
+    }
+
+    private record RetryTask(AttackResult result, CoverageSweepProbe probe) {
     }
 
     private boolean eligible(ProxyHttpRequestResponse item, CoverageSweepOptions options) {

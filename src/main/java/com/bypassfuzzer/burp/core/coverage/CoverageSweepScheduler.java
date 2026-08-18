@@ -20,6 +20,7 @@ final class CoverageSweepScheduler {
     private final MontoyaApi api;
     private final Set<Integer> throttleStatusCodes;
     private final boolean autoThrottleEnabled;
+    private final long perHostDelayMs;
     private final ConcurrentHashMap<String, HostState> hosts = new ConcurrentHashMap<>();
 
     CoverageSweepScheduler(MontoyaApi api, CoverageSweepOptions options) {
@@ -31,6 +32,7 @@ final class CoverageSweepScheduler {
         this.throttleStatusCodes = options.throttleStatusCodes() == null
             ? Set.of() : Set.copyOf(options.throttleStatusCodes());
         this.autoThrottleEnabled = options.autoThrottleEnabled();
+        this.perHostDelayMs = Math.max(0, options.requestDelayMs());
     }
 
     HttpResponse send(HttpRequest request, Supplier<HttpResponse> sender) {
@@ -81,7 +83,7 @@ final class CoverageSweepScheduler {
         private final RateLimiter limiter;
 
         private HostState(String hostKey) {
-            this.limiter = new RateLimiter(api, 0, 0, throttleStatusCodes,
+            this.limiter = new RateLimiter(api, 0, perHostDelayMs, throttleStatusCodes,
                 autoThrottleEnabled, hostKey);
         }
     }
