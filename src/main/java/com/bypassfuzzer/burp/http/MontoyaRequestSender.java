@@ -46,30 +46,39 @@ public class MontoyaRequestSender implements RequestSender {
 
     @Override
     public HttpResponse send(HttpRequest request) {
+        Exception automaticFailure = null;
         try {
             HttpResponse response = responseFrom(api.http().sendRequest(request));
             if (response != null) {
                 return response;
             }
+        } catch (Exception e) {
+            automaticFailure = e;
+        }
 
-            if (retrySafeRequestsOverHttp1 && isSafeMethod(request)) {
-                response = responseFrom(api.http().sendRequest(request, HttpMode.HTTP_1));
+        if (retrySafeRequestsOverHttp1 && isSafeMethod(request)) {
+            try {
+                HttpResponse response = responseFrom(api.http().sendRequest(request, HttpMode.HTTP_1));
                 if (response != null) {
-                    safeLog("Sweep request returned no response in automatic mode; HTTP/1 retry succeeded: "
+                    safeLog("Sweep request automatic mode returned no usable response; HTTP/1 retry succeeded: "
                         + requestLabel(request));
                     return response;
                 }
+            } catch (Exception ignored) {
+                // Report the original transport failure below; the retry is best effort.
             }
+        }
 
+        if (automaticFailure != null) {
+            safeLogError("Sweep request failed: " + requestLabel(request) + " - "
+                + (automaticFailure.getMessage() == null
+                    ? automaticFailure.getClass().getSimpleName() : automaticFailure.getMessage()));
+        } else {
             safeLogError("Sweep request returned no response"
                 + (retrySafeRequestsOverHttp1 && isSafeMethod(request) ? " after an HTTP/1 retry" : "")
                 + ": " + requestLabel(request));
-            return null;
-        } catch (Exception e) {
-            safeLogError("Sweep request failed: " + requestLabel(request) + " - "
-                + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-            return null;
         }
+        return null;
     }
 
     @Override

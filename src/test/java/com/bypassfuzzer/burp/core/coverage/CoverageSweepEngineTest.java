@@ -633,7 +633,7 @@ class CoverageSweepEngineTest {
     }
 
     @Test
-    void importedTargetPreviewHonorsCandidateCap() {
+    void importedTargetPreviewKeepsAllExplicitTargets() {
         List<String> urls = new ArrayList<>();
         for (int i = 0; i < 150; i++) {
             urls.add("https://victim.example/endpoint-" + i);
@@ -644,7 +644,7 @@ class CoverageSweepEngineTest {
 
         assertEquals(150, preview.blockedHistoryCount());
         assertEquals(150, preview.dedupedEndpointCount());
-        assertEquals(100, preview.candidates().size());
+        assertEquals(150, preview.candidates().size());
     }
 
     @Test

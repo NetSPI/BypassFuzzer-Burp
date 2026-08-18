@@ -41,6 +41,24 @@ class MontoyaRequestSenderTest {
     }
 
     @Test
+    void safeSweepRequestRetriesOverHttp1WhenAutomaticModeThrows() {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequestResponse http1Exchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        when(request.method()).thenReturn("GET");
+        when(request.url()).thenReturn("https://example.com/admin");
+        when(api.http().sendRequest(request)).thenThrow(new IllegalStateException("HTTP/2 stream failed"));
+        when(api.http().sendRequest(request, HttpMode.HTTP_1)).thenReturn(http1Exchange);
+        when(http1Exchange.response()).thenReturn(response);
+
+        HttpResponse sent = new MontoyaRequestSender(api, true).send(request);
+
+        assertSame(response, sent);
+        verify(api.http()).sendRequest(request, HttpMode.HTTP_1);
+    }
+
+    @Test
     void explicitHttpModeIsPassedDirectlyToMontoya() {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequest request = mock(HttpRequest.class);

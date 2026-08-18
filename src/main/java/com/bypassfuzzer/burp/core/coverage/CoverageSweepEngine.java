@@ -132,7 +132,6 @@ public class CoverageSweepEngine {
             return new CoverageSweepPreview(0, 0, List.of());
         }
 
-        CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
         List<CoverageSweepCandidate> imported = new ArrayList<>();
         int parsedTargets = 0;
@@ -150,11 +149,6 @@ public class CoverageSweepEngine {
         List<CoverageSweepCandidate> candidates = dedupeEndpoints
             ? new ArrayList<>(deduped.values()) : imported;
         candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo)));
-
-        int cap = Math.max(1, effectiveOptions.maxCandidates());
-        if (candidates.size() > cap) {
-            candidates = new ArrayList<>(candidates.subList(0, cap));
-        }
 
         return new CoverageSweepPreview(parsedTargets, deduped.size(), List.copyOf(candidates));
     }
@@ -184,7 +178,6 @@ public class CoverageSweepEngine {
                                                            boolean dedupeEndpoints) {
         List<OpenApiOperation> operations = new OpenApiSpecParser().parse(
             source, fileName, baseUrlOverride, sourceUrl);
-        CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         Map<String, CoverageSweepCandidate> deduped = new LinkedHashMap<>();
         List<CoverageSweepCandidate> imported = new ArrayList<>();
         for (OpenApiOperation operation : operations) {
@@ -198,8 +191,6 @@ public class CoverageSweepEngine {
             ? new ArrayList<>(deduped.values()) : imported;
         candidates.sort(Comparator.comparing(CoverageSweepCandidate::displayUrl, Comparator.nullsLast(String::compareTo))
             .thenComparing(CoverageSweepCandidate::method));
-        int cap = Math.max(1, effectiveOptions.maxCandidates());
-        if (candidates.size() > cap) candidates = new ArrayList<>(candidates.subList(0, cap));
         return new CoverageSweepPreview(operations.size(), deduped.size(), List.copyOf(candidates));
     }
 
