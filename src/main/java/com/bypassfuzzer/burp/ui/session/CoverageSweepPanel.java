@@ -46,6 +46,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Window;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -79,7 +80,8 @@ public class CoverageSweepPanel extends JPanel {
     private JButton configurationToggleButton;
     private JButton throttleButton;
     private JButton retryQueueButton;
-    private JButton importRetryPackageButton;
+    private JButton importMenuButton;
+    private JButton excludeHostsButton;
     private JPanel configurationActionsRow;
     private JComboBox<String> modeComboBox;
     private JComboBox<String> payloadSetComboBox;
@@ -300,21 +302,25 @@ public class CoverageSweepPanel extends JPanel {
         viewCandidateButton.addActionListener(e -> openCandidateView());
         clearButton = new JButton("Clear Results");
         clearButton.addActionListener(e -> clearResults());
-        exportButton = new JButton("Export TSV");
+        exportButton = new JButton("Export...");
         exportButton.setEnabled(false);
-        exportButton.addActionListener(e -> exportResultsWithChooser());
+        exportButton.setToolTipText("Export results, completed hosts, or deferred retry data.");
+        exportButton.addActionListener(e -> openExportDialog());
         retryQueueButton = new JButton("Retry queue (0)");
         retryQueueButton.setToolTipText("View payloads deferred because their host returned a throttle response.");
         retryQueueButton.setEnabled(false);
         retryQueueButton.addActionListener(e -> openRetryQueueDialog());
-        importRetryPackageButton = new JButton("Import Retry JSON");
-        importRetryPackageButton.setToolTipText("Load an exact BypassFuzzer retry package into the deferred queue.");
-        importRetryPackageButton.addActionListener(e -> importRetryQueueJson());
+        importMenuButton = new JButton("Import...");
+        importMenuButton.setToolTipText("Import targets or an exact retry-package JSON file.");
+        importMenuButton.addActionListener(e -> openImportDialog());
+        excludeHostsButton = new JButton("Exclude...");
+        excludeHostsButton.setToolTipText("Choose unique hosts to exclude from the current sweep candidates.");
+        excludeHostsButton.addActionListener(e -> openExcludeHostsDialog());
         modeActionsRow.add(loadButton);
-        modeActionsRow.add(importButton);
         modeActionsRow.add(clearImportButton);
         modeActionsRow.add(throttleButton);
-        modeActionsRow.add(importRetryPackageButton);
+        modeActionsRow.add(importMenuButton);
+        modeActionsRow.add(excludeHostsButton);
         modeActionsRow.add(viewCandidateButton);
         modeActionsRow.add(previewProbesButton);
         modeActionsRow.add(clearButton);
@@ -412,22 +418,12 @@ public class CoverageSweepPanel extends JPanel {
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         content.add(scrollPane, BorderLayout.CENTER);
 
-        JButton exportButton = new JButton("Export wordlist...");
-        exportButton.setToolTipText("Export unique queued payloads as a UTF-8 wordlist for later import.");
-        exportButton.setEnabled(!queued.isEmpty());
-        exportButton.addActionListener(e -> exportRetryQueueWordlist(queued));
-        JButton exportJsonButton = new JButton("Export JSON...");
-        exportJsonButton.setToolTipText("Export exact retry requests and payload metadata for later replay.");
-        exportJsonButton.setEnabled(!queued.isEmpty());
-        exportJsonButton.addActionListener(e -> exportRetryQueueJson(engine.deferredRetryItemSnapshot()));
         JButton importJsonButton = new JButton("Import JSON...");
         importJsonButton.setToolTipText("Import an exact retry package into the deferred retry queue.");
         importJsonButton.addActionListener(e -> importRetryQueueJson());
         JButton closeButton = new JButton("Close");
         closeButton.addActionListener(e -> dialog.dispose());
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttons.add(exportButton);
-        buttons.add(exportJsonButton);
         buttons.add(importJsonButton);
         buttons.add(closeButton);
         content.add(buttons, BorderLayout.SOUTH);
@@ -477,6 +473,10 @@ public class CoverageSweepPanel extends JPanel {
             }
             return false;
         }
+    }
+
+    private void exportRetryQueueJson() {
+        exportRetryQueueJson(engine.deferredRetryItemSnapshot());
     }
 
     private void exportRetryQueueJson(List<CoverageSweepRetryItem> queued) {
@@ -567,6 +567,185 @@ public class CoverageSweepPanel extends JPanel {
         } catch (Exception ignored) {
             // Headless tests or Burp shutdown can make dialogs unavailable.
         }
+    }
+
+    private void openExportDialog() {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(owner, "Export Sweep Data", Dialog.ModalityType.MODELESS);
+        JPanel content = new JPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.add(new JLabel("Choose what to export:"));
+
+        JButton results = new JButton("Visible results (TSV)");
+        results.setEnabled(resultsWorkspace.shownResultsCount() > 0);
+        results.addActionListener(e -> {
+            dialog.dispose();
+            exportResultsWithChooser();
+        });
+        JButton hosts = new JButton("Completed hosts (JSON)");
+        hosts.setEnabled(!resultsWorkspace.allResults().isEmpty());
+        hosts.addActionListener(e -> {
+            dialog.dispose();
+            exportCompletedHosts();
+        });
+        JButton retryJson = new JButton("Deferred retry queue (JSON)");
+        retryJson.setEnabled(engine.deferredRetryCount() > 0);
+        retryJson.addActionListener(e -> {
+            dialog.dispose();
+            exportRetryQueueJson();
+        });
+        JButton retryWordlist = new JButton("Deferred retry payloads (wordlist)");
+        retryWordlist.setEnabled(engine.deferredRetryCount() > 0);
+        retryWordlist.addActionListener(e -> {
+            dialog.dispose();
+            exportRetryQueueWordlist(engine.deferredRetrySnapshot());
+        });
+        content.add(results);
+        content.add(hosts);
+        content.add(retryJson);
+        content.add(retryWordlist);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        JPanel closeRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        closeRow.add(close);
+        content.add(closeRow);
+        dialog.setContentPane(content);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+    }
+
+    private void openImportDialog() {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(owner, "Import Sweep Data", Dialog.ModalityType.MODELESS);
+        JPanel content = new JPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.add(new JLabel("Choose what to import:"));
+
+        JButton targets = new JButton("Targets or OpenAPI specification");
+        targets.setEnabled(currentMode() == CoverageSweepMode.IMPORTED_TARGETS);
+        targets.setToolTipText("Import URL targets, an OpenAPI file, or an OpenAPI URL.");
+        targets.addActionListener(e -> {
+            dialog.dispose();
+            importTargetsWithChooser();
+        });
+        JButton retryJson = new JButton("Retry package (JSON)");
+        retryJson.setToolTipText("Import exact deferred retry requests, including header mutations.");
+        retryJson.addActionListener(e -> {
+            dialog.dispose();
+            importRetryQueueJson();
+        });
+        content.add(targets);
+        content.add(retryJson);
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        JPanel closeRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        closeRow.add(close);
+        content.add(closeRow);
+        dialog.setContentPane(content);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+    }
+
+    private void exportCompletedHosts() {
+        Map<String, HostCheckpointEntry> entries = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (AttackResult result : resultsWorkspace.allResults()) {
+            HttpRequest request = result.getOriginalRequest() != null ? result.getOriginalRequest() : result.getRequest();
+            if (request == null || request.url() == null) {
+                continue;
+            }
+            String key = request.method() + "\u0000" + request.url();
+            entries.putIfAbsent(key, new HostCheckpointEntry(
+                hostForRequest(request), request.method(), request.url(), request.toString()));
+        }
+        if (entries.isEmpty()) {
+            statusLabel.setText("No completed sweep requests are available to export.");
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export Completed Host Checkpoint");
+        chooser.setSelectedFile(new java.io.File("bypassfuzzer-completed-hosts.json"));
+        chooser.setFileFilter(new FileNameExtensionFilter("JSON host checkpoints (*.json)", "json"));
+        if (chooser.showSaveDialog(api.userInterface().swingUtils().suiteFrame()) != JFileChooser.APPROVE_OPTION
+            || chooser.getSelectedFile() == null) {
+            return;
+        }
+        try {
+            HostCheckpoint checkpoint = new HostCheckpoint("1", "bypassfuzzer-completed-hosts",
+                new ArrayList<>(entries.values()));
+            Files.writeString(chooser.getSelectedFile().toPath(), new Gson().toJson(checkpoint),
+                StandardCharsets.UTF_8);
+            statusLabel.setText("Exported " + entries.size() + " completed request(s) across "
+                + candidateHosts(new ArrayList<>(entries.values())).size() + " host(s).");
+        } catch (Exception e) {
+            showRetryPackageError("Unable to export completed hosts: " + e.getMessage());
+        }
+    }
+
+    private Set<String> candidateHosts(List<HostCheckpointEntry> entries) {
+        Set<String> hosts = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (HostCheckpointEntry entry : entries) {
+            if (entry != null && entry.host() != null && !entry.host().isBlank()) {
+                hosts.add(entry.host());
+            }
+        }
+        return hosts;
+    }
+
+    private String hostForRequest(HttpRequest request) {
+        try {
+            return request.httpService().host() + ":" + request.httpService().port();
+        } catch (Exception ignored) {
+            try {
+                return URI.create(request.url()).getHost();
+            } catch (Exception ignoredAgain) {
+                return "unknown";
+            }
+        }
+    }
+
+    private void openExcludeHostsDialog() {
+        Map<String, Integer> hostCounts = candidateTableModel.hostCounts();
+        if (hostCounts.isEmpty()) {
+            statusLabel.setText("No candidate hosts are available to exclude.");
+            return;
+        }
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.add(new JLabel("Select hosts to exclude from this sweep:"));
+        List<JCheckBox> hostBoxes = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : hostCounts.entrySet()) {
+            JCheckBox box = new JCheckBox(entry.getKey() + " (" + entry.getValue() + " request(s))");
+            box.putClientProperty("host", entry.getKey());
+            hostBoxes.add(box);
+            content.add(box);
+        }
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setPreferredSize(new Dimension(520, 360));
+        int choice = JOptionPane.showConfirmDialog(this, scroll, "Exclude Hosts",
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        Set<String> excluded = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (JCheckBox box : hostBoxes) {
+            if (box.isSelected()) {
+                excluded.add((String) box.getClientProperty("host"));
+            }
+        }
+        int removed = candidateTableModel.excludeHosts(excluded);
+        updateEstimate();
+        updatePreviewButton();
+        statusLabel.setText("Excluded " + excluded.size() + " host(s); removed " + removed + " request(s).");
+    }
+
+    private record HostCheckpoint(String version, String type, List<HostCheckpointEntry> entries) {
+    }
+
+    private record HostCheckpointEntry(String host, String method, String url, String requestRaw) {
     }
 
     private record RetryPackage(String version, String type, List<RetryPackageEntry> entries) {
@@ -1435,7 +1614,8 @@ public class CoverageSweepPanel extends JPanel {
 
     private void updateExportButton() {
         if (exportButton != null) {
-            exportButton.setEnabled(resultsWorkspace != null && resultsWorkspace.shownResultsCount() > 0);
+            exportButton.setEnabled(resultsWorkspace != null
+                && (resultsWorkspace.shownResultsCount() > 0 || engine.deferredRetryCount() > 0));
         }
     }
 
@@ -1683,6 +1863,34 @@ public class CoverageSweepPanel extends JPanel {
                 .filter(row -> row.selected)
                 .map(row -> row.candidate)
                 .toList();
+        }
+
+        Map<String, Integer> hostCounts() {
+            Map<String, Integer> counts = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            for (Row row : rows) {
+                String host = row.candidate.host();
+                counts.merge(host == null || host.isBlank() ? "unknown" : host, 1, Integer::sum);
+            }
+            return counts;
+        }
+
+        int excludeHosts(Set<String> excludedHosts) {
+            if (excludedHosts == null || excludedHosts.isEmpty()) {
+                return 0;
+            }
+            int removed = 0;
+            for (Row row : rows) {
+                if (excludedHosts.stream().anyMatch(host -> host.equalsIgnoreCase(row.candidate.host()))) {
+                    if (row.selected) {
+                        row.selected = false;
+                    }
+                    removed++;
+                }
+            }
+            if (removed > 0) {
+                fireTableDataChanged();
+            }
+            return removed;
         }
 
         void setStateChangingMethodsSelected(boolean selected) {
