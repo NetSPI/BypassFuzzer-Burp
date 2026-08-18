@@ -278,6 +278,23 @@ public class CoverageSweepEngine {
         return deferredRetryQueue.stream().map(RetryTask::result).toList();
     }
 
+    public List<CoverageSweepRetryItem> deferredRetryItemSnapshot() {
+        return deferredRetryQueue.stream()
+            .map(item -> new CoverageSweepRetryItem(item.result(), item.probe()))
+            .toList();
+    }
+
+    public void importDeferredRetries(List<CoverageSweepRetryItem> items) {
+        if (items == null) {
+            return;
+        }
+        for (CoverageSweepRetryItem item : items) {
+            if (item != null && item.result() != null && item.probe() != null) {
+                deferredRetryQueue.add(new RetryTask(item.result(), item.probe()));
+            }
+        }
+    }
+
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
@@ -294,7 +311,7 @@ public class CoverageSweepEngine {
             thread.setDaemon(true);
             return thread;
         });
-        ConcurrentLinkedQueue<RetryTask> retryQueue = new ConcurrentLinkedQueue<>();
+        ConcurrentLinkedQueue<RetryTask> retryQueue = new ConcurrentLinkedQueue<>(deferredRetryQueue);
         deferredRetryQueue = retryQueue;
 
         for (CoverageSweepCandidate candidate : candidates) {

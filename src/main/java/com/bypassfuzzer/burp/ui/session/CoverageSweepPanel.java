@@ -1,6 +1,8 @@
 package com.bypassfuzzer.burp.ui.session;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.core.ByteArray;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
@@ -15,6 +17,8 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPayloadSet;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
+import com.bypassfuzzer.burp.core.coverage.CoverageSweepRetryItem;
+import com.google.gson.Gson;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -44,6 +48,7 @@ import java.awt.Font;
 import java.awt.Window;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
@@ -74,6 +79,8 @@ public class CoverageSweepPanel extends JPanel {
     private JButton configurationToggleButton;
     private JButton throttleButton;
     private JButton retryQueueButton;
+    private JButton importRetryPackageButton;
+    private JPanel configurationActionsRow;
     private JComboBox<String> modeComboBox;
     private JComboBox<String> payloadSetComboBox;
     private JCheckBox includeUnsafeMethodsCheckBox;
@@ -108,6 +115,7 @@ public class CoverageSweepPanel extends JPanel {
     private Set<String> selectedCookieNames = new LinkedHashSet<>();
     private final Map<HttpRequest, HttpResponse> importedControlResponses = new IdentityHashMap<>();
     private volatile SwingWorker<CoverageSweepPreview, Void> candidateLoadWorker;
+    private volatile SwingWorker<List<CoverageSweepCandidate>, Void> sweepPreparationWorker;
     private volatile SwingWorker<RemoteOpenApiImport, Void> remoteImportWorker;
     private volatile SwingWorker<List<CoverageSweepProbe>, Void> probePreviewWorker;
     private ImportedOpenApiDocument importedOpenApiDocument;
@@ -146,6 +154,11 @@ public class CoverageSweepPanel extends JPanel {
         if (previewWorker != null) {
             previewWorker.cancel(true);
         }
+        SwingWorker<List<CoverageSweepCandidate>, Void> preparationWorker = sweepPreparationWorker;
+        sweepPreparationWorker = null;
+        if (preparationWorker != null) {
+            preparationWorker.cancel(true);
+        }
         engine.cleanup();
         if (resultsWorkspace != null) {
             resultsWorkspace.cleanup();
@@ -163,6 +176,7 @@ public class CoverageSweepPanel extends JPanel {
         controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
         JPanel modeRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel modeActionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        configurationActionsRow = modeActionsRow;
         JPanel modeOptionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel requestContextRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -254,7 +268,6 @@ public class CoverageSweepPanel extends JPanel {
         throttleButton = new JButton("Throttle...");
         throttleButton.setToolTipText("Configure host-local backoff and recovery for throttle responses.");
         throttleButton.addActionListener(e -> openThrottleDialog());
-        executionRow.add(throttleButton);
         executionRow.add(doublePortHostProbesCheckBox);
 
         modeOptionsRow.add(includeUnsafeMethodsCheckBox);
@@ -294,16 +307,21 @@ public class CoverageSweepPanel extends JPanel {
         retryQueueButton.setToolTipText("View payloads deferred because their host returned a throttle response.");
         retryQueueButton.setEnabled(false);
         retryQueueButton.addActionListener(e -> openRetryQueueDialog());
+        importRetryPackageButton = new JButton("Import Retry JSON");
+        importRetryPackageButton.setToolTipText("Load an exact BypassFuzzer retry package into the deferred queue.");
+        importRetryPackageButton.addActionListener(e -> importRetryQueueJson());
         modeActionsRow.add(loadButton);
         modeActionsRow.add(importButton);
         modeActionsRow.add(clearImportButton);
-        resultActionsRow.add(viewCandidateButton);
-        resultActionsRow.add(previewProbesButton);
+        modeActionsRow.add(throttleButton);
+        modeActionsRow.add(importRetryPackageButton);
+        modeActionsRow.add(viewCandidateButton);
+        modeActionsRow.add(previewProbesButton);
+        modeActionsRow.add(clearButton);
+        modeActionsRow.add(exportButton);
+        modeActionsRow.add(retryQueueButton);
         resultActionsRow.add(startButton);
         resultActionsRow.add(stopButton);
-        resultActionsRow.add(clearButton);
-        resultActionsRow.add(exportButton);
-        resultActionsRow.add(retryQueueButton);
 
         controls.add(modeRow);
         controls.add(modeActionsRow);
@@ -387,14 +405,185 @@ public class CoverageSweepPanel extends JPanel {
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setPreferredSize(new Dimension(900, 300));
-        JOptionPane.showMessageDialog(this, scrollPane,
-            "Deferred throttle retry queue (" + queued.size() + ")",
-            JOptionPane.INFORMATION_MESSAGE);
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(owner, "Deferred throttle retry queue (" + queued.size() + ")",
+            Dialog.ModalityType.MODELESS);
+        JPanel content = new JPanel(new BorderLayout(8, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        content.add(scrollPane, BorderLayout.CENTER);
+
+        JButton exportButton = new JButton("Export wordlist...");
+        exportButton.setToolTipText("Export unique queued payloads as a UTF-8 wordlist for later import.");
+        exportButton.setEnabled(!queued.isEmpty());
+        exportButton.addActionListener(e -> exportRetryQueueWordlist(queued));
+        JButton exportJsonButton = new JButton("Export JSON...");
+        exportJsonButton.setToolTipText("Export exact retry requests and payload metadata for later replay.");
+        exportJsonButton.setEnabled(!queued.isEmpty());
+        exportJsonButton.addActionListener(e -> exportRetryQueueJson(engine.deferredRetryItemSnapshot()));
+        JButton importJsonButton = new JButton("Import JSON...");
+        importJsonButton.setToolTipText("Import an exact retry package into the deferred retry queue.");
+        importJsonButton.addActionListener(e -> importRetryQueueJson());
+        JButton closeButton = new JButton("Close");
+        closeButton.addActionListener(e -> dialog.dispose());
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttons.add(exportButton);
+        buttons.add(exportJsonButton);
+        buttons.add(importJsonButton);
+        buttons.add(closeButton);
+        content.add(buttons, BorderLayout.SOUTH);
+
+        dialog.setContentPane(content);
+        dialog.setSize(920, 380);
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+    }
+
+    private void exportRetryQueueWordlist(List<AttackResult> queued) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export Deferred Retry Wordlist");
+        chooser.setSelectedFile(new java.io.File("bypassfuzzer-retry-queue.txt"));
+        chooser.setFileFilter(new FileNameExtensionFilter("Wordlists (*.txt)", "txt"));
+        int result = chooser.showSaveDialog(api.userInterface().swingUtils().suiteFrame());
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+        exportRetryQueueWordlist(queued, chooser.getSelectedFile().toPath());
+    }
+
+    boolean exportRetryQueueWordlist(List<AttackResult> queued, Path path) {
+        Set<String> payloads = new LinkedHashSet<>();
+        if (queued != null) {
+            for (AttackResult result : queued) {
+                if (result != null && result.getPayload() != null && !result.getPayload().isBlank()) {
+                    payloads.add(result.getPayload());
+                }
+            }
+        }
+        try {
+            Files.write(path, payloads, StandardCharsets.UTF_8);
+            statusLabel.setText("Exported " + payloads.size() + " unique retry payload(s) to " + path + ".");
+            return true;
+        } catch (Exception e) {
+            statusLabel.setText("Unable to export retry wordlist: " + e.getMessage());
+            try {
+                JOptionPane.showMessageDialog(
+                    api.userInterface().swingUtils().suiteFrame(),
+                    "Unable to export retry wordlist:\n" + e.getMessage(),
+                    "Export Failed",
+                    JOptionPane.ERROR_MESSAGE
+                );
+            } catch (Exception ignored) {
+                // Headless tests or Burp shutdown can make dialogs unavailable.
+            }
+            return false;
+        }
+    }
+
+    private void exportRetryQueueJson(List<CoverageSweepRetryItem> queued) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export Deferred Retry JSON");
+        chooser.setSelectedFile(new java.io.File("bypassfuzzer-retry-queue.json"));
+        chooser.setFileFilter(new FileNameExtensionFilter("JSON retry packages (*.json)", "json"));
+        int result = chooser.showSaveDialog(api.userInterface().swingUtils().suiteFrame());
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+        try {
+            List<RetryPackageEntry> entries = queued.stream()
+                .filter(item -> item != null && item.result() != null && item.probe() != null
+                    && item.result().getRequest() != null)
+                .map(this::toRetryPackageEntry)
+                .toList();
+            RetryPackage packageData = new RetryPackage("1", "bypassfuzzer-retry-queue", entries);
+            Files.writeString(chooser.getSelectedFile().toPath(), new Gson().toJson(packageData),
+                StandardCharsets.UTF_8);
+            statusLabel.setText("Exported " + entries.size() + " exact retry request(s) to "
+                + chooser.getSelectedFile() + ".");
+        } catch (Exception e) {
+            showRetryPackageError("Unable to export retry JSON: " + e.getMessage());
+        }
+    }
+
+    private RetryPackageEntry toRetryPackageEntry(CoverageSweepRetryItem item) {
+        AttackResult result = item.result();
+        return new RetryPackageEntry(
+            result.getTargetLabel(), result.getPayload(), result.getPayloadFamily(),
+            result.getPayloadEncoding(), result.getThrottleRetryAttempt(),
+            result.getRequest().toString(), result.getRequest().url(), result.getRequest().method(),
+            item.probe().httpMode() == null ? "" : item.probe().httpMode().name(),
+            item.probe().label()
+        );
+    }
+
+    private void importRetryQueueJson() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import Deferred Retry JSON");
+        chooser.setFileFilter(new FileNameExtensionFilter("JSON retry packages (*.json)", "json"));
+        int result = chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame());
+        if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
+            return;
+        }
+        try {
+            String json = Files.readString(chooser.getSelectedFile().toPath(), StandardCharsets.UTF_8);
+            RetryPackage packageData = new Gson().fromJson(json, RetryPackage.class);
+            if (packageData == null || !"bypassfuzzer-retry-queue".equals(packageData.type())
+                || packageData.entries() == null) {
+                throw new IllegalArgumentException("This is not a BypassFuzzer retry package.");
+            }
+            List<CoverageSweepRetryItem> items = packageData.entries().stream()
+                .map(this::fromRetryPackageEntry)
+                .toList();
+            engine.importDeferredRetries(items);
+            updateRetryQueueButton();
+            statusLabel.setText("Imported " + items.size() + " exact retry request(s) into the queue.");
+        } catch (Exception e) {
+            showRetryPackageError("Unable to import retry JSON: " + e.getMessage());
+        }
+    }
+
+    private CoverageSweepRetryItem fromRetryPackageEntry(RetryPackageEntry entry) {
+        if (entry == null || entry.requestRaw() == null || entry.requestRaw().isBlank()) {
+            throw new IllegalArgumentException("Retry package contains an entry without a request.");
+        }
+        java.net.URI uri = java.net.URI.create(entry.url());
+        boolean secure = "https".equalsIgnoreCase(uri.getScheme());
+        int port = uri.getPort() > 0 ? uri.getPort() : secure ? 443 : 80;
+        HttpService service = HttpService.httpService(uri.getHost(), port, secure);
+        HttpRequest request = HttpRequest.httpRequest(service, ByteArray.byteArray(entry.requestRaw()));
+        AttackResult result = new AttackResult(
+            "Coverage Sweep", entry.payload(), entry.targetLabel(), entry.payloadFamily(),
+            entry.payloadEncoding(), request, null, request, null);
+        HttpMode mode = "HTTP_1".equals(entry.httpMode()) ? HttpMode.HTTP_1
+            : "HTTP_2".equals(entry.httpMode()) ? HttpMode.HTTP_2 : null;
+        return new CoverageSweepRetryItem(result,
+            new CoverageSweepProbe(entry.effectivePayloadLabel(), entry.payloadFamily(), request, mode));
+    }
+
+    private void showRetryPackageError(String message) {
+        statusLabel.setText(message);
+        try {
+            JOptionPane.showMessageDialog(api.userInterface().swingUtils().suiteFrame(), message,
+                "Retry Package Error", JOptionPane.ERROR_MESSAGE);
+        } catch (Exception ignored) {
+            // Headless tests or Burp shutdown can make dialogs unavailable.
+        }
+    }
+
+    private record RetryPackage(String version, String type, List<RetryPackageEntry> entries) {
+    }
+
+    private record RetryPackageEntry(String targetLabel, String payload, String payloadFamily,
+                                     String payloadEncoding, int retryAttempt, String requestRaw,
+                                     String url, String method, String httpMode, String payloadLabel) {
+        private String effectivePayloadLabel() {
+            return payloadLabel == null || payloadLabel.isBlank() ? "Imported retry" : payloadLabel;
+        }
     }
 
     private void toggleConfigurationPanel() {
         boolean expanded = configurationPanel.isVisible();
         configurationPanel.setVisible(!expanded);
+        configurationActionsRow.setVisible(!expanded);
         configurationToggleButton.setText(expanded ? "Show config" : "Hide config");
         revalidate();
         repaint();
@@ -771,13 +960,8 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void startSweep() {
-        if (resultsWorkspace.isRetryRunning()) {
+        if (resultsWorkspace.isRetryRunning() || sweepPreparationWorker != null) {
             statusLabel.setText("Wait for the throttled-request retry pass to finish.");
-            return;
-        }
-        List<CoverageSweepCandidate> selected = candidateTableModel.selectedCandidates();
-        if (selected.isEmpty()) {
-            statusLabel.setText("Select at least one candidate before starting.");
             return;
         }
 
@@ -785,24 +969,61 @@ public class CoverageSweepPanel extends JPanel {
         loadButton.setEnabled(false);
         importButton.setEnabled(false);
         setStatusControlsEnabled(false);
-        candidateTableModel.setSelectionEditingEnabled(false);
+        candidateTableModel.setSelectionEditingEnabledSilently(false);
         previewProbesButton.setEnabled(false);
-        viewCandidateButton.setEnabled(previewCandidate() != null);
+        viewCandidateButton.setEnabled(true);
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
         candidateTable.setEnabled(true);
-        statusLabel.setText("Coverage sweep in progress...");
+        statusLabel.setText("Preparing selected sweep candidates...");
 
         CoverageSweepOptions options = currentOptions();
         activePayloadSet = options.payloadSet();
         resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
             options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
-        updateRetryQueueButton();
-        if (!engine.start(selected, options, this::addResult, this::handleCompletion)) {
-            resultsWorkspace.setPrimaryRunActive(false);
-            updateIdleUi("Unable to start coverage sweep.");
-        }
+        sweepPreparationWorker = new SwingWorker<>() {
+            @Override
+            protected List<CoverageSweepCandidate> doInBackground() {
+                return candidateTableModel.selectedCandidates();
+            }
+
+            @Override
+            protected void done() {
+                if (sweepPreparationWorker != this) {
+                    return;
+                }
+                sweepPreparationWorker = null;
+                try {
+                    List<CoverageSweepCandidate> selected = get();
+                    if (selected.isEmpty()) {
+                        resultsWorkspace.setPrimaryRunActive(false);
+                        updateIdleUi("Select at least one candidate before starting.");
+                        return;
+                    }
+                    viewCandidateButton.setEnabled(true);
+                    statusLabel.setText("Coverage sweep in progress...");
+                    updateRetryQueueButton();
+                    if (!engine.start(selected, options, CoverageSweepPanel.this::addResult,
+                        CoverageSweepPanel.this::handleCompletion)) {
+                        resultsWorkspace.setPrimaryRunActive(false);
+                        updateIdleUi("Unable to start coverage sweep.");
+                    }
+                } catch (CancellationException ignored) {
+                    resultsWorkspace.setPrimaryRunActive(false);
+                    updateIdleUi("Coverage sweep preparation cancelled.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    resultsWorkspace.setPrimaryRunActive(false);
+                    updateIdleUi("Coverage sweep preparation interrupted.");
+                } catch (ExecutionException e) {
+                    resultsWorkspace.setPrimaryRunActive(false);
+                    updateIdleUi("Unable to prepare coverage sweep: "
+                        + (e.getCause() == null ? e.getMessage() : e.getCause().getMessage()));
+                }
+            }
+        };
+        sweepPreparationWorker.execute();
     }
 
     private void stopSweep() {
@@ -1443,6 +1664,10 @@ public class CoverageSweepPanel extends JPanel {
             if (!rows.isEmpty()) {
                 fireTableRowsUpdated(0, rows.size() - 1);
             }
+        }
+
+        void setSelectionEditingEnabledSilently(boolean enabled) {
+            selectionEditingEnabled = enabled;
         }
 
         void setCandidates(List<CoverageSweepCandidate> candidates) {
