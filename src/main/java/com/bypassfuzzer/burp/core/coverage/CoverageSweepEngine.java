@@ -6,7 +6,6 @@ import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
-import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
@@ -53,7 +52,7 @@ public class CoverageSweepEngine {
     private volatile boolean running = false;
     private Thread runnerThread;
     private ExecutorService executor;
-    private RateLimiter rateLimiter;
+    private CoverageSweepScheduler scheduler;
 
     public CoverageSweepEngine(MontoyaApi api) {
         this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
@@ -270,11 +269,12 @@ public class CoverageSweepEngine {
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
-        safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); payload set: "
+        safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); global concurrency: "
+            + options.concurrency() + "; per-host concurrency: " + options.perHostConcurrency()
+            + "; payload set: "
             + options.payloadSet() + (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS
                 ? " (uncapped full Bypass catalog)" : " (bounded high-signal probes)"));
-        rateLimiter = new RateLimiter(api, options.requestsPerSecond(), options.requestDelayMs(),
-            safeThrottleCodes(options.throttleStatusCodes()), options.autoThrottleEnabled());
+        scheduler = new CoverageSweepScheduler(api, options);
         int concurrency = Math.max(1, options.concurrency());
         AtomicInteger workerCounter = new AtomicInteger(1);
         executor = Executors.newFixedThreadPool(concurrency, runnable -> {
@@ -326,13 +326,9 @@ public class CoverageSweepEngine {
                 options.authSelection().headerNames(), options.authSelection().cookieNames());
             HttpRequest anonymousBase = stripAuthentication(candidate.request(), options.authSelection());
             verificationRequest = anonymousPolicy.reconcileMutation(anonymousBase, anonymousBase);
-            if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
-                return;
-            }
-            anonymousControlResponse = requestSender.send(verificationRequest);
-            if (rateLimiter != null && anonymousControlResponse != null) {
-                rateLimiter.reportResponse(anonymousControlResponse);
-            }
+            HttpRequest scheduledVerificationRequest = verificationRequest;
+            anonymousControlResponse = sendScheduled(scheduledVerificationRequest,
+                () -> requestSender.send(scheduledVerificationRequest));
             if (resultCallback != null) {
                 String signal = anonymousControlResponse == null
                     ? "No response"
@@ -357,18 +353,11 @@ public class CoverageSweepEngine {
             if (!canContinue()) {
                 return;
             }
-            if (rateLimiter != null && !rateLimiter.waitBeforeRequest()) {
-                return;
-            }
-
-            HttpResponse response = probe.httpMode() == null
+            HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
                 ? requestSender.send(probe.request())
-                : requestSender.send(probe.request(), probe.httpMode());
+                : requestSender.send(probe.request(), probe.httpMode()));
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
-            }
-            if (rateLimiter != null && response != null) {
-                rateLimiter.reportResponse(response);
             }
             if (resultCallback != null) {
                 String signal;
@@ -859,6 +848,11 @@ public class CoverageSweepEngine {
         return running && !Thread.currentThread().isInterrupted();
     }
 
+    private HttpResponse sendScheduled(HttpRequest request, java.util.function.Supplier<HttpResponse> sender) {
+        CoverageSweepScheduler currentScheduler = scheduler;
+        return currentScheduler == null ? sender.get() : currentScheduler.send(request, sender);
+    }
+
     private void safeLog(String message) {
         try {
             if (api != null && api.logging() != null) api.logging().logToOutput(message);
@@ -871,10 +865,6 @@ public class CoverageSweepEngine {
             if (api != null && api.logging() != null) api.logging().logToError(message);
         } catch (Exception ignored) {
         }
-    }
-
-    private Set<Integer> safeThrottleCodes(Set<Integer> codes) {
-        return codes == null ? Set.of() : codes;
     }
 
     private String safe(String value) {

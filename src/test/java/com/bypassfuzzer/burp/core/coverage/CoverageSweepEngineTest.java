@@ -919,6 +919,8 @@ class CoverageSweepEngineTest {
             100,
             1,
             2,
+            2,
+            0,
             0,
             CoverageSweepOptions.defaults().throttleStatusCodes()
         );

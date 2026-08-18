@@ -11,6 +11,7 @@ public record CoverageSweepOptions(
     int maxCandidates,
     int maxProbesPerCandidate,
     int concurrency,
+    int perHostConcurrency,
     int requestsPerSecond,
     int requestDelayMs,
     Set<Integer> throttleStatusCodes,
@@ -29,6 +30,21 @@ public record CoverageSweepOptions(
         authSelection = authSelection == null ? CoverageSweepAuthSelection.defaults() : authSelection;
         requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
         payloadSet = payloadSet == null ? CoverageSweepPayloadSet.HIGH_SIGNAL : payloadSet;
+        perHostConcurrency = Math.max(1, perHostConcurrency);
+    }
+
+    /** Backward-compatible constructor retaining the original option ordering. */
+    public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
+                                int maxProbesPerCandidate, int concurrency, int requestsPerSecond,
+                                int requestDelayMs, Set<Integer> throttleStatusCodes,
+                                CoverageSweepMode mode, CoverageSweepAuthSelection authSelection,
+                                boolean excludeStaticAssets, boolean verifyUnauthenticatedAccess,
+                                boolean doublePortHostProbes, boolean autoThrottleEnabled,
+                                List<ConfiguredHeader> requestHeaders, CoverageSweepPayloadSet payloadSet) {
+        this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency, 1,
+            requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection,
+            excludeStaticAssets, verifyUnauthenticatedAccess, doublePortHostProbes,
+            autoThrottleEnabled, requestHeaders, payloadSet);
     }
 
     public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
@@ -77,6 +93,17 @@ public record CoverageSweepOptions(
     }
 
     public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
+                                int maxProbesPerCandidate, int concurrency, int perHostConcurrency,
+                                int requestsPerSecond, int requestDelayMs,
+                                Set<Integer> throttleStatusCodes) {
+        this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
+            perHostConcurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes,
+            CoverageSweepMode.BLOCKED_RESPONSES, CoverageSweepAuthSelection.defaults(),
+            true, false, false, throttleStatusCodes != null && !throttleStatusCodes.isEmpty(),
+            List.of(), CoverageSweepPayloadSet.HIGH_SIGNAL);
+    }
+
+    public CoverageSweepOptions(Set<Integer> statuses, boolean inScopeOnly, int maxCandidates,
                                 int maxProbesPerCandidate, int concurrency, int requestsPerSecond,
                                 int requestDelayMs, Set<Integer> throttleStatusCodes) {
         this(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate, concurrency,
@@ -119,6 +146,7 @@ public record CoverageSweepOptions(
             100,
             280,
             1,
+            1,
             0,
             0,
             Set.of(429, 503),
@@ -135,7 +163,7 @@ public record CoverageSweepOptions(
 
     public CoverageSweepOptions withAuthenticatedTraffic(CoverageSweepAuthSelection selection) {
         return new CoverageSweepOptions(Set.of(), inScopeOnly, maxCandidates, maxProbesPerCandidate,
-            concurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes,
+            concurrency, perHostConcurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes,
             CoverageSweepMode.AUTHENTICATED_TRAFFIC, selection, excludeStaticAssets,
             verifyUnauthenticatedAccess, doublePortHostProbes, autoThrottleEnabled, requestHeaders,
             payloadSet);
@@ -143,7 +171,7 @@ public record CoverageSweepOptions(
 
     public CoverageSweepOptions withDoublePortHostProbes(boolean enabled) {
         return new CoverageSweepOptions(statuses, inScopeOnly, maxCandidates, maxProbesPerCandidate,
-            concurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection,
+            concurrency, perHostConcurrency, requestsPerSecond, requestDelayMs, throttleStatusCodes, mode, authSelection,
             excludeStaticAssets, verifyUnauthenticatedAccess, enabled, autoThrottleEnabled, requestHeaders,
             payloadSet);
     }

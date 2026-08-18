@@ -33,6 +33,12 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// Keep compilation consistent across Windows, macOS, and Linux. Several
+// URL-validation sources intentionally document Unicode compatibility payloads.
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 def generatedBuildInfoDir = layout.buildDirectory.dir('generated/resources/buildInfo')
 def defaultUpdateManifestUrl = 'https://wapen-tools-1.s3.us-east-1.amazonaws.com/bypassfuzzer_version.txt'
 def updateManifestUrlProvider = providers.gradleProperty('updateManifestUrl').orElse(defaultUpdateManifestUrl)

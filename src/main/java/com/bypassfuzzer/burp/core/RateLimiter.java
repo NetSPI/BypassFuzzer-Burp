@@ -20,6 +20,7 @@ public class RateLimiter {
     private final Set<Integer> throttleStatusCodes;
     private final boolean autoThrottleEnabled;
     private final long fixedDelayMs;
+    private final String scopeLabel;
     private final LongSupplier currentTimeMillis;
     private final LongSupplier nanoTime;
     private volatile int requestsPerSecond;
@@ -37,12 +38,26 @@ public class RateLimiter {
     public RateLimiter(MontoyaApi api, int requestsPerSecond, long fixedDelayMs,
                        Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled) {
         this(api, requestsPerSecond, fixedDelayMs, throttleStatusCodes, autoThrottleEnabled,
-            System::currentTimeMillis, System::nanoTime);
+            System::currentTimeMillis, System::nanoTime, "");
+    }
+
+    public RateLimiter(MontoyaApi api, int requestsPerSecond, long fixedDelayMs,
+                       Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled,
+                       String scopeLabel) {
+        this(api, requestsPerSecond, fixedDelayMs, throttleStatusCodes, autoThrottleEnabled,
+            System::currentTimeMillis, System::nanoTime, scopeLabel);
     }
 
     RateLimiter(MontoyaApi api, int requestsPerSecond, long fixedDelayMs,
                 Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled,
                 LongSupplier currentTimeMillis, LongSupplier nanoTime) {
+        this(api, requestsPerSecond, fixedDelayMs, throttleStatusCodes, autoThrottleEnabled,
+            currentTimeMillis, nanoTime, "");
+    }
+
+    RateLimiter(MontoyaApi api, int requestsPerSecond, long fixedDelayMs,
+                Set<Integer> throttleStatusCodes, boolean autoThrottleEnabled,
+                LongSupplier currentTimeMillis, LongSupplier nanoTime, String scopeLabel) {
         this.api = api;
         this.requestsPerSecond = Math.max(0, requestsPerSecond);
         this.fixedDelayMs = Math.max(0, fixedDelayMs);
@@ -50,6 +65,7 @@ public class RateLimiter {
         this.autoThrottleEnabled = autoThrottleEnabled;
         this.currentTimeMillis = currentTimeMillis;
         this.nanoTime = nanoTime;
+        this.scopeLabel = scopeLabel == null ? "" : scopeLabel;
     }
 
     /** Reserves the next globally paced request slot. */
@@ -116,7 +132,8 @@ public class RateLimiter {
         long throttledNextRequest = nanoTime.getAsLong() + effectiveDelayNanos();
         nextRequestNanos = Math.max(nextRequestNanos, throttledNextRequest);
         notifyAll();
-        safeLog(String.format("Auto-throttle: HTTP %d; pacing requests at least %d ms apart%s.",
+        safeLog(String.format("Auto-throttle%s: HTTP %d; pacing requests at least %d ms apart%s.",
+            scopeSuffix(),
             statusCode, effectiveDelayMs(), retryAfterMs > 0 ? ", honoring Retry-After" : ""));
     }
 
@@ -130,7 +147,8 @@ public class RateLimiter {
         adaptiveDelayMs = reducedDelay <= baseDelayMs() ? 0 : reducedDelay;
         nextRecoveryAdjustmentEpochMs = adaptiveDelayMs == 0 ? 0 : now + recoveryWindowMs();
         notifyAll();
-        safeLog(String.format("Auto-throttle recovery: pacing reduced from %d ms to %d ms.",
+        safeLog(String.format("Auto-throttle recovery%s: pacing reduced from %d ms to %d ms.",
+            scopeSuffix(),
             previousDelay, effectiveDelayMs()));
     }
 
@@ -191,5 +209,9 @@ public class RateLimiter {
             if (api != null && api.logging() != null) api.logging().logToOutput(message);
         } catch (Exception ignored) {
         }
+    }
+
+    private String scopeSuffix() {
+        return scopeLabel.isBlank() ? "" : " [" + scopeLabel + "]";
     }
 }

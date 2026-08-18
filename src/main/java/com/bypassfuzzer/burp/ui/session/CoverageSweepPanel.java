@@ -83,6 +83,7 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox status3xxCheckBox;
     private JCheckBox status4xxCheckBox;
     private JTextField concurrencyField;
+    private JTextField perHostConcurrencyField;
     private JTextField throttleStatusCodesField;
     private JTextField requestDelayField;
     private JTextField openApiBaseUrlField;
@@ -154,9 +155,12 @@ public class CoverageSweepPanel extends JPanel {
         JPanel panel = new JPanel(new BorderLayout());
         JPanel controls = new JPanel();
         controls.setLayout(new BoxLayout(controls, BoxLayout.Y_AXIS));
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel modeRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel modeActionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel modeOptionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel executionRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JPanel requestContextRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel resultActionsRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         modeComboBox = new JComboBox<>(new String[]{
             "Blocked responses",
@@ -180,6 +184,9 @@ public class CoverageSweepPanel extends JPanel {
             "High signal uses the curated Sweep set; All payloads runs every Bypass attack family.");
         payloadSetComboBox.addActionListener(e -> updateEstimate());
         concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
+        concurrencyField.setToolTipText("Maximum simultaneous requests across the entire sweep.");
+        perHostConcurrencyField = new JTextField(String.valueOf(defaults.perHostConcurrency()), 4);
+        perHostConcurrencyField.setToolTipText("Maximum simultaneous requests to any one scheme/host/port.");
         throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
         autoThrottleCheckBox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
         autoThrottleCheckBox.setToolTipText(
@@ -198,14 +205,14 @@ public class CoverageSweepPanel extends JPanel {
             "Rebuild the imported OpenAPI targets using this base URL without importing the specification again.");
         applyOpenApiBaseUrlButton.addActionListener(e -> applyOpenApiBaseUrl());
 
-        statusRow.add(new JLabel("Mode:"));
-        statusRow.add(modeComboBox);
+        modeRow.add(new JLabel("Mode:"));
+        modeRow.add(modeComboBox);
         pullResponsesLabel = new JLabel("Pull responses:");
-        statusRow.add(pullResponsesLabel);
-        statusRow.add(status401CheckBox);
-        statusRow.add(status403CheckBox);
-        statusRow.add(status3xxCheckBox);
-        statusRow.add(status4xxCheckBox);
+        modeOptionsRow.add(pullResponsesLabel);
+        modeOptionsRow.add(status401CheckBox);
+        modeOptionsRow.add(status403CheckBox);
+        modeOptionsRow.add(status3xxCheckBox);
+        modeOptionsRow.add(status4xxCheckBox);
 
         includeUnsafeMethodsCheckBox = new JCheckBox("Include state-changing methods", false);
         includeUnsafeMethodsCheckBox.setToolTipText(
@@ -226,20 +233,23 @@ public class CoverageSweepPanel extends JPanel {
 
         executionRow.add(new JLabel("Payload set:"));
         executionRow.add(payloadSetComboBox);
-        executionRow.add(new JLabel("Concurrency:"));
+        executionRow.add(new JLabel("Global concurrency:"));
         executionRow.add(concurrencyField);
+        executionRow.add(new JLabel("Per-host:"));
+        executionRow.add(perHostConcurrencyField);
         executionRow.add(new JLabel("Delay (ms):"));
         executionRow.add(requestDelayField);
         executionRow.add(new JLabel("Throttle codes:"));
         executionRow.add(throttleStatusCodesField);
         executionRow.add(autoThrottleCheckBox);
-        executionRow.add(includeUnsafeMethodsCheckBox);
-        executionRow.add(excludeStaticAssetsCheckBox);
-        executionRow.add(verifyUnauthenticatedAccessCheckBox);
         executionRow.add(doublePortHostProbesCheckBox);
-        executionRow.add(openApiBaseUrlLabel);
-        executionRow.add(openApiBaseUrlField);
-        executionRow.add(applyOpenApiBaseUrlButton);
+
+        modeOptionsRow.add(includeUnsafeMethodsCheckBox);
+        modeOptionsRow.add(excludeStaticAssetsCheckBox);
+        modeOptionsRow.add(verifyUnauthenticatedAccessCheckBox);
+        modeOptionsRow.add(openApiBaseUrlLabel);
+        modeOptionsRow.add(openApiBaseUrlField);
+        modeOptionsRow.add(applyOpenApiBaseUrlButton);
 
         requestContextRow.add(requestHeadersControl.button());
         requestContextRow.add(authIdentifiersButton);
@@ -267,19 +277,22 @@ public class CoverageSweepPanel extends JPanel {
         exportButton = new JButton("Export TSV");
         exportButton.setEnabled(false);
         exportButton.addActionListener(e -> exportResultsWithChooser());
-        statusRow.add(loadButton);
-        statusRow.add(importButton);
-        statusRow.add(clearImportButton);
-        statusRow.add(viewCandidateButton);
-        statusRow.add(previewProbesButton);
-        statusRow.add(startButton);
-        statusRow.add(stopButton);
-        statusRow.add(clearButton);
-        statusRow.add(exportButton);
+        modeActionsRow.add(loadButton);
+        modeActionsRow.add(importButton);
+        modeActionsRow.add(clearImportButton);
+        resultActionsRow.add(viewCandidateButton);
+        resultActionsRow.add(previewProbesButton);
+        resultActionsRow.add(startButton);
+        resultActionsRow.add(stopButton);
+        resultActionsRow.add(clearButton);
+        resultActionsRow.add(exportButton);
 
-        controls.add(statusRow);
+        controls.add(modeRow);
+        controls.add(modeActionsRow);
+        controls.add(modeOptionsRow);
         controls.add(executionRow);
         controls.add(requestContextRow);
+        controls.add(resultActionsRow);
 
         statusLabel = new JLabel("Load in-scope Proxy history responses to preview sweep candidates.");
         estimateLabel = new JLabel("No candidates loaded.");
@@ -791,6 +804,7 @@ public class CoverageSweepPanel extends JPanel {
             defaults.maxCandidates(),
             defaults.maxProbesPerCandidate(),
             parsePositiveInt(concurrencyField, defaults.concurrency()),
+            parsePositiveInt(perHostConcurrencyField, defaults.perHostConcurrency()),
             defaults.requestsPerSecond(),
             parseNonNegativeInt(requestDelayField, defaults.requestDelayMs()),
             SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
@@ -840,6 +854,7 @@ public class CoverageSweepPanel extends JPanel {
         status3xxCheckBox.setEnabled(enabled);
         status4xxCheckBox.setEnabled(enabled);
         concurrencyField.setEnabled(enabled);
+        perHostConcurrencyField.setEnabled(enabled);
         throttleStatusCodesField.setEnabled(enabled);
         autoThrottleCheckBox.setEnabled(enabled);
         payloadSetComboBox.setEnabled(enabled);
@@ -905,7 +920,9 @@ public class CoverageSweepPanel extends JPanel {
         importButton.setEnabled(idle && imported);
         clearImportButton.setVisible(imported);
         clearImportButton.setEnabled(idle && imported && candidateTableModel.getRowCount() > 0);
+        includeUnsafeMethodsCheckBox.setVisible(authenticated || imported);
         includeUnsafeMethodsCheckBox.setEnabled(idle && (authenticated || imported));
+        excludeStaticAssetsCheckBox.setVisible(authenticated);
         excludeStaticAssetsCheckBox.setEnabled(idle && authenticated);
         verifyUnauthenticatedAccessCheckBox.setVisible(authenticated);
         verifyUnauthenticatedAccessCheckBox.setEnabled(idle && authenticated);
