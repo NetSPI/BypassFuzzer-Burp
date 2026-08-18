@@ -105,6 +105,7 @@ public class CoverageSweepPanel extends JPanel {
     private volatile SwingWorker<List<CoverageSweepProbe>, Void> probePreviewWorker;
     private ImportedOpenApiDocument importedOpenApiDocument;
     private boolean authDefaultsInitialized;
+    private CoverageSweepPayloadSet activePayloadSet = CoverageSweepPayloadSet.HIGH_SIGNAL;
 
     public CoverageSweepPanel(MontoyaApi api) {
         this(api, new CoverageSweepEngine(api), OpenApiUrlFetcher.burp(api));
@@ -687,6 +688,7 @@ public class CoverageSweepPanel extends JPanel {
         statusLabel.setText("Coverage sweep in progress...");
 
         CoverageSweepOptions options = currentOptions();
+        activePayloadSet = options.payloadSet();
         resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
             options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
         resultsWorkspace.setPrimaryRunActive(true);
@@ -716,7 +718,8 @@ public class CoverageSweepPanel extends JPanel {
             }
             resultsWorkspace.addResult(result);
             updateExportButton();
-            statusLabel.setText("Coverage sweep running: " + resultsWorkspace.allResultsCount() + " requests sent.");
+        statusLabel.setText("Coverage sweep running (" + payloadSetLabel(activePayloadSet) + "): "
+            + resultsWorkspace.allResultsCount() + " requests sent.");
         });
     }
 
@@ -724,8 +727,13 @@ public class CoverageSweepPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi((stopRequested ? "Stopped" : "Completed")
-                + ": " + resultsWorkspace.allResultsCount() + " requests sent.");
+                + " (" + payloadSetLabel(activePayloadSet) + "): "
+                + resultsWorkspace.allResultsCount() + " requests sent.");
         });
+    }
+
+    private String payloadSetLabel(CoverageSweepPayloadSet payloadSet) {
+        return payloadSet == CoverageSweepPayloadSet.ALL_PAYLOADS ? "All payloads" : "High signal";
     }
 
     private void setControlsForLoading() {

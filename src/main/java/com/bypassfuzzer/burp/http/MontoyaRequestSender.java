@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MontoyaRequestSender implements RequestSender {
 
     private static final AtomicInteger TIMEOUT_THREAD_COUNTER = new AtomicInteger(1);
+    private static final int SAFE_REQUEST_ATTEMPTS = 2;
+    private static final long SAFE_REQUEST_RETRY_DELAY_MS = 150;
     private static final ExecutorService TIMEOUT_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "bypassfuzzer-timeout-" + TIMEOUT_THREAD_COUNTER.getAndIncrement());
         thread.setDaemon(true);
@@ -47,13 +49,20 @@ public class MontoyaRequestSender implements RequestSender {
     @Override
     public HttpResponse send(HttpRequest request) {
         Exception automaticFailure = null;
-        try {
-            HttpResponse response = responseFrom(api.http().sendRequest(request));
-            if (response != null) {
-                return response;
+        int automaticAttempts = retrySafeRequestsOverHttp1 && isSafeMethod(request)
+            ? SAFE_REQUEST_ATTEMPTS : 1;
+        for (int attempt = 0; attempt < automaticAttempts; attempt++) {
+            try {
+                HttpResponse response = responseFrom(api.http().sendRequest(request));
+                if (response != null) {
+                    return response;
+                }
+            } catch (Exception e) {
+                automaticFailure = e;
             }
-        } catch (Exception e) {
-            automaticFailure = e;
+            if (attempt + 1 < automaticAttempts && !pauseBeforeRetry()) {
+                return null;
+            }
         }
 
         if (retrySafeRequestsOverHttp1 && isSafeMethod(request)) {
@@ -79,6 +88,16 @@ public class MontoyaRequestSender implements RequestSender {
                 + ": " + requestLabel(request));
         }
         return null;
+    }
+
+    private boolean pauseBeforeRetry() {
+        try {
+            Thread.sleep(SAFE_REQUEST_RETRY_DELAY_MS);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     @Override

@@ -41,6 +41,23 @@ class MontoyaRequestSenderTest {
     }
 
     @Test
+    void safeSweepRequestRetriesAutomaticModeBeforeSwitchingProtocol() {
+        MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
+        HttpRequest request = mock(HttpRequest.class);
+        HttpRequestResponse automaticExchange = mock(HttpRequestResponse.class);
+        HttpResponse response = mock(HttpResponse.class);
+        when(request.method()).thenReturn("GET");
+        when(request.url()).thenReturn("https://example.com/admin");
+        when(api.http().sendRequest(request)).thenReturn(automaticExchange);
+        when(automaticExchange.response()).thenReturn(null, response);
+
+        HttpResponse sent = new MontoyaRequestSender(api, true).send(request);
+
+        assertSame(response, sent);
+        verify(api.http(), org.mockito.Mockito.times(2)).sendRequest(request);
+    }
+
+    @Test
     void safeSweepRequestRetriesOverHttp1WhenAutomaticModeThrows() {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
         HttpRequest request = mock(HttpRequest.class);

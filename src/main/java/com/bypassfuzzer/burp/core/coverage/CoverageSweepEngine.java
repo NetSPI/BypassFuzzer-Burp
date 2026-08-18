@@ -270,6 +270,9 @@ public class CoverageSweepEngine {
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
+        safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); payload set: "
+            + options.payloadSet() + (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS
+                ? " (uncapped full Bypass catalog)" : " (bounded high-signal probes)"));
         rateLimiter = new RateLimiter(api, options.requestsPerSecond(), options.requestDelayMs(),
             safeThrottleCodes(options.throttleStatusCodes()), options.autoThrottleEnabled());
         int concurrency = Math.max(1, options.concurrency());
@@ -284,7 +287,14 @@ public class CoverageSweepEngine {
             if (!canContinue()) {
                 break;
             }
-            executor.submit(() -> executeCandidate(candidate, options, resultCallback));
+            executor.submit(() -> {
+                try {
+                    executeCandidate(candidate, options, resultCallback);
+                } catch (Exception e) {
+                    safeLogError("Coverage sweep candidate failed for " + candidate.displayUrl() + ": "
+                        + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                }
+            });
         }
 
         executor.shutdown();
@@ -299,6 +309,8 @@ public class CoverageSweepEngine {
                 executor.shutdownNow();
             }
         }
+        safeLog("Coverage sweep worker pool finished: " + candidates.size() + " candidate(s) submitted; payload set: "
+            + options.payloadSet());
     }
 
     private void executeCandidate(CoverageSweepCandidate candidate,
@@ -845,6 +857,20 @@ public class CoverageSweepEngine {
 
     private boolean canContinue() {
         return running && !Thread.currentThread().isInterrupted();
+    }
+
+    private void safeLog(String message) {
+        try {
+            if (api != null && api.logging() != null) api.logging().logToOutput(message);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void safeLogError(String message) {
+        try {
+            if (api != null && api.logging() != null) api.logging().logToError(message);
+        } catch (Exception ignored) {
+        }
     }
 
     private Set<Integer> safeThrottleCodes(Set<Integer> codes) {
