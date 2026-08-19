@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.core;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -19,14 +20,14 @@ import static org.mockito.Mockito.mock;
 class RateLimiterTest {
 
     @Test
-    void waitBeforeRequestReturnsFalseWhenInterrupted() {
+    void waitBeforeRequestReturnsNegativeWhenInterrupted() {
         RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 1, Set.of(429), true);
 
-        assertTrue(rateLimiter.waitBeforeRequest());
+        assertTrue(rateLimiter.waitBeforeRequest() >= 0);
 
         Thread.currentThread().interrupt();
         try {
-            assertFalse(rateLimiter.waitBeforeRequest());
+            assertTrue(rateLimiter.waitBeforeRequest() < 0);
         } finally {
             Thread.interrupted();
         }
@@ -76,10 +77,10 @@ class RateLimiterTest {
     @Test
     void fixedDelayPacesConcurrentCallersGlobally() throws Exception {
         RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 0, 80, Set.of(), false);
-        assertTrue(rateLimiter.waitBeforeRequest());
+        assertTrue(rateLimiter.waitBeforeRequest() >= 0);
         long started = System.nanoTime();
 
-        Thread worker = new Thread(() -> assertTrue(rateLimiter.waitBeforeRequest()));
+        Thread worker = new Thread(() -> assertTrue(rateLimiter.waitBeforeRequest() >= 0));
         worker.start();
         worker.join(1000);
 
@@ -100,7 +101,7 @@ class RateLimiterTest {
                 ready.countDown();
                 try {
                     start.await();
-                    if (rateLimiter.waitBeforeRequest()) {
+                    if (rateLimiter.waitBeforeRequest() >= 0) {
                         requestStarts.add(System.nanoTime());
                     }
                 } catch (InterruptedException e) {
@@ -172,5 +173,410 @@ class RateLimiterTest {
         nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5_000));
         rateLimiter.reportResponse(200);
         assertEquals(250, rateLimiter.getCurrentDelayMs());
+    }
+
+    // Smart throttle tests
+
+    @Test
+    void smartThrottleCalibrationSetsBurstAndCooldownViaReportResponse() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+        assertEquals("Calibrating...", rateLimiter.getSmartThrottleStatus());
+
+        // Simulate 40 successful calibration requests then throttle
+        for (int i = 0; i < 40; i++) {
+            nanoTime.addAndGet(1_000_000); // advance 1ms
+            long epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+
+        // Request 41 gets throttled
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        assertTrue(rateLimiter.getSmartThrottleStatus().contains("Waiting for reset"));
+
+        // Simulate 60 seconds passing (initial silent wait), then probe succeeds
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+
+        // Probe request -- silent wait is over
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        // Should now be calibrated: burst = floor(40*0.85) = 34, cooldown = floor(60000*1.1) = 66000
+        assertTrue(rateLimiter.getCalibratedBurstSize() > 0);
+        assertTrue(rateLimiter.getCalibratedCooldownMs() > 0);
+        assertEquals(34, rateLimiter.getCalibratedBurstSize());
+        assertEquals(66000, rateLimiter.getCalibratedCooldownMs());
+        assertTrue(rateLimiter.getSmartThrottleStatus().contains("Burst 34"));
+    }
+
+    @Test
+    void smartThrottleBurstGatingGrantsExactlyBurstSizePermits() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+
+        // Calibrate: 10 successes then 429
+        for (int i = 0; i < 10; i++) {
+            nanoTime.addAndGet(1_000_000);
+            long epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        // Probe succeeds after 60s (initial silent wait)
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        int burstSize = rateLimiter.getCalibratedBurstSize();
+        assertTrue(burstSize > 0, "Burst size should be > 0 after calibration");
+        // burstSize should be floor(10 * 0.85) = 8
+        assertEquals(8, burstSize);
+
+        // Should be able to get exactly burstSize permits
+        for (int i = 0; i < burstSize; i++) {
+            nanoTime.addAndGet(1_000_000);
+            epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        // Burst exhausted - burstSent should now equal burstSize
+        // The next waitBeforeRequest would block for cooldown
+    }
+
+    @Test
+    void midBurst429EarlyIncreasesCooldownAndKeepsReasonableBurst() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+
+        // Calibrate: 20 successes then 429
+        for (int i = 0; i < 20; i++) {
+            nanoTime.addAndGet(1_000_000);
+            long epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        int calibratedBurst = rateLimiter.getCalibratedBurstSize(); // floor(20*0.85) = 17
+        long calibratedCooldown = rateLimiter.getCalibratedCooldownMs(); // floor(60000*1.1) = 66000
+
+        // Send 5 out of 17 (29% < 30%): cooldown problem, not burst problem
+        for (int i = 0; i < 5; i++) {
+            nanoTime.addAndGet(1_000_000);
+            epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        // Burst should be calibratedBurst/2 = 8 (not collapsed to 4)
+        int newBurst = rateLimiter.getCalibratedBurstSize();
+        assertEquals(8, newBurst, "Early 429 should halve calibrated burst, not collapse to successes*0.85");
+        // Cooldown should increase by 50%
+        long newCooldown = rateLimiter.getCalibratedCooldownMs();
+        assertEquals((long) (calibratedCooldown * 1.5), newCooldown,
+            "Early 429 should increase cooldown by 50%");
+        assertTrue(rateLimiter.getSmartThrottleStatus().contains("Waiting for reset"));
+    }
+
+    @Test
+    void midBurst429DeepReducesBurstSize() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+
+        // Calibrate: 20 successes then 429
+        for (int i = 0; i < 20; i++) {
+            nanoTime.addAndGet(1_000_000);
+            long epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        int calibratedBurst = rateLimiter.getCalibratedBurstSize(); // floor(20*0.85) = 17
+
+        // Send 12 out of 17 (70% >= 30%): burst problem
+        for (int i = 0; i < 12; i++) {
+            nanoTime.addAndGet(1_000_000);
+            epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        // Burst should shrink based on successes: floor(12*0.85) = 10
+        int newBurst = rateLimiter.getCalibratedBurstSize();
+        assertTrue(newBurst < calibratedBurst, "Deep 429 should reduce burst");
+        assertEquals(10, newBurst, "Deep 429 should use successes*0.85");
+        assertTrue(rateLimiter.getSmartThrottleStatus().contains("Waiting for reset"));
+    }
+
+    @Test
+    void retryQueueDrainsUpToMaxCount() {
+        RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 0, Set.of(429), true);
+        rateLimiter.enableSmartThrottle(true);
+
+        HttpRequest mockRequest = mock(HttpRequest.class);
+        for (int i = 0; i < 5; i++) {
+            rateLimiter.enqueueForRetry(new ThrottledRequest(
+                mockRequest, "test", "payload-" + i, "", "", "", 0));
+        }
+
+        assertEquals(5, rateLimiter.getRetryQueueSize());
+
+        List<ThrottledRequest> drained = rateLimiter.drainRetryQueue(3);
+        assertEquals(3, drained.size());
+        assertEquals(2, rateLimiter.getRetryQueueSize());
+
+        List<ThrottledRequest> rest = rateLimiter.drainRetryQueue(10);
+        assertEquals(2, rest.size());
+        assertEquals(0, rateLimiter.getRetryQueueSize());
+    }
+
+    @Test
+    void retryQueueBoundedAtMaxSize() {
+        RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 0, Set.of(429), true);
+        rateLimiter.enableSmartThrottle(true);
+
+        HttpRequest mockRequest = mock(HttpRequest.class);
+        for (int i = 0; i < RateLimiter.MAX_RETRY_QUEUE_SIZE + 100; i++) {
+            rateLimiter.enqueueForRetry(new ThrottledRequest(
+                mockRequest, "test", "payload-" + i, "", "", "", 0));
+        }
+
+        assertEquals(RateLimiter.MAX_RETRY_QUEUE_SIZE, rateLimiter.getRetryQueueSize());
+    }
+
+    @Test
+    void reThrottledRetriesGoBackInQueue() {
+        RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 0, Set.of(429), true);
+        rateLimiter.enableSmartThrottle(true);
+
+        HttpRequest mockRequest = mock(HttpRequest.class);
+        ThrottledRequest original = new ThrottledRequest(
+            mockRequest, "test", "payload", "", "", "", 0);
+        rateLimiter.enqueueForRetry(original);
+
+        List<ThrottledRequest> drained = rateLimiter.drainRetryQueue(1);
+        assertEquals(1, drained.size());
+        assertEquals(0, rateLimiter.getRetryQueueSize());
+
+        // Simulate re-throttle: put it back with incremented retry count
+        ThrottledRequest retried = drained.get(0).withIncrementedRetry();
+        rateLimiter.enqueueForRetry(retried);
+        assertEquals(1, rateLimiter.getRetryQueueSize());
+
+        List<ThrottledRequest> reDrained = rateLimiter.drainRetryQueue(1);
+        assertEquals(1, reDrained.get(0).retryCount());
+    }
+
+    @Test
+    void cleanCyclesIncrementOnReportCleanBurst() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+
+        // Calibrate: 40 successes then 429
+        for (int i = 0; i < 40; i++) {
+            nanoTime.addAndGet(1_000_000);
+            long epoch = rateLimiter.waitBeforeRequest();
+            assertTrue(epoch >= 0);
+            rateLimiter.reportResponse(200, epoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        int originalBurst = rateLimiter.getCalibratedBurstSize(); // floor(40*0.85) = 34
+
+        // Report 5 clean bursts
+        for (int i = 0; i < 5; i++) {
+            rateLimiter.reportCleanBurst();
+        }
+
+        // After 5 clean cycles, burst should increase by ~10%
+        int newBurst = rateLimiter.getCalibratedBurstSize();
+        assertTrue(newBurst > originalBurst,
+            "Burst should increase after 5 clean cycles: was " + originalBurst + ", now " + newBurst);
+    }
+
+    @Test
+    void smartThrottleDisabledProducesIdenticalBehaviorToLegacy() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+
+        // Legacy limiter
+        RateLimiter legacy = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+
+        // Smart throttle limiter with smart throttle disabled
+        AtomicLong epochMillis2 = new AtomicLong(10_000);
+        AtomicLong nanoTime2 = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter smartDisabled = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis2::get, nanoTime2::get
+        );
+        // Don't enable smart throttle
+
+        assertFalse(smartDisabled.isSmartThrottleEnabled());
+
+        // Both should have same initial state
+        assertEquals(legacy.getCurrentDelayMs(), smartDisabled.getCurrentDelayMs());
+
+        // Report same responses
+        legacy.reportResponse(429);
+        smartDisabled.reportResponse(429);
+        assertEquals(legacy.getCurrentDelayMs(), smartDisabled.getCurrentDelayMs());
+
+        // Recovery
+        epochMillis.addAndGet(5_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5_000));
+        epochMillis2.addAndGet(5_000);
+        nanoTime2.addAndGet(TimeUnit.MILLISECONDS.toNanos(5_000));
+        legacy.reportResponse(200);
+        smartDisabled.reportResponse(200);
+        assertEquals(legacy.getCurrentDelayMs(), smartDisabled.getCurrentDelayMs());
+    }
+
+    @Test
+    void smartThrottleStatusReportsCorrectPhase() {
+        RateLimiter rateLimiter = new RateLimiter(mock(MontoyaApi.class), 0, Set.of(429), true);
+
+        // Before enabling
+        assertEquals("Disabled", rateLimiter.getSmartThrottleStatus());
+
+        // After enabling
+        rateLimiter.enableSmartThrottle(true);
+        assertEquals("Calibrating...", rateLimiter.getSmartThrottleStatus());
+    }
+
+    @Test
+    void isThrottleStatusCodeReflectsConfiguredCodes() {
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, Set.of(429, 503), true);
+
+        assertTrue(rateLimiter.isThrottleStatusCode(429));
+        assertTrue(rateLimiter.isThrottleStatusCode(503));
+        assertFalse(rateLimiter.isThrottleStatusCode(200));
+        assertFalse(rateLimiter.isThrottleStatusCode(404));
+    }
+
+    @Test
+    void crossThreadEpochFilteringIgnoresStaleResponses() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+        rateLimiter.enableSmartThrottle(true);
+
+        // Calibrate: 10 successes then 429
+        long lastEpoch = -1;
+        for (int i = 0; i < 10; i++) {
+            nanoTime.addAndGet(1_000_000);
+            lastEpoch = rateLimiter.waitBeforeRequest();
+            assertTrue(lastEpoch >= 0);
+            rateLimiter.reportResponse(200, lastEpoch);
+        }
+        nanoTime.addAndGet(1_000_000);
+        long epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(429, epoch);
+
+        // Probe succeeds after 60s
+        epochMillis.addAndGet(60_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(60_000));
+        epoch = rateLimiter.waitBeforeRequest();
+        assertTrue(epoch >= 0);
+        rateLimiter.reportResponse(200, epoch);
+
+        // Now calibrated (burst=8, running). Capture epoch from a new burst.
+        long oldEpoch = epoch;
+        // Get a new burst permit
+        nanoTime.addAndGet(1_000_000);
+        long runningEpoch = rateLimiter.waitBeforeRequest();
+        assertTrue(runningEpoch >= 0);
+
+        // The old epoch should differ from the running epoch because state transitioned
+        // (calibration->probing->running increments smartEpoch).
+        // Reporting a 429 with the old epoch should be silently ignored.
+        int burstBefore = rateLimiter.getCalibratedBurstSize();
+        rateLimiter.reportResponse(429, oldEpoch);
+        int burstAfter = rateLimiter.getCalibratedBurstSize();
+        assertEquals(burstBefore, burstAfter,
+            "Stale epoch response should be ignored and not affect burst size");
+
+        // Report success with the current epoch -- should work normally
+        rateLimiter.reportResponse(200, runningEpoch);
     }
 }

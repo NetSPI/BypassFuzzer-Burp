@@ -199,7 +199,7 @@ public class SessionResultsWorkspace {
                     }
                     DeferredRetry retry = queued.getValue();
                     rateLimiter.reportResponse(retry.result().getResponse());
-                    if (!rateLimiter.waitBeforeRequest()) {
+                    if (rateLimiter.waitBeforeRequest() < 0) {
                         break;
                     }
                     HttpResponse response = sendRetry(retry.result().getRequest());
