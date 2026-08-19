@@ -35,6 +35,7 @@ public class FuzzerConfig {
     private int concurrency = 1;
     private Set<Integer> throttleStatusCodes = new java.util.HashSet<>();
     private boolean enableAutoThrottle = true;
+    private boolean smartThrottleEnabled = false;
     private List<ConfiguredHeader> requestHeaders = List.of();
 
     // OOB payload
@@ -193,6 +194,14 @@ public class FuzzerConfig {
 
     public void setEnableAutoThrottle(boolean enableAutoThrottle) {
         this.enableAutoThrottle = enableAutoThrottle;
+    }
+
+    public boolean isSmartThrottleEnabled() {
+        return smartThrottleEnabled;
+    }
+
+    public void setSmartThrottleEnabled(boolean smartThrottleEnabled) {
+        this.smartThrottleEnabled = smartThrottleEnabled;
     }
 
     public List<ConfiguredHeader> getRequestHeaders() {

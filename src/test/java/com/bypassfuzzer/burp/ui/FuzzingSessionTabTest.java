@@ -31,13 +31,13 @@ class FuzzingSessionTabTest {
     }
 
     @Test
-    void bypassOptionsShowConcurrencyWithoutRequestsPerSecond() {
+    void bypassOptionsShowThrottleButtonWithoutRequestsPerSecond() {
         FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
         JTabbedPane sessionTabs = findTabbedPane(tab);
 
         String uiText = visibleText(sessionTabs.getComponentAt(0));
 
-        assertTrue(uiText.contains("Concurrency:"));
+        assertTrue(uiText.contains("Throttle..."));
         assertFalse(uiText.contains("Requests/second"));
     }
 

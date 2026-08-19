@@ -46,10 +46,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     private final JCheckBox encodingEverythingCheckbox;
     private final JCheckBox encodingSpecialCharsCheckbox;
     private final JCheckBox encodingUnicodeEscapeCheckbox;
-    private final JTextField requestsPerSecondField;
-    private final JTextField requestDelayField;
-    private final JTextField throttleStatusCodesField;
-    private final JCheckBox autoThrottleCheckbox;
+    private final ThrottleSettingsControl throttleControl;
     private final RequestHeadersControl requestHeadersControl;
 
     public UrlValidationOptionsPanel(HttpRequest request, boolean collaboratorAvailable) {
@@ -95,12 +92,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         encodingSpecialCharsCheckbox = new JCheckBox(UrlValidationEncoding.SPECIAL_CHARS.label(), true);
         encodingUnicodeEscapeCheckbox = new JCheckBox(UrlValidationEncoding.UNICODE_ESCAPE.label(), false);
 
-        requestsPerSecondField = new JTextField("0", 5);
-        requestDelayField = new JTextField("0", 5);
-        throttleStatusCodesField = new JTextField("429,503", 10);
-        autoThrottleCheckbox = new JCheckBox("Enable auto throttle", true);
-        autoThrottleCheckbox.setToolTipText(
-            "Automatically back off when a configured throttle response is received.");
+        throttleControl = new ThrottleSettingsControl(ThrottleDefaults.forUrlValidation());
         requestHeadersControl = new RequestHeadersControl(this);
 
         add(createTargetingSection());
@@ -185,15 +177,19 @@ public class UrlValidationOptionsPanel extends JPanel {
     }
 
     public String requestsPerSecondText() {
-        return requestsPerSecondField.getText();
+        return String.valueOf(throttleControl.requestsPerSecond());
     }
 
     public String throttleStatusCodesText() {
-        return throttleStatusCodesField.getText();
+        return throttleControl.throttleStatusCodesText();
     }
 
     public boolean isAutoThrottleEnabled() {
-        return autoThrottleCheckbox.isSelected();
+        return throttleControl.isAutoThrottleEnabled();
+    }
+
+    public boolean isSmartThrottleEnabled() {
+        return throttleControl.isSmartThrottleEnabled();
     }
 
     public java.util.List<ConfiguredHeader> requestHeaders() {
@@ -201,11 +197,7 @@ public class UrlValidationOptionsPanel extends JPanel {
     }
 
     public int requestDelayMs() {
-        try {
-            return Math.max(0, Integer.parseInt(requestDelayField.getText().trim()));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        return throttleControl.requestDelayMs();
     }
 
     public void setControlsEnabled(boolean enabled) {
@@ -229,10 +221,7 @@ public class UrlValidationOptionsPanel extends JPanel {
         encodingEverythingCheckbox.setEnabled(enabled);
         encodingSpecialCharsCheckbox.setEnabled(enabled);
         encodingUnicodeEscapeCheckbox.setEnabled(enabled);
-        requestsPerSecondField.setEnabled(enabled);
-        requestDelayField.setEnabled(enabled);
-        throttleStatusCodesField.setEnabled(enabled);
-        autoThrottleCheckbox.setEnabled(enabled);
+        throttleControl.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
     }
 
@@ -266,10 +255,7 @@ public class UrlValidationOptionsPanel extends JPanel {
 
     private JPanel createExecutionSection() {
         JPanel panel = createSectionPanel("Execution");
-        panel.add(formRow("Requests/sec", requestsPerSecondField, "0 = unlimited"));
-        panel.add(formRow("Delay (ms)", requestDelayField, "minimum between requests"));
-        panel.add(formRow("", autoThrottleCheckbox));
-        panel.add(formRow("Throttle codes", throttleStatusCodesField, "comma-separated"));
+        panel.add(formRow("Throttle", throttleControl.button(), "concurrency, delay, and smart throttle"));
         panel.add(formRow("Request headers", requestHeadersControl.button(), "sent with every request"));
         return finalizeSection(panel);
     }

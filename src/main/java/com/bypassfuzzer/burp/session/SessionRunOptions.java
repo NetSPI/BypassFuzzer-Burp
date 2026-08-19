@@ -28,6 +28,7 @@ public record SessionRunOptions(
     int concurrency,
     Set<Integer> throttleStatusCodes,
     boolean autoThrottleEnabled,
+    boolean smartThrottleEnabled,
     List<ConfiguredHeader> requestHeaders
 ) {
 
@@ -35,6 +36,7 @@ public record SessionRunOptions(
         requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
     }
 
+    /** Backward-compatible: without smartThrottleEnabled (defaults false), without requestHeaders. */
     public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
                              boolean paramAttack, boolean trailingDotAttack, boolean trailingSlashAttack,
                              boolean extensionAttack, boolean contentTypeAttack, boolean encodingAttack,
@@ -45,7 +47,21 @@ public record SessionRunOptions(
         this(headerAttack, pathAttack, verbAttack, paramAttack, trailingDotAttack, trailingSlashAttack,
             extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
             collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond,
-            requestDelayMs, concurrency, throttleStatusCodes, autoThrottleEnabled, List.of());
+            requestDelayMs, concurrency, throttleStatusCodes, autoThrottleEnabled, false, List.of());
+    }
+
+    /** Backward-compatible: without smartThrottleEnabled (defaults false), with requestHeaders. */
+    public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
+                             boolean paramAttack, boolean trailingDotAttack, boolean trailingSlashAttack,
+                             boolean extensionAttack, boolean contentTypeAttack, boolean encodingAttack,
+                             boolean protocolAttack, boolean caseAttack, boolean collaboratorPayloads,
+                             boolean cookieParamAttack, boolean fuzzExistingCookies, int requestsPerSecond,
+                             int requestDelayMs, int concurrency, Set<Integer> throttleStatusCodes,
+                             boolean autoThrottleEnabled, List<ConfiguredHeader> requestHeaders) {
+        this(headerAttack, pathAttack, verbAttack, paramAttack, trailingDotAttack, trailingSlashAttack,
+            extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
+            collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond,
+            requestDelayMs, concurrency, throttleStatusCodes, autoThrottleEnabled, false, requestHeaders);
     }
 
     public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
@@ -58,7 +74,7 @@ public record SessionRunOptions(
             extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
             collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond,
             requestDelayMs, concurrency, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), false, List.of());
     }
 
     public SessionRunOptions(boolean headerAttack, boolean pathAttack, boolean verbAttack,
@@ -71,7 +87,7 @@ public record SessionRunOptions(
             extensionAttack, contentTypeAttack, encodingAttack, protocolAttack, caseAttack,
             collaboratorPayloads, cookieParamAttack, fuzzExistingCookies, requestsPerSecond, 0,
             concurrency, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
+            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), false, List.of());
     }
 
     public Set<AttackType> enabledAttackTypes() {
@@ -116,6 +132,7 @@ public record SessionRunOptions(
             concurrency,
             throttleStatusCodes,
             autoThrottleEnabled,
+            smartThrottleEnabled,
             requestHeaders
         );
     }
@@ -140,6 +157,7 @@ public record SessionRunOptions(
         config.setConcurrency(concurrency);
         config.setThrottleStatusCodes(throttleStatusCodes);
         config.setEnableAutoThrottle(autoThrottleEnabled);
+        config.setSmartThrottleEnabled(smartThrottleEnabled);
         config.setRequestHeaders(requestHeaders);
     }
 }

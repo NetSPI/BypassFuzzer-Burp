@@ -80,7 +80,10 @@ class CoverageSweepPanelTest {
     @Test
     void autoThrottleIsEnabledByDefaultAndCanBeDisabled() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
-        JCheckBox autoThrottle = checkbox(panel, "autoThrottleCheckBox");
+        ThrottleSettingsControl throttle = field(panel, "throttleControl", ThrottleSettingsControl.class);
+        Field checkboxField = ThrottleSettingsControl.class.getDeclaredField("autoThrottleCheckbox");
+        checkboxField.setAccessible(true);
+        JCheckBox autoThrottle = (JCheckBox) checkboxField.get(throttle);
 
         assertTrue(autoThrottle.isSelected());
         assertTrue(currentOptions(panel).autoThrottleEnabled());
@@ -195,13 +198,13 @@ class CoverageSweepPanelTest {
         JButton applyBaseUrl = button(panel, "applyOpenApiBaseUrlButton");
         JButton authIdentifiers = button(panel, "authIdentifiersButton");
         JButton requestHeaders = field(panel, "requestHeadersControl", RequestHeadersControl.class).button();
-        JTextField concurrency = field(panel, "concurrencyField", JTextField.class);
+        JButton throttle = field(panel, "throttleControl", ThrottleSettingsControl.class).button();
         JComboBox<?> payloadSet = field(panel, "payloadSetComboBox", JComboBox.class);
 
         assertEquals(3, mode.getItemCount());
         assertTrue(payloadSet.isVisible());
         assertSame(requestHeaders.getParent(), authIdentifiers.getParent());
-        assertNotSame(requestHeaders.getParent(), concurrency.getParent());
+        assertNotSame(requestHeaders.getParent(), throttle.getParent());
         assertTrue(requestHeaders.isVisible());
         assertFalse(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
@@ -665,8 +668,7 @@ class CoverageSweepPanelTest {
         assertTrue(button(panel, "viewCandidateButton").isEnabled());
         assertFalse(button(panel, "previewProbesButton").isEnabled());
         assertTrue(button(panel, "stopButton").isEnabled());
-        assertFalse(field(panel, "concurrencyField", JTextField.class).isEnabled());
-        assertFalse(field(panel, "throttleStatusCodesField", JTextField.class).isEnabled());
+        assertFalse(field(panel, "throttleControl", ThrottleSettingsControl.class).button().isEnabled());
         assertFalse(field(panel, "payloadSetComboBox", JComboBox.class).isEnabled());
         JTable candidateTable = field(panel, "candidateTable", JTable.class);
         assertTrue(candidateTable.isEnabled());

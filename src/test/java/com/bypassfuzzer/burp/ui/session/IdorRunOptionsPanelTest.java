@@ -7,8 +7,6 @@ import java.lang.reflect.Field;
 import java.util.Set;
 import java.util.List;
 
-import javax.swing.JCheckBox;
-
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,11 +17,17 @@ class IdorRunOptionsPanelTest {
     @Test
     void autoThrottleDefaultsOnAndCanBeDisabled() throws Exception {
         IdorRunOptionsPanel panel = new IdorRunOptionsPanel(new IdorRunOptions(0, 0, Set.of(429, 503)));
-        Field field = IdorRunOptionsPanel.class.getDeclaredField("autoThrottleCheckbox");
-        field.setAccessible(true);
-        JCheckBox checkbox = (JCheckBox) field.get(panel);
 
         assertTrue(panel.collect().autoThrottleEnabled());
+
+        // Access the throttle control's auto-throttle checkbox via reflection
+        Field throttleField = IdorRunOptionsPanel.class.getDeclaredField("throttleControl");
+        throttleField.setAccessible(true);
+        ThrottleSettingsControl throttleControl = (ThrottleSettingsControl) throttleField.get(panel);
+
+        Field checkboxField = ThrottleSettingsControl.class.getDeclaredField("autoThrottleCheckbox");
+        checkboxField.setAccessible(true);
+        javax.swing.JCheckBox checkbox = (javax.swing.JCheckBox) checkboxField.get(throttleControl);
         checkbox.doClick();
 
         assertFalse(panel.collect().autoThrottleEnabled());

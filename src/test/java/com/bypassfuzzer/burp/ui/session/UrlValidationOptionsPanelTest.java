@@ -4,8 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 
-import javax.swing.JCheckBox;
-
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,11 +17,17 @@ class UrlValidationOptionsPanelTest {
     void autoThrottleDefaultsOnAndCanBeDisabled() throws Exception {
         UrlValidationOptionsPanel panel = new UrlValidationOptionsPanel(
             request("/redirect", "", "GET", null, ""), false);
-        Field field = UrlValidationOptionsPanel.class.getDeclaredField("autoThrottleCheckbox");
-        field.setAccessible(true);
-        JCheckBox checkbox = (JCheckBox) field.get(panel);
 
         assertTrue(panel.isAutoThrottleEnabled());
+
+        // Access the throttle control's auto-throttle checkbox via reflection
+        Field throttleField = UrlValidationOptionsPanel.class.getDeclaredField("throttleControl");
+        throttleField.setAccessible(true);
+        ThrottleSettingsControl throttleControl = (ThrottleSettingsControl) throttleField.get(panel);
+
+        Field checkboxField = ThrottleSettingsControl.class.getDeclaredField("autoThrottleCheckbox");
+        checkboxField.setAccessible(true);
+        javax.swing.JCheckBox checkbox = (javax.swing.JCheckBox) checkboxField.get(throttleControl);
         checkbox.doClick();
 
         assertFalse(panel.isAutoThrottleEnabled());

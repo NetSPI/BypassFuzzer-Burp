@@ -44,6 +44,7 @@ public final class SessionRunOptionsSupport {
             concurrency,
             SessionInputParsers.parseStatusCodes(runOptionsPanel.throttleStatusCodesText()),
             runOptionsPanel.isAutoThrottleEnabled(),
+            runOptionsPanel.isSmartThrottleEnabled(),
             runOptionsPanel.requestHeaders()
         );
     }

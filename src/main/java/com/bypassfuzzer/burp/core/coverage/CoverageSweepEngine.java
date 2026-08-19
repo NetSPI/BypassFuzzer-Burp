@@ -303,13 +303,19 @@ public class CoverageSweepEngine {
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
+        scheduler = new CoverageSweepScheduler(api, options);
+        int concurrency;
+        if (options.smartThrottleEnabled()) {
+            // Smart throttle manages pacing; raise thread pool so calibration can fire concurrent requests
+            concurrency = Math.max(options.concurrency(), CoverageSweepScheduler.SMART_THROTTLE_MIN_PER_HOST);
+        } else {
+            concurrency = Math.max(1, options.concurrency());
+        }
         safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); global concurrency: "
-            + options.concurrency() + "; per-host concurrency: " + options.perHostConcurrency()
+            + concurrency + "; per-host concurrency: " + options.perHostConcurrency()
             + "; payload set: "
             + options.payloadSet() + (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS
                 ? " (uncapped full Bypass catalog)" : " (bounded high-signal probes)"));
-        scheduler = new CoverageSweepScheduler(api, options);
-        int concurrency = Math.max(1, options.concurrency());
         AtomicInteger workerCounter = new AtomicInteger(1);
         executor = Executors.newFixedThreadPool(concurrency, runnable -> {
             Thread thread = new Thread(runnable, "bypassfuzzer-coverage-sweep-worker-" + workerCounter.getAndIncrement());
@@ -327,7 +333,11 @@ public class CoverageSweepEngine {
             pendingHostCandidates.computeIfAbsent(candidateHost, ignored -> new AtomicInteger()).incrementAndGet();
         }
 
-        for (CoverageSweepCandidate candidate : candidates) {
+        // Interleave candidates by host so the thread pool works on all hosts
+        // concurrently instead of draining one host at a time.
+        List<CoverageSweepCandidate> interleaved = interleaveByHost(candidates);
+
+        for (CoverageSweepCandidate candidate : interleaved) {
             if (!canContinue()) {
                 break;
             }
@@ -997,6 +1007,30 @@ public class CoverageSweepEngine {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * Round-robin interleave candidates by host so the thread pool picks up
+     * candidates from different hosts concurrently instead of draining one
+     * host at a time (which happens when candidates are sorted by URL).
+     */
+    private List<CoverageSweepCandidate> interleaveByHost(List<CoverageSweepCandidate> candidates) {
+        Map<String, List<CoverageSweepCandidate>> byHost = new LinkedHashMap<>();
+        for (CoverageSweepCandidate candidate : candidates) {
+            String h = host(candidate.request(), candidate.displayUrl());
+            byHost.computeIfAbsent(h, ignored -> new ArrayList<>()).add(candidate);
+        }
+        List<CoverageSweepCandidate> result = new ArrayList<>(candidates.size());
+        int maxSize = byHost.values().stream().mapToInt(List::size).max().orElse(0);
+        List<List<CoverageSweepCandidate>> buckets = new ArrayList<>(byHost.values());
+        for (int i = 0; i < maxSize; i++) {
+            for (List<CoverageSweepCandidate> bucket : buckets) {
+                if (i < bucket.size()) {
+                    result.add(bucket.get(i));
+                }
+            }
+        }
+        return result;
     }
 
     @FunctionalInterface

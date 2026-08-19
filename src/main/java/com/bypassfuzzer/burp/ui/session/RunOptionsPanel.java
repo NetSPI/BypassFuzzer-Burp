@@ -6,16 +6,12 @@ import com.bypassfuzzer.burp.http.ConfiguredHeader;
 import javax.swing.*;
 import java.awt.*;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class RunOptionsPanel extends JPanel {
 
     private final JCheckBox collaboratorCheckbox;
     private final JCheckBox fuzzExistingCookiesCheckbox;
-    private final JTextField concurrencyField;
-    private final JTextField requestDelayField;
-    private final JTextField throttleStatusCodesField;
-    private final JCheckBox autoThrottleCheckbox;
+    private final ThrottleSettingsControl throttleControl;
     private final RequestHeadersControl requestHeadersControl;
 
     public RunOptionsPanel(FuzzerConfig config, boolean collaboratorAvailable) {
@@ -30,7 +26,7 @@ public class RunOptionsPanel extends JPanel {
             collaboratorCheckbox.setSelected(false);
             collaboratorCheckbox.setToolTipText("Burp Collaborator is not available. Requires Burp Suite Professional with Collaborator configured.");
 
-            collabInfoIcon = new JLabel("ⓘ");
+            collabInfoIcon = new JLabel("\u24d8");
             collabInfoIcon.setForeground(new Color(100, 100, 100));
             collabInfoIcon.setToolTipText("Burp Collaborator is not available. Requires Burp Suite Professional with Collaborator configured.");
             collabInfoIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -47,36 +43,11 @@ public class RunOptionsPanel extends JPanel {
         fuzzCookiesRow.add(fuzzExistingCookiesCheckbox);
         add(fuzzCookiesRow);
 
-        JPanel concurrencyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        concurrencyRow.add(new JLabel("Concurrency:"));
-        concurrencyField = new JTextField(String.valueOf(config.getConcurrency()), 5);
-        concurrencyRow.add(concurrencyField);
-        JLabel concurrencyHelp = new JLabel("(parallel attack families)");
-        concurrencyHelp.setFont(concurrencyHelp.getFont().deriveFont(Font.ITALIC, 11f));
-        concurrencyHelp.setForeground(Color.GRAY);
-        concurrencyRow.add(concurrencyHelp);
-        add(concurrencyRow);
+        throttleControl = new ThrottleSettingsControl(ThrottleDefaults.forBypassFuzzer(config));
 
-        JPanel delayRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        delayRow.add(new JLabel("Delay between requests (ms):"));
-        requestDelayField = new JTextField(String.valueOf(config.getRequestDelayMs()), 6);
-        delayRow.add(requestDelayField);
-        delayRow.add(new JLabel("(global minimum; 0 = none)"));
-        add(delayRow);
-
-        JPanel throttleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
-        autoThrottleCheckbox = new JCheckBox("Auto throttle", config.isEnableAutoThrottle());
-        autoThrottleCheckbox.setToolTipText(
-            "Automatically back off when a configured throttle response is received.");
-        throttleRow.add(autoThrottleCheckbox);
-        throttleRow.add(new JLabel("Status code(s):"));
-        throttleStatusCodesField = new JTextField(formatStatusCodes(config.getThrottleStatusCodes()), 10);
-        throttleRow.add(throttleStatusCodesField);
-        JLabel throttleHelp = new JLabel("(comma-separated, e.g., 429,503)");
-        throttleHelp.setFont(throttleHelp.getFont().deriveFont(Font.ITALIC, 11f));
-        throttleHelp.setForeground(Color.GRAY);
-        throttleRow.add(throttleHelp);
-        add(throttleRow);
+        JPanel throttleButtonRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        throttleButtonRow.add(throttleControl.button());
+        add(throttleButtonRow);
 
         JPanel headersRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
         requestHeadersControl = new RequestHeadersControl(this);
@@ -98,19 +69,23 @@ public class RunOptionsPanel extends JPanel {
     }
 
     public String concurrencyText() {
-        return concurrencyField.getText();
+        return String.valueOf(throttleControl.concurrency());
     }
 
     public String requestDelayText() {
-        return requestDelayField.getText();
+        return String.valueOf(throttleControl.requestDelayMs());
     }
 
     public String throttleStatusCodesText() {
-        return throttleStatusCodesField.getText();
+        return throttleControl.throttleStatusCodesText();
     }
 
     public boolean isAutoThrottleEnabled() {
-        return autoThrottleCheckbox.isSelected();
+        return throttleControl.isAutoThrottleEnabled();
+    }
+
+    public boolean isSmartThrottleEnabled() {
+        return throttleControl.isSmartThrottleEnabled();
     }
 
     public java.util.List<ConfiguredHeader> requestHeaders() {
@@ -119,21 +94,8 @@ public class RunOptionsPanel extends JPanel {
 
     public void setControlsEnabled(boolean enabled, boolean collaboratorAvailable) {
         fuzzExistingCookiesCheckbox.setEnabled(enabled);
-        concurrencyField.setEnabled(enabled);
-        requestDelayField.setEnabled(enabled);
-        throttleStatusCodesField.setEnabled(enabled);
-        autoThrottleCheckbox.setEnabled(enabled);
+        throttleControl.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
         collaboratorCheckbox.setEnabled(enabled && collaboratorAvailable);
-    }
-
-    private String formatStatusCodes(Set<Integer> codes) {
-        if (codes == null || codes.isEmpty()) {
-            return "429,503";
-        }
-        return codes.stream()
-            .map(String::valueOf)
-            .sorted()
-            .collect(Collectors.joining(","));
     }
 }

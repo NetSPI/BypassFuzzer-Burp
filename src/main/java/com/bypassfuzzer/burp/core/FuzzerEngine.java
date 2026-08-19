@@ -136,6 +136,9 @@ public class FuzzerEngine {
             config.getThrottleStatusCodes(),
             config.isEnableAutoThrottle()
         );
+        if (config.isSmartThrottleEnabled()) {
+            rateLimiter.enableSmartThrottle(true);
+        }
 
         safeLog("=== BypassFuzzer Started ===");
         safeLog("Target: " + targetUrl);
@@ -159,13 +162,42 @@ public class FuzzerEngine {
         AttackExecutor attackExecutor = new AttackExecutor(
             new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
         safeLog("Built " + attacks.size() + " attack strategies");
-        int concurrency = Math.max(1, config.getConcurrency());
-        safeLog("Concurrency: " + concurrency + " attack " + (concurrency == 1 ? "family" : "families"));
 
+        ExecutorService smartSendPool = null;
+        if (config.isSmartThrottleEnabled()) {
+            // Smart throttle: enable concurrent HTTP sends across all attack families.
+            // The RateLimiter controls admission (burst + cooldown); the send pool
+            // keeps many requests in-flight so calibration runs at full speed.
+            int maxInFlight = 50;
+            smartSendPool = Executors.newFixedThreadPool(maxInFlight, runnable -> {
+                Thread t = new Thread(runnable, "bypassfuzzer-smart-send");
+                t.setDaemon(true);
+                return t;
+            });
+            attackExecutor.enableConcurrentSends(smartSendPool, maxInFlight);
+            safeLog("Concurrency: " + maxInFlight + " concurrent sends (smart throttle manages pacing)");
+        } else {
+            safeLog("Concurrency: " + Math.max(1, config.getConcurrency()) + " attack "
+                + (config.getConcurrency() <= 1 ? "family" : "families"));
+        }
+
+        int concurrency = Math.max(1, config.getConcurrency());
         if (concurrency > 1 && attacks.size() > 1) {
             executeAttacksConcurrently(request, targetUrl, resultCallback, attacks, attackExecutor, concurrency);
         } else {
             executeAttacksSequentially(request, targetUrl, resultCallback, attacks, attackExecutor);
+        }
+
+        // Wait for all in-flight concurrent sends to finish
+        attackExecutor.awaitInFlight();
+
+        if (smartSendPool != null) {
+            smartSendPool.shutdown();
+        }
+
+        // Drain retry queue if smart throttle queued any throttled requests
+        if (rateLimiter.isSmartThrottleEnabled() && rateLimiter.getRetryQueueSize() > 0) {
+            drainRetryQueue(request, resultCallback, attackExecutor);
         }
 
         safeLog("\n=== BypassFuzzer Completed ===");
@@ -241,6 +273,33 @@ public class FuzzerEngine {
             }, () -> running, rateLimiter, attackExecutor);
         } catch (Exception e) {
             safeLogError("Error in " + attack.type().displayName() + " attack: " + e.getMessage());
+        }
+    }
+
+    private void drainRetryQueue(HttpRequest originalRequest, Consumer<AttackResult> resultCallback,
+                                 AttackExecutor attackExecutor) {
+        int maxPasses = 3;
+        for (int pass = 1; pass <= maxPasses && running; pass++) {
+            List<ThrottledRequest> retries = rateLimiter.drainRetryQueue(rateLimiter.getCalibratedBurstSize() > 0
+                ? rateLimiter.getCalibratedBurstSize() : Integer.MAX_VALUE);
+            if (retries.isEmpty()) break;
+
+            safeLog(String.format("Retrying %d throttled requests (pass %d)...", retries.size(), pass));
+            for (ThrottledRequest retry : retries) {
+                if (!running) break;
+                attackExecutor.execute(
+                    retry.attackType(), retry.payload(), retry.targetLabel(),
+                    retry.payloadFamily(), retry.payloadEncoding(),
+                    retry.request(),
+                    result -> { if (running) handleResult(result, resultCallback); },
+                    () -> running,
+                    rateLimiter
+                );
+            }
+        }
+        int remaining = rateLimiter.getRetryQueueSize();
+        if (remaining > 0) {
+            safeLog(String.format("Retry limit reached; %d throttled payloads remain.", remaining));
         }
     }
 

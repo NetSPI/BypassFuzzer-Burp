@@ -19,6 +19,7 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepRetryItem;
 import com.google.gson.Gson;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -26,8 +27,10 @@ import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
@@ -39,6 +42,7 @@ import javax.swing.WindowConstants;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -86,17 +90,13 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
     private JCheckBox doublePortHostProbesCheckBox;
-    private JCheckBox autoThrottleCheckBox;
     private JCheckBox dedupeImportedEndpointsCheckBox;
     private RequestHeadersControl requestHeadersControl;
+    private ThrottleSettingsControl throttleControl;
     private JCheckBox status401CheckBox;
     private JCheckBox status403CheckBox;
     private JCheckBox status3xxCheckBox;
     private JCheckBox status4xxCheckBox;
-    private JTextField concurrencyField;
-    private JTextField perHostConcurrencyField;
-    private JTextField throttleStatusCodesField;
-    private JTextField requestDelayField;
     private JTextField openApiBaseUrlField;
     private JLabel openApiBaseUrlLabel;
     private JLabel statusLabel;
@@ -205,21 +205,11 @@ public class CoverageSweepPanel extends JPanel {
         payloadSetComboBox.setToolTipText(
             "High signal uses the curated Sweep set; All payloads runs every Bypass attack family.");
         payloadSetComboBox.addActionListener(e -> updateEstimate());
-        concurrencyField = new JTextField(String.valueOf(defaults.concurrency()), 4);
-        concurrencyField.setToolTipText("Maximum simultaneous requests across the entire sweep.");
-        perHostConcurrencyField = new JTextField(String.valueOf(defaults.perHostConcurrency()), 4);
-        perHostConcurrencyField.setToolTipText("Maximum simultaneous requests to any one scheme/host/port.");
-        throttleStatusCodesField = new JTextField(formatStatusCodes(defaults.throttleStatusCodes()), 8);
-        autoThrottleCheckBox = new JCheckBox("Auto throttle", defaults.autoThrottleEnabled());
-        autoThrottleCheckBox.setToolTipText(
-            "Automatically back off when a configured throttle response is received.");
+        throttleControl = new ThrottleSettingsControl(ThrottleDefaults.forCoverageSweep(defaults));
         requestHeadersControl = new RequestHeadersControl(this);
         dedupeImportedEndpointsCheckBox = new JCheckBox("Dedupe endpoints", false);
         dedupeImportedEndpointsCheckBox.setToolTipText(
             "Collapse imported targets with the same method, path shape, query names, and content type.");
-        requestDelayField = new JTextField(String.valueOf(defaults.requestDelayMs()), 5);
-        requestDelayField.setToolTipText(
-            "Minimum delay between requests per host; smart throttle increases this after throttle responses.");
         openApiBaseUrlField = new JTextField("", 20);
         openApiBaseUrlField.setToolTipText("Optional absolute base URL; overrides servers declared by an OpenAPI spec.");
         openApiBaseUrlField.addActionListener(e -> applyOpenApiBaseUrl());
@@ -261,13 +251,8 @@ public class CoverageSweepPanel extends JPanel {
 
         executionRow.add(new JLabel("Payload set:"));
         executionRow.add(payloadSetComboBox);
-        executionRow.add(new JLabel("Global concurrency:"));
-        executionRow.add(concurrencyField);
-        executionRow.add(new JLabel("Per-host:"));
-        executionRow.add(perHostConcurrencyField);
-        throttleButton = new JButton("Throttle...");
-        throttleButton.setToolTipText("Configure host-local backoff and recovery for throttle responses.");
-        throttleButton.addActionListener(e -> openThrottleDialog());
+        throttleButton = throttleControl.button();
+        executionRow.add(throttleButton);
         methodOptionsRow.add(includeUnsafeMethodsCheckBox);
         methodOptionsRow.add(doublePortHostProbesCheckBox);
         modeOptionsRow.add(excludeStaticAssetsCheckBox);
@@ -315,7 +300,6 @@ public class CoverageSweepPanel extends JPanel {
         modeActionsRow.add(importMenuButton);
         modeActionsRow.add(exportButton);
         modeActionsRow.add(excludeHostsButton);
-        modeActionsRow.add(throttleButton);
         modeActionsRow.add(viewCandidateButton);
         modeActionsRow.add(previewProbesButton);
         modeActionsRow.add(requestHeadersControl.button());
@@ -354,48 +338,42 @@ public class CoverageSweepPanel extends JPanel {
         return panel;
     }
 
-    private void openThrottleDialog() {
-        Window owner = SwingUtilities.getWindowAncestor(this);
-        JDialog dialog = new JDialog(owner, "Sweep smart throttling", Dialog.ModalityType.MODELESS);
-        JPanel content = new JPanel();
-        content.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+    private void showCandidatePopupIfNeeded(java.awt.event.MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
+        }
+        int[] selectedViewRows = candidateTable.getSelectedRows();
+        if (selectedViewRows.length == 0) {
+            int viewRow = candidateTable.rowAtPoint(e.getPoint());
+            if (viewRow < 0) return;
+            candidateTable.setRowSelectionInterval(viewRow, viewRow);
+            selectedViewRows = new int[]{viewRow};
+        }
+        int count = selectedViewRows.length;
+        String label = count == 1 ? "1 row" : count + " rows";
 
-        autoThrottleCheckBox.setText("Enable smart throttle");
-        autoThrottleCheckBox.setToolTipText(
-            "When a host returns a configured throttle response, pause that host, wait, and resume at a slower pace.");
-        content.add(autoThrottleCheckBox);
+        JPopupMenu popup = new JPopupMenu();
+        int[] viewRows = selectedViewRows;
 
-        JTextArea explanation = new JTextArea(
-            "Matching responses pause requests to that host only. The next request waits for the configured delay; "
-                + "repeated throttle responses increase the delay. Successful responses gradually reduce it.");
-        explanation.setEditable(false);
-        explanation.setLineWrap(true);
-        explanation.setWrapStyleWord(true);
-        explanation.setOpaque(false);
-        explanation.setBorder(BorderFactory.createEmptyBorder(6, 0, 10, 0));
-        content.add(explanation);
+        JMenuItem enableItem = new JMenuItem("Enable " + label);
+        enableItem.addActionListener(a -> setCandidateSelection(viewRows, true));
+        popup.add(enableItem);
 
-        JPanel delayRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        delayRow.add(new JLabel("Base delay between requests (ms):"));
-        delayRow.add(requestDelayField);
-        content.add(delayRow);
+        JMenuItem disableItem = new JMenuItem("Disable " + label);
+        disableItem.addActionListener(a -> setCandidateSelection(viewRows, false));
+        popup.add(disableItem);
 
-        JPanel codesRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        codesRow.add(new JLabel("Throttle response codes:"));
-        codesRow.add(throttleStatusCodesField);
-        content.add(codesRow);
+        popup.show(candidateTable, e.getX(), e.getY());
+    }
 
-        JButton closeButton = new JButton("Close");
-        closeButton.addActionListener(e -> dialog.dispose());
-        JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buttonRow.add(closeButton);
-        content.add(buttonRow);
-
-        dialog.setContentPane(content);
-        dialog.setSize(560, 250);
-        dialog.setLocationRelativeTo(owner);
-        dialog.setVisible(true);
+    private void setCandidateSelection(int[] viewRows, boolean selected) {
+        for (int viewRow : viewRows) {
+            int modelRow = candidateTable.convertRowIndexToModel(viewRow);
+            candidateTableModel.setSelectedAt(modelRow, selected);
+        }
+        if (viewRows.length > 0) {
+            candidateTableModel.fireTableDataChanged();
+        }
     }
 
     private void openRetryQueueDialog() {
@@ -694,6 +672,16 @@ public class CoverageSweepPanel extends JPanel {
         candidateTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 updatePreviewButton();
+            }
+        });
+        candidateTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                showCandidatePopupIfNeeded(e);
+            }
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                showCandidatePopupIfNeeded(e);
             }
         });
         JScrollPane previewScrollPane = new JScrollPane(candidateTable);
@@ -1291,17 +1279,18 @@ public class CoverageSweepPanel extends JPanel {
             defaults.inScopeOnly(),
             defaults.maxCandidates(),
             defaults.maxProbesPerCandidate(),
-            parsePositiveInt(concurrencyField, defaults.concurrency()),
-            parsePositiveInt(perHostConcurrencyField, defaults.perHostConcurrency()),
+            throttleControl != null ? throttleControl.concurrency() : defaults.concurrency(),
+            throttleControl != null ? throttleControl.perHostConcurrency() : defaults.perHostConcurrency(),
             defaults.requestsPerSecond(),
-            parseNonNegativeInt(requestDelayField, defaults.requestDelayMs()),
-            SessionInputParsers.parseStatusCodes(throttleStatusCodesField.getText()),
+            throttleControl != null ? throttleControl.requestDelayMs() : defaults.requestDelayMs(),
+            throttleControl != null ? throttleControl.throttleStatusCodes() : defaults.throttleStatusCodes(),
             currentMode(),
             currentAuthSelection(),
             excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
             verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
             doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected(),
-            autoThrottleCheckBox == null || autoThrottleCheckBox.isSelected(),
+            throttleControl == null || throttleControl.isAutoThrottleEnabled(),
+            throttleControl != null && throttleControl.isSmartThrottleEnabled(),
             requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers(),
             currentPayloadSet()
         );
@@ -1341,13 +1330,9 @@ public class CoverageSweepPanel extends JPanel {
         status403CheckBox.setEnabled(enabled);
         status3xxCheckBox.setEnabled(enabled);
         status4xxCheckBox.setEnabled(enabled);
-        concurrencyField.setEnabled(enabled);
-        perHostConcurrencyField.setEnabled(enabled);
-        throttleStatusCodesField.setEnabled(enabled);
-        autoThrottleCheckBox.setEnabled(enabled);
+        throttleControl.setEnabled(enabled);
         payloadSetComboBox.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
-        requestDelayField.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
         doublePortHostProbesCheckBox.setEnabled(enabled);
         updateModeControls();
@@ -1555,32 +1540,6 @@ public class CoverageSweepPanel extends JPanel {
             if (box.isSelected()) selected.add(String.valueOf(box.getClientProperty("identifier")));
         }
         return selected;
-    }
-
-    private int parsePositiveInt(JTextField field, int fallback) {
-        try {
-            return Math.max(1, Integer.parseInt(field.getText().trim()));
-        } catch (Exception e) {
-            return fallback;
-        }
-    }
-
-    private int parseNonNegativeInt(JTextField field, int fallback) {
-        try {
-            return Math.max(0, Integer.parseInt(field.getText().trim()));
-        } catch (Exception e) {
-            return fallback;
-        }
-    }
-
-    private String formatStatusCodes(Set<Integer> codes) {
-        if (codes == null || codes.isEmpty()) {
-            return "";
-        }
-        return codes.stream()
-            .sorted()
-            .map(String::valueOf)
-            .collect(java.util.stream.Collectors.joining(","));
     }
 
     private void updatePreviewButton() {
@@ -1883,6 +1842,12 @@ public class CoverageSweepPanel extends JPanel {
             }
             if (!rows.isEmpty()) {
                 fireTableRowsUpdated(0, rows.size() - 1);
+            }
+        }
+
+        void setSelectedAt(int modelRow, boolean selected) {
+            if (modelRow >= 0 && modelRow < rows.size()) {
+                rows.get(modelRow).selected = selected;
             }
         }
 
