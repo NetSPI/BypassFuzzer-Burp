@@ -37,6 +37,7 @@ public class RateLimiter {
     private long blockedUntilEpochMs;
     private long nextBackoffAdjustmentEpochMs;
     private long nextRecoveryAdjustmentEpochMs;
+    private long adaptiveDelayFloorMs;
 
     // Smart throttle state
     private volatile boolean smartThrottleEnabled = false;
@@ -286,11 +287,15 @@ public class RateLimiter {
         // React to the first configured status, but do not amplify a burst of
         // responses that were already in flight before the backoff took effect.
         if (now >= nextBackoffAdjustmentEpochMs) {
+            long previousAdaptive = adaptiveDelayMs;
             long configuredDelay = baseDelayMs();
             long base = configuredDelay == 0
                 ? INITIAL_BACKOFF_MS
                 : Math.min(MAX_BACKOFF_MS, Math.max(INITIAL_BACKOFF_MS, configuredDelay * 2));
             adaptiveDelayMs = adaptiveDelayMs == 0 ? base : Math.min(MAX_BACKOFF_MS, adaptiveDelayMs * 2);
+            if (previousAdaptive > 0) {
+                adaptiveDelayFloorMs = Math.max(adaptiveDelayFloorMs, adaptiveDelayMs);
+            }
             nextBackoffAdjustmentEpochMs = now + adaptiveDelayMs;
         }
         nextRecoveryAdjustmentEpochMs = now + recoveryWindowMs();
@@ -518,12 +523,23 @@ public class RateLimiter {
 
         long previousDelay = adaptiveDelayMs;
         long reducedDelay = Math.max(0, adaptiveDelayMs / 2);
-        adaptiveDelayMs = reducedDelay <= baseDelayMs() ? 0 : reducedDelay;
+        if (adaptiveDelayFloorMs > 0) {
+            reducedDelay = Math.max(reducedDelay, adaptiveDelayFloorMs);
+        }
+        if (reducedDelay >= adaptiveDelayMs) {
+            return;
+        }
+        adaptiveDelayMs = (adaptiveDelayFloorMs > 0) ? reducedDelay
+            : (reducedDelay <= baseDelayMs() ? 0 : reducedDelay);
         nextRecoveryAdjustmentEpochMs = adaptiveDelayMs == 0 ? 0 : now + recoveryWindowMs();
         notifyAll();
-        safeLog(String.format("Auto-throttle recovery%s: pacing reduced from %d ms to %d ms.",
-            scopeSuffix(),
-            previousDelay, effectiveDelayMs()));
+        if (adaptiveDelayFloorMs > 0 && adaptiveDelayMs <= adaptiveDelayFloorMs) {
+            safeLog(String.format("Auto-throttle recovery%s: pacing stabilized at %d ms.",
+                scopeSuffix(), effectiveDelayMs()));
+        } else {
+            safeLog(String.format("Auto-throttle recovery%s: pacing reduced from %d ms to %d ms.",
+                scopeSuffix(), previousDelay, effectiveDelayMs()));
+        }
     }
 
     private long recoveryWindowMs() {

@@ -520,6 +520,141 @@ class RateLimiterTest {
     }
 
     @Test
+    void repeatedThrottlingEstablishesFloorThatPreventsOscillation() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+
+        // First 429 from 0: adaptiveDelayMs goes 0 -> 1000, no floor (previousAdaptive was 0)
+        rateLimiter.reportResponse(429);
+        assertEquals(1000, rateLimiter.getCurrentDelayMs());
+
+        // Advance past the backoff adjustment window (1000ms) and send another 429.
+        // Now previousAdaptive=1000 > 0, so floor gets set to 2000.
+        epochMillis.addAndGet(1001);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(1001));
+        rateLimiter.reportResponse(429);
+        assertEquals(2000, rateLimiter.getCurrentDelayMs());
+
+        // Recovery: halve repeatedly. Should stop at the floor (2000ms) and not go lower.
+        // Recovery window = max(5000, 2000*2) = 5000ms.
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        // 2000 / 2 = 1000, but floor is 2000, so clamped to 2000 -> no change (reducedDelay >= adaptiveDelayMs).
+        // Recovery should be a no-op; delay stays at 2000.
+        assertEquals(2000, rateLimiter.getCurrentDelayMs());
+
+        // Even more time passes -- still can't go below floor.
+        epochMillis.addAndGet(10_000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(10_000));
+        rateLimiter.reportResponse(200);
+        assertEquals(2000, rateLimiter.getCurrentDelayMs());
+    }
+
+    @Test
+    void singleTransientThrottleDoesNotSetFloor() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+
+        // Single 429 from 0: no floor should be set
+        rateLimiter.reportResponse(429);
+        assertEquals(1000, rateLimiter.getCurrentDelayMs());
+
+        // Recover fully to 0
+        // Recovery window = max(5000, 1000*2) = 5000ms
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(500, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(250, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(125, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(62, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(31, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(15, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(7, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(3, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        assertEquals(1, rateLimiter.getCurrentDelayMs());
+
+        epochMillis.addAndGet(5000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(5000));
+        rateLimiter.reportResponse(200);
+        // 1/2 = 0, and 0 <= baseDelayMs(0), so drops to 0
+        assertEquals(0, rateLimiter.getCurrentDelayMs());
+    }
+
+    @Test
+    void floorRatchetsUpWithConsecutiveThrottling() {
+        AtomicLong epochMillis = new AtomicLong(10_000);
+        AtomicLong nanoTime = new AtomicLong(TimeUnit.MILLISECONDS.toNanos(10_000));
+        RateLimiter rateLimiter = new RateLimiter(
+            mock(MontoyaApi.class), 0, 0, Set.of(429), true,
+            epochMillis::get, nanoTime::get
+        );
+
+        // First 429: 0 -> 1000, no floor
+        rateLimiter.reportResponse(429);
+        assertEquals(1000, rateLimiter.getCurrentDelayMs());
+
+        // Second 429 after guard window: 1000 -> 2000, floor = 2000
+        epochMillis.addAndGet(1001);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(1001));
+        rateLimiter.reportResponse(429);
+        assertEquals(2000, rateLimiter.getCurrentDelayMs());
+
+        // Third 429 after guard window: 2000 -> 4000, floor ratchets to 4000
+        epochMillis.addAndGet(2001);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(2001));
+        rateLimiter.reportResponse(429);
+        assertEquals(4000, rateLimiter.getCurrentDelayMs());
+
+        // Recovery: should stop at 4000 (the floor)
+        epochMillis.addAndGet(8000);
+        nanoTime.addAndGet(TimeUnit.MILLISECONDS.toNanos(8000));
+        rateLimiter.reportResponse(200);
+        assertEquals(4000, rateLimiter.getCurrentDelayMs());
+    }
+
+    @Test
     void isThrottleStatusCodeReflectsConfiguredCodes() {
         RateLimiter rateLimiter = new RateLimiter(
             mock(MontoyaApi.class), 0, Set.of(429, 503), true);
