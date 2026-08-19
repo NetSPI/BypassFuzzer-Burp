@@ -15,6 +15,12 @@ bin/
 .project
 .codex
 
+# Claude Code
+.claude/
+
+# Windows reserved names
+nul
+
 # macOS
 .DS_Store
 
