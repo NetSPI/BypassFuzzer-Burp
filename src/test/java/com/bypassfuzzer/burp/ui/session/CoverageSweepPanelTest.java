@@ -560,6 +560,18 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void visibleImportFileChooserAcceptsTextAndRetryJsonFiles() {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+
+        assertTrue(panel.targetImportFileFilter().accept(
+            tempDir.resolve("targets.txt").toFile()));
+        assertTrue(panel.targetImportFileFilter().accept(
+            tempDir.resolve("bypassfuzzer-retry-queue.json").toFile()));
+        assertFalse(panel.targetImportFileFilter().accept(
+            tempDir.resolve("targets.csv").toFile()));
+    }
+
+    @Test
     void clearImportRemovesCandidatesAndBaseUrlForFreshStart() throws Exception {
         Path targets = tempDir.resolve("sweep-targets.txt");
         Files.writeString(targets, "https://victim.example/admin/users\n");

@@ -598,7 +598,7 @@ public class CoverageSweepPanel extends JPanel {
         content.add(new JLabel("Choose what to import:"));
 
         JButton targetFile = new JButton("Import file");
-        targetFile.setToolTipText("Import a newline-delimited target URL file.");
+        targetFile.setToolTipText("Import a newline-delimited target URL file or retry-queue JSON package.");
         targetFile.addActionListener(e -> {
             dialog.dispose();
             importTargetFile();
@@ -908,7 +908,7 @@ public class CoverageSweepPanel extends JPanel {
         }
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import Target File");
-        chooser.setFileFilter(new FileNameExtensionFilter("Target lists (*.txt)", "txt"));
+        chooser.setFileFilter(targetImportFileFilter());
         if (chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame()) == JFileChooser.APPROVE_OPTION
             && chooser.getSelectedFile() != null) {
             importTargetsFromFile(chooser.getSelectedFile().toPath());
@@ -1322,6 +1322,11 @@ public class CoverageSweepPanel extends JPanel {
                 ? "Paused. Waiting for " + inFlight + " already-sent request(s) to finish."
                 : "Paused. No new requests will be sent.");
         }
+    }
+
+    FileNameExtensionFilter targetImportFileFilter() {
+        return new FileNameExtensionFilter(
+            "Target lists and retry packages (*.txt, *.json)", "txt", "json");
     }
 
     private RetryPackage parseRetryPackage(String source) {
