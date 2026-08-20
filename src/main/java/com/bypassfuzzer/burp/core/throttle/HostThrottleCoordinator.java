@@ -5,9 +5,11 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 
 import java.net.URI;
-import java.util.Map;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
@@ -25,6 +27,14 @@ import java.util.function.Supplier;
  */
 public final class HostThrottleCoordinator {
 
+    private static final int SMART_WINDOW_SIZE = 50;
+    private static final int SMART_MIN_WINDOW_SIZE = 25;
+    private static final int SMART_MIN_THROTTLES = 10;
+    private static final double SMART_THROTTLE_RATIO = 0.40;
+    private static final int SMART_THROTTLE_STREAK = 8;
+    private static final int HALF_OPEN_SUCCESSES = 5;
+    private static final long SMART_RESET_AFTER_MILLIS = 60_000L;
+
     private final ThrottleSettings settings;
     private final Consumer<String> logger;
     private final LongSupplier nanoTime;
@@ -33,10 +43,8 @@ public final class HostThrottleCoordinator {
     private final Semaphore globalPermits;
     private final Map<String, HostState> hosts = new ConcurrentHashMap<>();
     private final Object globalPauseLock = new Object();
-    private final Deque<Long> recentThrottleTimes = new ArrayDeque<>();
     private long globalPauseUntilMillis;
-    private long lastThrottleMillis;
-    private int smartPauseLevel;
+    private final SmartCircuit globalSmartCircuit = new SmartCircuit("Global CDN/WAF", true);
 
     public HostThrottleCoordinator(ThrottleSettings settings, MontoyaApi api) {
         this(settings, loggerFor(api), System::nanoTime, System::currentTimeMillis, null);
@@ -63,8 +71,12 @@ public final class HostThrottleCoordinator {
         HostState host = hosts.computeIfAbsent(hostKey(request), HostState::new);
         boolean globalAcquired = false;
         boolean hostAcquired = false;
+        GateAdmission hostAdmission = GateAdmission.OPEN;
+        GateAdmission globalAdmission = GateAdmission.OPEN;
+        boolean outcomeReported = false;
         try {
-            if (!awaitGlobalPause()) {
+            if (!awaitGlobalPause()
+                || awaitSmartCircuit(globalSmartCircuit, false) == GateAdmission.INTERRUPTED) {
                 return null;
             }
             globalPermits.acquire();
@@ -72,9 +84,12 @@ public final class HostThrottleCoordinator {
             host.permits.acquire();
             hostAcquired = true;
 
-            // A throttle may have triggered a global CDN/WAF cooldown while this worker was
-            // waiting for an in-flight permit.
-            if (!awaitGlobalPause()) {
+            hostAdmission = awaitSmartCircuit(host.smartCircuit, true);
+            if (hostAdmission == GateAdmission.INTERRUPTED) {
+                return null;
+            }
+            globalAdmission = awaitGlobalAdmission();
+            if (globalAdmission == GateAdmission.INTERRUPTED) {
                 return null;
             }
 
@@ -85,13 +100,18 @@ public final class HostThrottleCoordinator {
             HttpResponse response = sender.get();
             if (response != null) {
                 host.controller.report(response.statusCode(), retryAfter(response), generation);
-                reportGlobalThrottle(response);
+                reportPauseOutcome(host, response, hostAdmission, globalAdmission);
+                outcomeReported = true;
             }
             return response;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         } finally {
+            if (!outcomeReported) {
+                cancelHalfOpenProbe(host.smartCircuit, hostAdmission);
+                cancelHalfOpenProbe(globalSmartCircuit, globalAdmission);
+            }
             if (hostAcquired) {
                 host.permits.release();
             }
@@ -118,34 +138,185 @@ public final class HostThrottleCoordinator {
         }
     }
 
-    private void reportGlobalThrottle(HttpResponse response) {
-        if (settings.pauseMode() == ThrottleSettings.PauseMode.OFF
-            || !settings.throttleStatusCodes().contains((int) response.statusCode())) {
-            return;
+    private GateAdmission awaitGlobalAdmission() {
+        if (!awaitGlobalPause()) {
+            return GateAdmission.INTERRUPTED;
         }
+        return awaitSmartCircuit(globalSmartCircuit, true);
+    }
+
+    private void reportPauseOutcome(HostState host, HttpResponse response,
+                                    GateAdmission hostAdmission, GateAdmission globalAdmission) {
+        boolean throttled = settings.throttleStatusCodes().contains((int) response.statusCode());
         long now = currentTimeMillis.getAsLong();
         long retryAfterMillis = retryAfterMillis(retryAfter(response), now);
-        synchronized (globalPauseLock) {
-            if (settings.pauseMode() == ThrottleSettings.PauseMode.FIXED) {
-                beginGlobalPause(now, Math.max(settings.fixedPauseMillis(), retryAfterMillis), "fixed");
+        if (settings.pauseMode() == ThrottleSettings.PauseMode.FIXED) {
+            if (throttled) {
+                synchronized (globalPauseLock) {
+                    beginGlobalPause(now, Math.max(settings.fixedPauseMillis(), retryAfterMillis), "fixed");
+                }
+            }
+            return;
+        }
+        if (settings.pauseMode() != ThrottleSettings.PauseMode.SMART) {
+            return;
+        }
+
+        reportSmartOutcome(host.smartCircuit, host.key, throttled, retryAfterMillis, hostAdmission);
+        reportSmartOutcome(globalSmartCircuit, host.key, throttled, retryAfterMillis, globalAdmission);
+    }
+
+    private GateAdmission awaitSmartCircuit(SmartCircuit circuit, boolean claimHalfOpenProbe) {
+        if (settings.pauseMode() != ThrottleSettings.PauseMode.SMART) {
+            return GateAdmission.OPEN;
+        }
+        synchronized (circuit) {
+            while (true) {
+                long now = currentTimeMillis.getAsLong();
+                long remaining = circuit.pauseUntilMillis - now;
+                if (remaining > 0) {
+                    try {
+                        circuit.wait(Math.min(remaining, 1_000L));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return GateAdmission.INTERRUPTED;
+                    }
+                    continue;
+                }
+                if (circuit.pauseUntilMillis > 0) {
+                    circuit.pauseUntilMillis = 0;
+                    circuit.halfOpen = true;
+                    circuit.halfOpenSuccesses = 0;
+                    circuit.halfOpenProbeInFlight = false;
+                    logger.accept(circuit.label + " cooldown ended; cautiously probing before full resume.");
+                }
+                if (!circuit.halfOpen || !claimHalfOpenProbe) {
+                    return GateAdmission.OPEN;
+                }
+                if (!circuit.halfOpenProbeInFlight) {
+                    circuit.halfOpenProbeInFlight = true;
+                    return GateAdmission.HALF_OPEN_PROBE;
+                }
+                try {
+                    circuit.wait(1_000L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return GateAdmission.INTERRUPTED;
+                }
+            }
+        }
+    }
+
+    private void reportSmartOutcome(SmartCircuit circuit, String hostKey, boolean throttled,
+                                    long retryAfterMillis, GateAdmission admission) {
+        long now = currentTimeMillis.getAsLong();
+        synchronized (circuit) {
+            if (admission == GateAdmission.HALF_OPEN_PROBE) {
+                circuit.halfOpenProbeInFlight = false;
+                if (throttled) {
+                    beginSmartPause(circuit, now, retryAfterMillis, "half-open probe was throttled");
+                } else {
+                    circuit.halfOpenSuccesses++;
+                    if (circuit.halfOpenSuccesses >= HALF_OPEN_SUCCESSES) {
+                        circuit.halfOpen = false;
+                        circuit.observations.clear();
+                        circuit.consecutiveThrottles = 0;
+                        logger.accept(circuit.label + " resumed after " + HALF_OPEN_SUCCESSES
+                            + " successful recovery probes.");
+                    }
+                    circuit.notifyAll();
+                }
                 return;
             }
 
-            if (lastThrottleMillis > 0 && now - lastThrottleMillis > 60_000L) {
-                smartPauseLevel = 0;
-                recentThrottleTimes.clear();
+            // Responses already in flight when a circuit trips must not immediately retrip it.
+            if (circuit.pauseUntilMillis > now || circuit.halfOpen) {
+                return;
             }
-            lastThrottleMillis = now;
-            recentThrottleTimes.addLast(now);
-            while (!recentThrottleTimes.isEmpty() && now - recentThrottleTimes.peekFirst() > 3_000L) {
-                recentThrottleTimes.removeFirst();
+            if (circuit.lastThrottleMillis > 0
+                && now - circuit.lastThrottleMillis > SMART_RESET_AFTER_MILLIS) {
+                circuit.pauseLevel = 0;
+                circuit.observations.clear();
+                circuit.consecutiveThrottles = 0;
             }
-            if (recentThrottleTimes.size() >= 3) {
-                long computed = Math.min(120_000L, 10_000L << Math.min(smartPauseLevel, 4));
-                smartPauseLevel++;
-                recentThrottleTimes.clear();
-                beginGlobalPause(now, Math.max(computed, retryAfterMillis), "smart");
+            if (throttled) {
+                circuit.lastThrottleMillis = now;
+                circuit.consecutiveThrottles++;
+            } else {
+                circuit.consecutiveThrottles = 0;
             }
+            circuit.observations.addLast(new SmartObservation(throttled, hostKey));
+            while (circuit.observations.size() > SMART_WINDOW_SIZE) {
+                circuit.observations.removeFirst();
+            }
+
+            int throttles = 0;
+            Set<String> throttledHosts = new HashSet<>();
+            for (SmartObservation observation : circuit.observations) {
+                if (observation.throttled()) {
+                    throttles++;
+                    throttledHosts.add(observation.hostKey());
+                }
+            }
+            boolean enoughHosts = !circuit.requireMultipleHosts || throttledHosts.size() >= 2;
+            boolean streakTrip = circuit.consecutiveThrottles >= SMART_THROTTLE_STREAK;
+            boolean ratioTrip = circuit.observations.size() >= SMART_MIN_WINDOW_SIZE
+                && throttles >= SMART_MIN_THROTTLES
+                && throttles / (double) circuit.observations.size() >= SMART_THROTTLE_RATIO;
+            if (enoughHosts && (streakTrip || ratioTrip)) {
+                String reason = streakTrip
+                    ? circuit.consecutiveThrottles + " consecutive throttle responses"
+                    : throttles + " of the last " + circuit.observations.size()
+                        + " responses were throttled";
+                beginSmartPause(circuit, now, retryAfterMillis, reason);
+            }
+        }
+    }
+
+    private void beginSmartPause(SmartCircuit circuit, long now, long retryAfterMillis, String reason) {
+        long computed = Math.min(120_000L, 10_000L << Math.min(circuit.pauseLevel, 4));
+        long durationMillis = Math.max(computed, retryAfterMillis);
+        circuit.pauseLevel++;
+        circuit.pauseUntilMillis = Math.max(circuit.pauseUntilMillis, now + durationMillis);
+        circuit.halfOpen = false;
+        circuit.halfOpenProbeInFlight = false;
+        circuit.halfOpenSuccesses = 0;
+        circuit.observations.clear();
+        circuit.consecutiveThrottles = 0;
+        logger.accept(circuit.label + " Smart Pause: " + reason + "; waiting "
+            + durationMillis + " ms before recovery probes.");
+        circuit.notifyAll();
+    }
+
+    private void cancelHalfOpenProbe(SmartCircuit circuit, GateAdmission admission) {
+        if (admission != GateAdmission.HALF_OPEN_PROBE) {
+            return;
+        }
+        synchronized (circuit) {
+            circuit.halfOpenProbeInFlight = false;
+            circuit.notifyAll();
+        }
+    }
+
+    private enum GateAdmission { OPEN, HALF_OPEN_PROBE, INTERRUPTED }
+
+    private record SmartObservation(boolean throttled, String hostKey) {}
+
+    private static final class SmartCircuit {
+        private final String label;
+        private final boolean requireMultipleHosts;
+        private final Deque<SmartObservation> observations = new ArrayDeque<>();
+        private long pauseUntilMillis;
+        private long lastThrottleMillis;
+        private int pauseLevel;
+        private int consecutiveThrottles;
+        private boolean halfOpen;
+        private boolean halfOpenProbeInFlight;
+        private int halfOpenSuccesses;
+
+        private SmartCircuit(String label, boolean requireMultipleHosts) {
+            this.label = label;
+            this.requireMultipleHosts = requireMultipleHosts;
         }
     }
 
@@ -189,7 +360,29 @@ public final class HostThrottleCoordinator {
     /** Remaining Sweep-wide CDN/WAF cooldown, exposed for tests and telemetry. */
     long globalPauseRemainingMillis() {
         synchronized (globalPauseLock) {
-            return Math.max(0L, globalPauseUntilMillis - currentTimeMillis.getAsLong());
+            long fixedRemaining = Math.max(0L, globalPauseUntilMillis - currentTimeMillis.getAsLong());
+            synchronized (globalSmartCircuit) {
+                long smartRemaining = Math.max(0L,
+                    globalSmartCircuit.pauseUntilMillis - currentTimeMillis.getAsLong());
+                return Math.max(fixedRemaining, smartRemaining);
+            }
+        }
+    }
+
+    /** Remaining host-local Smart Pause cooldown, exposed for tests and telemetry. */
+    long hostPauseRemainingMillis(String hostKey) {
+        HostState host = hosts.get(hostKey);
+        if (host == null) return 0L;
+        synchronized (host.smartCircuit) {
+            return Math.max(0L, host.smartCircuit.pauseUntilMillis - currentTimeMillis.getAsLong());
+        }
+    }
+
+    boolean hostIsHalfOpen(String hostKey) {
+        HostState host = hosts.get(hostKey);
+        if (host == null) return false;
+        synchronized (host.smartCircuit) {
+            return host.smartCircuit.halfOpen;
         }
     }
 
@@ -235,10 +428,14 @@ public final class HostThrottleCoordinator {
     }
 
     private final class HostState {
+        private final String key;
         private final AdaptiveRateController controller;
         private final Semaphore permits = new Semaphore(settings.perHostConcurrency(), true);
+        private final SmartCircuit smartCircuit;
 
         private HostState(String hostKey) {
+            this.key = hostKey;
+            this.smartCircuit = new SmartCircuit("Host " + hostKey, false);
             AdaptiveRateController.Tuning tuning = tuningOverride != null ? tuningOverride : settings.tuning();
             this.controller = new AdaptiveRateController(tuning,
                 settings.throttleStatusCodes(), nanoTime, currentTimeMillis, hostKey, logger);

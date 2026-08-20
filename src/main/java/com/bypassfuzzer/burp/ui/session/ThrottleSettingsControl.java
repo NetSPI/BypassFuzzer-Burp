@@ -176,7 +176,7 @@ public class ThrottleSettingsControl {
         if (showGlobalPause) {
             content.add(Box.createVerticalStrut(8));
             JPanel pauseRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-            pauseRow.add(new JLabel("Global CDN/WAF cooldown:"));
+            pauseRow.add(new JLabel("Throttle pause mode:"));
             pauseRow.add(pauseModeComboBox);
             pauseRow.add(new JLabel("Fixed seconds:"));
             pauseRow.add(fixedPauseSecondsField);
@@ -186,8 +186,10 @@ public class ThrottleSettingsControl {
                 "Adaptive only adjusts each host's rate independently and does not pause the entire Sweep; "
                 + "a Retry-After response still pauses that individual host. "
                 + "Fixed pause stops all Sweep hosts after any throttle response for the chosen time. "
-                + "Smart Pause detects clustered throttle responses across hostnames and applies an "
-                + "escalating 10-120 second global cooldown. Retry-After is always honored.");
+                + "Smart Pause tolerates isolated throttles, pauses a saturated host after a sustained "
+                + "streak or high rolling throttle ratio, and pauses the whole Sweep only when saturation "
+                + "spans multiple hosts. It uses escalating 10-120 second cooldowns, then requires five "
+                + "successful recovery probes before reopening. Retry-After is always honored.");
             pauseHelp.setEditable(false);
             pauseHelp.setLineWrap(true);
             pauseHelp.setWrapStyleWord(true);
@@ -204,7 +206,7 @@ public class ThrottleSettingsControl {
         content.add(buttonRow);
 
         dialog.setContentPane(content);
-        dialog.setSize(620, showGlobalPause ? 390 : 260);
+        dialog.setSize(620, showGlobalPause ? 430 : 260);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
     }

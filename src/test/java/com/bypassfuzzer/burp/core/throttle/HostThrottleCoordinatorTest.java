@@ -10,7 +10,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -64,6 +67,14 @@ class HostThrottleCoordinatorTest {
         assertTrue(controller.isPaused(), "a Retry-After response must pause the host controller");
     }
 
+    private static HostThrottleCoordinator fastCoordinator(ThrottleSettings settings,
+                                                            AtomicLong currentTimeMillis) {
+        AdaptiveRateController.Tuning fast = new AdaptiveRateController.Tuning(
+            100_000, 1, 1_000_000, 100, 2, 0.85, 0.3, 0.02, 8, 0.12, 1, 500, 750);
+        return new HostThrottleCoordinator(settings, message -> {}, System::nanoTime,
+            currentTimeMillis::get, fast);
+    }
+
     @Test
     void fixedPauseStartsAGlobalCooldownOnTheFirstThrottleResponse() {
         ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
@@ -76,17 +87,77 @@ class HostThrottleCoordinatorTest {
     }
 
     @Test
-    void smartPauseDetectsAThrottleBurstAcrossHosts() {
+    void smartPauseToleratesSparseThrottleResponses() {
         ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
             ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.SMART, 30_000L);
-        HostThrottleCoordinator coordinator = coordinator(settings);
+        AtomicLong clock = new AtomicLong(1_000L);
+        HostThrottleCoordinator coordinator = fastCoordinator(settings, clock);
+        String host = "https://a.example.com:443";
 
-        coordinator.send(requestTo("https://a.example.com/x"), () -> response(429, null));
-        coordinator.send(requestTo("https://b.example.com/y"), () -> response(429, null));
-        coordinator.send(requestTo("https://c.example.com/z"), () -> response(429, null));
+        for (int i = 0; i < 50; i++) {
+            int status = i % 6 == 0 ? 429 : 200;
+            coordinator.send(requestTo(host + "/" + i), () -> response(status, null));
+        }
 
-        assertTrue(coordinator.globalPauseRemainingMillis() >= 9_000L,
-            "three clustered throttle responses should trip the global circuit breaker");
+        assertEquals(0L, coordinator.hostPauseRemainingMillis(host));
+        assertEquals(0L, coordinator.globalPauseRemainingMillis());
+    }
+
+    @Test
+    void smartPauseStopsOnlyAHostAfterASustainedThrottleStreak() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.SMART, 30_000L);
+        AtomicLong clock = new AtomicLong(1_000L);
+        HostThrottleCoordinator coordinator = fastCoordinator(settings, clock);
+        String host = "https://a.example.com:443";
+
+        for (int i = 0; i < 8; i++) {
+            coordinator.send(requestTo(host + "/" + i), () -> response(429, null));
+        }
+
+        assertTrue(coordinator.hostPauseRemainingMillis(host) >= 10_000L);
+        assertEquals(0L, coordinator.globalPauseRemainingMillis(),
+            "one saturated host must not pause unrelated Sweep hosts");
+    }
+
+    @Test
+    void smartPauseDetectsACorrelatedHighThrottleRatioAcrossHosts() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 8, 4, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.SMART, 30_000L);
+        AtomicLong clock = new AtomicLong(1_000L);
+        HostThrottleCoordinator coordinator = fastCoordinator(settings, clock);
+
+        for (int i = 0; i < 25; i++) {
+            String host = "https://" + (char) ('a' + i % 3) + ".example.com:443";
+            int status = i < 20 && i % 2 == 0 ? 429 : 200;
+            coordinator.send(requestTo(host + "/" + i), () -> response(status, null));
+        }
+
+        assertTrue(coordinator.globalPauseRemainingMillis() >= 10_000L,
+            "a 40% throttle ratio spanning hosts should trip the shared circuit breaker");
+    }
+
+    @Test
+    void smartPauseRequiresFiveSuccessfulHalfOpenProbesBeforeResuming() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.SMART, 30_000L);
+        AtomicLong clock = new AtomicLong(1_000L);
+        HostThrottleCoordinator coordinator = fastCoordinator(settings, clock);
+        String host = "https://a.example.com:443";
+
+        for (int i = 0; i < 8; i++) {
+            coordinator.send(requestTo(host + "/blocked-" + i), () -> response(429, null));
+        }
+        clock.addAndGet(10_001L);
+
+        for (int i = 0; i < 4; i++) {
+            coordinator.send(requestTo(host + "/probe-" + i), () -> response(200, null));
+            assertTrue(coordinator.hostIsHalfOpen(host));
+        }
+        coordinator.send(requestTo(host + "/probe-4"), () -> response(200, null));
+
+        assertFalse(coordinator.hostIsHalfOpen(host));
+        assertEquals(0L, coordinator.hostPauseRemainingMillis(host));
     }
 
     @Test

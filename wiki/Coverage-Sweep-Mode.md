@@ -145,10 +145,14 @@ controllers:
 - `Adaptive only` keeps the original independent per-host behavior.
 - `Fixed pause` stops new requests to every Sweep host after any configured throttle response for
   the chosen number of seconds.
-- `Smart Pause` detects a burst of three throttle responses within three seconds across the Sweep,
-  then pauses all hosts for an escalating 10, 20, 40, 80, or 120 seconds. After a quiet minute, the
-  escalation resets. A server-provided `Retry-After` value is always used when it requires a longer
-  cooldown.
+- `Smart Pause` tolerates isolated throttle responses. It pauses one saturated host after either
+  eight consecutive throttles or a rolling window of at least 25 responses where at least 10 and
+  40% are throttled. The same ratio or streak pauses the entire Sweep only when throttle responses
+  span multiple hosts, which identifies a likely shared CDN/WAF limit. Cooldowns escalate through
+  10, 20, 40, 80, and 120 seconds. After a cooldown, the circuit sends one recovery request at a
+  time and requires five successes before reopening normal flow; another throttle extends the
+  cooldown. After a quiet minute, escalation resets. A server-provided `Retry-After` value is always
+  used when it requires a longer cooldown.
 
 `Concurrency` and `Per-host` bound how many requests may be *in flight* at once (a resource cap), not
 the rate. `Throttle codes` defaults to `429,503` and defines which responses count as a rate-limit
