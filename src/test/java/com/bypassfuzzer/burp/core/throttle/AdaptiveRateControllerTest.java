@@ -83,6 +83,46 @@ class AdaptiveRateControllerTest {
     }
 
     @Test
+    void longManualPauseDiscardsBurstCreditAndColdStartsTheRate() {
+        RateLimitSimulator.Clock clock = new RateLimitSimulator.Clock(SECOND);
+        AdaptiveRateController.Tuning tuning = AdaptiveRateController.Tuning.defaults();
+        AdaptiveRateController controller = controller(clock, tuning);
+        AdaptiveRateController.Reservation initial = controller.tryAcquire();
+        clock.set(clock.nanos() + TimeUnit.MILLISECONDS.toNanos(600));
+        controller.report(200, null, initial.generation());
+        assertTrue(controller.currentRatePerSecond() > tuning.initialRate());
+
+        controller.manualPause();
+        clock.set(clock.nanos() + TimeUnit.MINUTES.toNanos(10));
+        assertFalse(controller.tryAcquire().granted(),
+            "manual pause must not accrue or consume admission tokens");
+
+        assertTrue(controller.manualResume());
+        assertEquals(tuning.initialRate(), controller.currentRatePerSecond(), 1e-9);
+        assertTrue(controller.tryAcquire().granted(), "resume should release one safe request");
+        assertFalse(controller.tryAcquire().granted(),
+            "ten minutes paused must not become a full token-bucket burst");
+    }
+
+    @Test
+    void shortManualPauseKeepsTheLearnedRateButStillDropsBurstCredit() {
+        RateLimitSimulator.Clock clock = new RateLimitSimulator.Clock(SECOND);
+        AdaptiveRateController controller = controller(clock);
+        AdaptiveRateController.Reservation initial = controller.tryAcquire();
+        clock.set(clock.nanos() + TimeUnit.MILLISECONDS.toNanos(600));
+        controller.report(200, null, initial.generation());
+        double learnedRate = controller.currentRatePerSecond();
+
+        controller.manualPause();
+        clock.set(clock.nanos() + TimeUnit.SECONDS.toNanos(10));
+
+        assertFalse(controller.manualResume());
+        assertEquals(learnedRate, controller.currentRatePerSecond(), 1e-9);
+        assertTrue(controller.tryAcquire().granted());
+        assertFalse(controller.tryAcquire().granted());
+    }
+
+    @Test
     void burstOfSimultaneousThrottlesCountsAsOneLossEvent() {
         RateLimitSimulator.Clock clock = new RateLimitSimulator.Clock(SECOND);
         AdaptiveRateController.Tuning tuning = AdaptiveRateController.Tuning.defaults();

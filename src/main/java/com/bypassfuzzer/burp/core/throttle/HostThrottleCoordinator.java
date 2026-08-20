@@ -45,6 +45,8 @@ public final class HostThrottleCoordinator {
     private final Semaphore globalPermits;
     private final AtomicInteger inFlightRequests = new AtomicInteger();
     private final Map<String, HostState> hosts = new ConcurrentHashMap<>();
+    private final Object manualPauseLock = new Object();
+    private volatile boolean manuallyPaused;
     private final Object globalPauseLock = new Object();
     private long globalPauseUntilMillis;
     private final SmartCircuit globalSmartCircuit = new SmartCircuit("Global CDN/WAF", true);
@@ -105,6 +107,9 @@ public final class HostThrottleCoordinator {
                 return null;
             }
 
+            if (finalAdmission != null && !finalAdmission.getAsBoolean()) {
+                return null;
+            }
             long generation = host.controller.acquire();
             if (generation < 0) {
                 return null;
@@ -383,6 +388,29 @@ public final class HostThrottleCoordinator {
         return inFlightRequests.get();
     }
 
+    /** Freezes every existing and subsequently-created host controller during a manual UI pause. */
+    public void manualPause() {
+        synchronized (manualPauseLock) {
+            if (manuallyPaused) return;
+            manuallyPaused = true;
+            hosts.values().forEach(host -> host.controller.manualPause());
+        }
+    }
+
+    /** Resumes safely without accumulated burst credit; long pauses cold-start learned host rates. */
+    public void manualResume() {
+        int coldStarted = 0;
+        synchronized (manualPauseLock) {
+            if (!manuallyPaused) return;
+            manuallyPaused = false;
+            for (HostState host : hosts.values()) {
+                if (host.controller.manualResume()) coldStarted++;
+            }
+        }
+        logger.accept("Manual resume: discarded throttle burst credit"
+            + (coldStarted > 0 ? "; cold-started " + coldStarted + " host rate(s)." : "."));
+    }
+
     /** Remaining Sweep-wide CDN/WAF cooldown, exposed for tests and telemetry. */
     long globalPauseRemainingMillis() {
         synchronized (globalPauseLock) {
@@ -465,6 +493,11 @@ public final class HostThrottleCoordinator {
             AdaptiveRateController.Tuning tuning = tuningOverride != null ? tuningOverride : settings.tuning();
             this.controller = new AdaptiveRateController(tuning,
                 settings.throttleStatusCodes(), nanoTime, currentTimeMillis, hostKey, logger);
+            synchronized (manualPauseLock) {
+                if (manuallyPaused) {
+                    this.controller.manualPause();
+                }
+            }
         }
     }
 }

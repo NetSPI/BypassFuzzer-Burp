@@ -26,7 +26,7 @@ public class FuzzerEngine {
     private final FuzzerConfig config;
     private volatile boolean running = false;
     private Thread fuzzerThread;
-    private HostThrottleCoordinator coordinator;
+    private volatile HostThrottleCoordinator coordinator;
     private RetryQueue<ThrottledRequest> retryQueue;
     private final TargetUrlResolver targetUrlResolver;
     private final AttackRegistry attackRegistry;
@@ -96,6 +96,8 @@ public class FuzzerEngine {
     public void stopFuzzing() {
         if (running && fuzzerThread != null) {
             running = false;
+            HostThrottleCoordinator currentCoordinator = coordinator;
+            if (currentCoordinator != null) currentCoordinator.manualResume();
             pauseController.resume();
             fuzzerThread.interrupt();
             safeLog("Fuzzer stopped by user");
@@ -110,10 +112,15 @@ public class FuzzerEngine {
     }
 
     public void pause() {
-        if (running) pauseController.pause();
+        if (!running) return;
+        pauseController.pause();
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualPause();
     }
 
     public void resume() {
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualResume();
         pauseController.resume();
     }
 

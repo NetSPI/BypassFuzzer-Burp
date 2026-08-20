@@ -38,6 +38,8 @@ import java.util.function.LongSupplier;
  */
 public final class AdaptiveRateController {
 
+    private static final long LONG_MANUAL_PAUSE_NANOS = TimeUnit.SECONDS.toNanos(30);
+
     /** Tunable constants for the control law. Exposed so the simulation matrix can optimise them. */
     public record Tuning(
         double initialRate,        // starting refill rate (req/s) before anything is known
@@ -102,6 +104,8 @@ public final class AdaptiveRateController {
 
     /** Generation bumped on every rate transition; stale-response filter across threads. */
     private long generation;
+    private boolean manuallyPaused;
+    private long manualPauseStartedNanos;
 
     public AdaptiveRateController(Set<Integer> throttleStatusCodes, String label,
                                   Consumer<String> logger) {
@@ -142,6 +146,9 @@ public final class AdaptiveRateController {
     public synchronized Reservation tryAcquire() {
         long now = nanoTime.getAsLong();
 
+        if (manuallyPaused) {
+            return new Reservation(false, TimeUnit.SECONDS.toNanos(1), generation);
+        }
         if (pausedUntilNanos > now) {
             return new Reservation(false, pausedUntilNanos - now, generation);
         }
@@ -174,6 +181,44 @@ public final class AdaptiveRateController {
             }
         }
         return -1;
+    }
+
+    /** Freezes pacing immediately and discards all accumulated burst credit. */
+    synchronized void manualPause() {
+        if (manuallyPaused) return;
+        manuallyPaused = true;
+        manualPauseStartedNanos = nanoTime.getAsLong();
+        tokens = 0;
+        lastRefillNanos = manualPauseStartedNanos;
+        notifyAll();
+    }
+
+    /**
+     * Resumes with one token. Long pauses cold-start the learned rate so Resume cannot release a
+     * stale high-rate burst that immediately recreates a WAF/CDN throttle wall.
+     *
+     * @return true when the controller was cold-started.
+     */
+    synchronized boolean manualResume() {
+        if (!manuallyPaused) return false;
+        long now = nanoTime.getAsLong();
+        long pausedFor = Math.max(0L, now - manualPauseStartedNanos);
+        boolean coldStart = pausedFor >= LONG_MANUAL_PAUSE_NANOS;
+        manuallyPaused = false;
+        manualPauseStartedNanos = 0;
+        tokens = Math.min(1.0, capacity());
+        lastRefillNanos = now;
+        lastIncreaseNanos = now;
+        if (coldStart) {
+            rate = clampRate(tuning.initialRate());
+            ceilingEstimate = 0;
+            phase = Phase.SLOW_START;
+            sawSuccessThisWindow = false;
+            lastDecreaseNanos = now - TimeUnit.MILLISECONDS.toNanos(tuning.mdCooldownMs());
+            generation++;
+        }
+        notifyAll();
+        return coldStart;
     }
 
     /**

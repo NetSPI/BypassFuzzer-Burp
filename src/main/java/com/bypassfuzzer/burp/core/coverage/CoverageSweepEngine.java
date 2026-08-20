@@ -59,7 +59,7 @@ public class CoverageSweepEngine {
     private volatile boolean running = false;
     private Thread runnerThread;
     private ExecutorService executor;
-    private HostThrottleCoordinator coordinator;
+    private volatile HostThrottleCoordinator coordinator;
     private volatile ConcurrentLinkedQueue<RetryTask> deferredRetryQueue = new ConcurrentLinkedQueue<>();
     private final Set<String> sweepHosts = ConcurrentHashMap.newKeySet();
     private final Set<String> completedSweepHosts = ConcurrentHashMap.newKeySet();
@@ -255,6 +255,8 @@ public class CoverageSweepEngine {
 
     public void stop() {
         running = false;
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualResume();
         pauseController.resume();
         if (executor != null) {
             executor.shutdownNow();
@@ -280,8 +282,18 @@ public class CoverageSweepEngine {
         return running;
     }
 
-    public void pause() { if (running) pauseController.pause(); }
-    public void resume() { pauseController.resume(); }
+    public void pause() {
+        if (!running) return;
+        pauseController.pause();
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualPause();
+    }
+
+    public void resume() {
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualResume();
+        pauseController.resume();
+    }
     public boolean isPaused() { return pauseController.isPaused(); }
 
     public int inFlightRequestCount() {

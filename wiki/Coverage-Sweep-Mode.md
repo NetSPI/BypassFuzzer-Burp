@@ -159,6 +159,12 @@ controllers:
 the rate. `Throttle codes` defaults to `429,503` and defines which responses count as a rate-limit
 signal.
 
+Manual `Pause` freezes both network sending and throttle admission. Already-sent requests may still
+finish and appear in the results table. Resume discards token-bucket credit accumulated during the
+pause and releases only one initial request per host. Pauses of 30 seconds or longer also cold-start
+each host at the safe initial adaptive rate, while preserving the current Sweep position and retry
+queue.
+
 ### Browser User-Agent
 
 The `Browser User-Agent` preset (on by default) sends every probe with a current desktop Chrome

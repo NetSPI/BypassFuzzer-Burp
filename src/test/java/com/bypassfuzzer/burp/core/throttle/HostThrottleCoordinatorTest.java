@@ -216,6 +216,29 @@ class HostThrottleCoordinatorTest {
     }
 
     @Test
+    void manualPauseAlsoFreezesAHostCreatedAfterThePause() throws Exception {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 2, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD);
+        HostThrottleCoordinator coordinator = coordinator(settings);
+        CountDownLatch sent = new CountDownLatch(1);
+        coordinator.manualPause();
+
+        Thread worker = new Thread(() -> coordinator.send(requestTo("https://new.example.com/request"), () -> {
+            sent.countDown();
+            return response(200, null);
+        }));
+        worker.start();
+
+        assertFalse(sent.await(200, TimeUnit.MILLISECONDS));
+        assertEquals(0, coordinator.inFlightRequestCount());
+
+        coordinator.manualResume();
+        assertTrue(sent.await(2, TimeUnit.SECONDS));
+        worker.join(2_000L);
+        assertFalse(worker.isAlive());
+    }
+
+    @Test
     void concurrencyNeverExceedsGlobalOrPerHostBounds() throws Exception {
         int globalLimit = 4;
         int perHostLimit = 2;

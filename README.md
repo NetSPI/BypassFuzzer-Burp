@@ -138,6 +138,11 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 8. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
 9. Click **Start Sweep**
 
+**Pause/Resume:** Pause stops new network sends and freezes throttle admission. Responses from
+already-sent requests may still arrive. Resume discards accumulated burst credit; after a pause of
+30 seconds or longer, each host restarts at the safe initial adaptive rate without losing scan
+position or queued retries.
+
 **What Sweep sends**
 
 Sweep does not run the full BypassFuzzer payload inventory. It uses a curated wordlist capped at 280 probes per endpoint by default. The bundled wordlist focuses on:

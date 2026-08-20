@@ -22,7 +22,7 @@ public class UrlValidationEngine {
     private final TargetUrlResolver targetUrlResolver = new TargetUrlResolver();
     private volatile boolean running = false;
     private Thread runnerThread;
-    private HostThrottleCoordinator coordinator;
+    private volatile HostThrottleCoordinator coordinator;
     private final ExecutionPauseController pauseController = new ExecutionPauseController();
 
     public UrlValidationEngine(MontoyaApi api) {
@@ -52,6 +52,8 @@ public class UrlValidationEngine {
 
     public void stop() {
         running = false;
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualResume();
         pauseController.resume();
         if (runnerThread != null) {
             runnerThread.interrupt();
@@ -73,8 +75,18 @@ public class UrlValidationEngine {
         return running;
     }
 
-    public void pause() { if (running) pauseController.pause(); }
-    public void resume() { pauseController.resume(); }
+    public void pause() {
+        if (!running) return;
+        pauseController.pause();
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualPause();
+    }
+
+    public void resume() {
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        if (currentCoordinator != null) currentCoordinator.manualResume();
+        pauseController.resume();
+    }
     public boolean isPaused() { return pauseController.isPaused(); }
 
     private void execute(HttpRequest request, UrlValidationOptions options, Consumer<AttackResult> resultCallback) {
