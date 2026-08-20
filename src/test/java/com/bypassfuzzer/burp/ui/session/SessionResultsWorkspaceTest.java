@@ -108,6 +108,63 @@ class SessionResultsWorkspaceTest {
     }
 
     @Test
+    void sweepRetryQuarantinesAnEntireStablePayloadShapeAfterOneControlAndSample() throws Exception {
+        SequenceSender sender = new SequenceSender(response(403), response(429));
+        SessionResultsWorkspace workspace = workspace(sender);
+        workspace.configureThrottleRetries(Set.of(429));
+        workspace.addResult(sweepResult("GET /one", "/one.bak", "/one", "Path suffix .bak"));
+        workspace.addResult(sweepResult("GET /two", "/two.bak", "/two", "Path suffix .bak"));
+
+        workspace.retryThrottled(false);
+        waitForRetry(workspace);
+
+        assertEquals(2, sender.sendCount);
+        assertEquals(0, workspace.throttledRetryCount());
+        assertEquals(2, workspace.patternBlockedRetryCount());
+        assertEquals(2, workspace.throttledRetrySnapshot().size());
+        assertEquals(3, workspace.allResultsCount());
+        assertTrue(workspace.retryStatusText().contains("stable pattern-blocked"));
+
+        workspace.retryThrottled(false);
+        assertFalse(workspace.isRetryRunning());
+        assertEquals(2, sender.sendCount);
+    }
+
+    @Test
+    void sweepRetryContinuesGroupWhenControlAndSampleAreNoLongerThrottled() throws Exception {
+        SequenceSender sender = new SequenceSender(response(403), response(403), response(403));
+        SessionResultsWorkspace workspace = workspace(sender);
+        workspace.configureThrottleRetries(Set.of(429));
+        workspace.addResult(sweepResult("GET /one", "/one.bak", "/one", "Path suffix .bak"));
+        workspace.addResult(sweepResult("GET /two", "/two.bak", "/two", "Path suffix .bak"));
+
+        workspace.retryThrottled(false);
+        waitForRetry(workspace);
+
+        assertEquals(3, sender.sendCount);
+        assertEquals(0, workspace.throttledRetryCount());
+        assertEquals(0, workspace.patternBlockedRetryCount());
+        assertEquals(4, workspace.allResultsCount());
+    }
+
+    @Test
+    void sweepRetryKeepsQueueRetryableWhenControlIsAlsoThrottled() throws Exception {
+        SequenceSender sender = new SequenceSender(response(429));
+        SessionResultsWorkspace workspace = workspace(sender);
+        workspace.configureThrottleRetries(Set.of(429));
+        workspace.addResult(sweepResult("GET /one", "/one.bak", "/one", "Path suffix .bak"));
+        workspace.addResult(sweepResult("GET /two", "/two.bak", "/two", "Path suffix .bak"));
+
+        workspace.retryThrottled(false);
+        waitForRetry(workspace);
+
+        assertEquals(1, sender.sendCount);
+        assertEquals(2, workspace.throttledRetryCount());
+        assertEquals(0, workspace.patternBlockedRetryCount());
+        assertEquals(2, workspace.allResultsCount());
+    }
+
+    @Test
     void manualRetryCanPauseBetweenRequestsAndResumeWhereItLeftOff() throws Exception {
         BlockingFirstSender sender = new BlockingFirstSender(response(429));
         SessionResultsWorkspace workspace = workspace(sender);
@@ -163,6 +220,15 @@ class SessionResultsWorkspaceTest {
             SessionResultsPanel.TableLayout.DEFAULT,
             false,
             sender
+        );
+    }
+
+    private AttackResult sweepResult(String targetLabel, String mutationPath,
+                                     String originalPath, String payload) {
+        return new AttackResult(
+            "Coverage Sweep", payload, targetLabel, "Extension / Negotiation", "",
+            request(mutationPath, "", "GET", null, ""), response(429),
+            request(originalPath, "", "GET", null, ""), response(403)
         );
     }
 

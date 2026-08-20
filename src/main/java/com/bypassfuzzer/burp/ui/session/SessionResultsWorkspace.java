@@ -95,7 +95,8 @@ public class SessionResultsWorkspace {
         this.retryThrottledButton = new JButton("Retry Throttled (0)");
         this.retryThrottledButton.setEnabled(false);
         this.retryThrottledButton.setToolTipText(
-            "Retry deferred throttled requests serially. Unsafe methods require confirmation.");
+            "Classify Sweep throttles with control canaries, then retry transient requests serially. "
+                + "Unsafe methods require confirmation.");
         this.retryThrottledButton.addActionListener(event -> retryThrottledFromButton());
         this.retryStatusLabel = new JLabel("");
         this.splitPane = buildSplitPane(borderlessSidebar);
@@ -174,7 +175,17 @@ public class SessionResultsWorkspace {
 
     public int throttledRetryCount() {
         synchronized (throttledRetries) {
-            return throttledRetries.size();
+            return (int) throttledRetries.values().stream()
+                .filter(retry -> !retry.patternBlocked())
+                .count();
+        }
+    }
+
+    public int patternBlockedRetryCount() {
+        synchronized (throttledRetries) {
+            return (int) throttledRetries.values().stream()
+                .filter(DeferredRetry::patternBlocked)
+                .count();
         }
     }
 
@@ -242,7 +253,8 @@ public class SessionResultsWorkspace {
                 return;
             }
             for (Map.Entry<String, DeferredRetry> entry : throttledRetries.entrySet()) {
-                if (includeUnsafeMethods || isSafeMethod(entry.getValue().result().getRequest())) {
+                if (!entry.getValue().patternBlocked()
+                    && (includeUnsafeMethods || isSafeMethod(entry.getValue().result().getRequest()))) {
                     selected.add(Map.entry(entry.getKey(), entry.getValue()));
                 }
             }
@@ -257,7 +269,8 @@ public class SessionResultsWorkspace {
             retryPauseController.reset();
         }
 
-        retryStatusLabel.setText("Retrying " + selected.size() + " throttled request(s) serially...");
+        retryStatusLabel.setText("Classifying and retrying " + selected.size()
+            + " throttled request(s)...");
         updateRetryControls();
         // Manual retries are paced per host by the adaptive controller (conservative posture, one
         // request in flight). The controller learns from each new response -- it does not replay the
@@ -267,23 +280,59 @@ public class SessionResultsWorkspace {
             (burp.api.montoya.MontoyaApi) null);
         retryCoordinator = coordinator;
         Set<String> processedKeys = ConcurrentHashMap.newKeySet();
+        Map<String, List<Map.Entry<String, DeferredRetry>>> retryGroups = groupRetries(selected);
         retryWorker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() {
-                for (Map.Entry<String, DeferredRetry> queued : selected) {
+                for (List<Map.Entry<String, DeferredRetry>> group : retryGroups.values()) {
                     if (!retryPauseController.awaitIfPaused(() -> !retryStopRequested && !isCancelled())
                         || retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
                         break;
                     }
-                    DeferredRetry retry = queued.getValue();
-                    HttpRequest retryRequest = retry.result().getRequest();
-                    HttpResponse response = coordinator.send(retryRequest, () -> sendRetry(retryRequest),
-                        () -> retryPauseController.awaitIfPaused(
-                            () -> !retryStopRequested && !isCancelled()));
-                    if (retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
-                        break;
+
+                    int firstRetryIndex = 0;
+                    Map.Entry<String, DeferredRetry> sample = group.get(0);
+                    HttpRequest controlRequest = sample.getValue().result().getOriginalRequest();
+                    if (controlRequest != null) {
+                        HttpResponse controlResponse = sendCoordinatedRetry(coordinator, controlRequest, this);
+                        if (retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
+                            break;
+                        }
+                        if (controlResponse == null || isThrottleResponse(controlResponse)) {
+                            break;
+                        }
+
+                        HttpResponse sampleResponse = sendCoordinatedRetry(
+                            coordinator, sample.getValue().result().getRequest(), this);
+                        if (retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
+                            break;
+                        }
+                        if (sampleResponse == null) {
+                            break;
+                        }
+                        boolean stablePattern = isThrottleResponse(sampleResponse);
+                        publish(new RetryOutcome(sample.getKey(), sample.getValue(), sampleResponse,
+                            generation, stablePattern ? List.copyOf(group) : List.of()));
+                        if (stablePattern) {
+                            continue;
+                        }
+                        firstRetryIndex = 1;
                     }
-                    publish(new RetryOutcome(queued.getKey(), retry, response, generation));
+
+                    for (int index = firstRetryIndex; index < group.size(); index++) {
+                        Map.Entry<String, DeferredRetry> queued = group.get(index);
+                        if (!retryPauseController.awaitIfPaused(() -> !retryStopRequested && !isCancelled())
+                            || retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
+                            return null;
+                        }
+                        HttpResponse response = sendCoordinatedRetry(
+                            coordinator, queued.getValue().result().getRequest(), this);
+                        if (retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
+                            return null;
+                        }
+                        publish(new RetryOutcome(
+                            queued.getKey(), queued.getValue(), response, generation, List.of()));
+                    }
                 }
                 return null;
             }
@@ -298,7 +347,21 @@ public class SessionResultsWorkspace {
                     AttackResult retryResult = AttackResult.throttleRetryOf(
                         outcome.retry().result(), outcome.response(), attempt);
                     addResult(retryResult);
-                    processedKeys.add(outcome.key());
+                    if (outcome.stablePatternGroup().isEmpty()) {
+                        processedKeys.add(outcome.key());
+                    } else {
+                        synchronized (throttledRetries) {
+                            for (Map.Entry<String, DeferredRetry> stable : outcome.stablePatternGroup()) {
+                                AttackResult stableResult = stable.getKey().equals(outcome.key())
+                                    ? retryResult : stable.getValue().result();
+                                throttledRetries.put(stable.getKey(), new DeferredRetry(stableResult, true));
+                                processedKeys.add(stable.getKey());
+                            }
+                        }
+                        retryStatusLabel.setText("Detected stable 429 pattern; quarantined "
+                            + patternBlockedRetryCount() + " non-retryable request(s).");
+                        updateRetryControls();
+                    }
                 }
             }
 
@@ -324,11 +387,14 @@ public class SessionResultsWorkspace {
                         retryCoordinator = null;
                     }
                     int remaining = throttledRetryCount();
+                    int stable = patternBlockedRetryCount();
                     retryStatusLabel.setText(retryStopRequested
                         ? "Throttle retry pass stopped; " + remaining + " request(s) remain queued."
                         : remaining == 0
-                            ? "Throttle retry pass completed; no requests remain throttled."
-                            : "Throttle retry pass completed; " + remaining + " request(s) remain throttled.");
+                            ? "Throttle retry classification completed; no transient retries remain"
+                                + (stable > 0 ? "; " + stable + " stable pattern-blocked 429(s) quarantined." : ".")
+                            : "Throttle retry pass completed; " + remaining + " request(s) remain transient"
+                                + (stable > 0 ? "; " + stable + " stable pattern-blocked 429(s) quarantined." : "."));
                     retryStopRequested = false;
                     updateRetryControls();
                 }
@@ -425,6 +491,7 @@ public class SessionResultsWorkspace {
         int unsafeCount;
         synchronized (throttledRetries) {
             unsafeCount = (int) throttledRetries.values().stream()
+                .filter(retry -> !retry.patternBlocked())
                 .filter(retry -> !isSafeMethod(retry.result().getRequest()))
                 .count();
         }
@@ -456,7 +523,10 @@ public class SessionResultsWorkspace {
             return;
         }
         synchronized (throttledRetries) {
-            throttledRetries.put(retryKey(result), new DeferredRetry(result));
+            String key = retryKey(result);
+            DeferredRetry existing = throttledRetries.get(key);
+            throttledRetries.put(key, new DeferredRetry(
+                result, existing != null && existing.patternBlocked()));
         }
         updateRetryControls();
     }
@@ -505,6 +575,44 @@ public class SessionResultsWorkspace {
             : retrySender.send(request, mode, 30, TimeUnit.SECONDS);
     }
 
+    private HttpResponse sendCoordinatedRetry(HostThrottleCoordinator coordinator,
+                                              HttpRequest request,
+                                              SwingWorker<?, ?> worker) {
+        return coordinator.send(request, () -> sendRetry(request),
+            () -> retryPauseController.awaitIfPaused(
+                () -> !retryStopRequested && worker != null && !worker.isCancelled()));
+    }
+
+    private boolean isThrottleResponse(HttpResponse response) {
+        return response != null && throttleStatusCodes.contains((int) response.statusCode());
+    }
+
+    private Map<String, List<Map.Entry<String, DeferredRetry>>> groupRetries(
+        List<Map.Entry<String, DeferredRetry>> selected) {
+        Map<String, List<Map.Entry<String, DeferredRetry>>> groups = new LinkedHashMap<>();
+        for (Map.Entry<String, DeferredRetry> entry : selected) {
+            AttackResult result = entry.getValue().result();
+            HttpRequest original = result.getOriginalRequest();
+            String groupKey = original == null
+                ? "single\u0000" + entry.getKey()
+                : requestAuthority(original) + '\u0000' + result.getPayloadFamily()
+                    + '\u0000' + result.getPayload();
+            groups.computeIfAbsent(groupKey, ignored -> new ArrayList<>()).add(entry);
+        }
+        return groups;
+    }
+
+    private String requestAuthority(HttpRequest request) {
+        try {
+            HttpService service = request.httpService();
+            if (service != null) {
+                return service.secure() + ":" + service.host() + ":" + service.port();
+            }
+        } catch (Exception ignored) {
+        }
+        return request == null ? "" : request.url();
+    }
+
     private HttpMode requestMode(HttpRequest request) {
         try {
             String version = request.httpVersion();
@@ -551,10 +659,14 @@ public class SessionResultsWorkspace {
         }
     }
 
-    private record DeferredRetry(AttackResult result) {
+    private record DeferredRetry(AttackResult result, boolean patternBlocked) {
+        private DeferredRetry(AttackResult result) {
+            this(result, false);
+        }
     }
 
-    private record RetryOutcome(String key, DeferredRetry retry, HttpResponse response, long generation) {
+    private record RetryOutcome(String key, DeferredRetry retry, HttpResponse response, long generation,
+                                List<Map.Entry<String, DeferredRetry>> stablePatternGroup) {
     }
 
 }

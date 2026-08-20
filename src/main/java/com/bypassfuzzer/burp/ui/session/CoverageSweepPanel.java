@@ -441,7 +441,9 @@ public class CoverageSweepPanel extends JPanel {
         }
         List<AttackResult> queued = resultsWorkspace.throttledRetrySnapshot();
         retryQueueTableModel.setResults(queued);
-        retryQueueDialog.setTitle("Deferred throttle retry queue (" + queued.size() + ")");
+        retryQueueDialog.setTitle("Deferred throttle retry queue ("
+            + resultsWorkspace.throttledRetryCount() + " retryable, "
+            + resultsWorkspace.patternBlockedRetryCount() + " stable pattern-blocked)");
         retryQueueExportJsonButton.setEnabled(!queued.isEmpty());
     }
 
@@ -568,7 +570,7 @@ public class CoverageSweepPanel extends JPanel {
             exportCompletedHosts();
         });
         JButton retryWordlist = new JButton("Deferred retry payloads (wordlist)");
-        retryWordlist.setEnabled(resultsWorkspace.throttledRetryCount() > 0);
+        retryWordlist.setEnabled(!resultsWorkspace.throttledRetrySnapshot().isEmpty());
         retryWordlist.addActionListener(e -> {
             dialog.dispose();
             exportRetryQueueWordlist(resultsWorkspace.throttledRetrySnapshot());
@@ -1350,8 +1352,11 @@ public class CoverageSweepPanel extends JPanel {
             return;
         }
         int count = resultsWorkspace.throttledRetryCount();
-        retryQueueButton.setText("Retry queue (" + count + ")");
-        retryQueueButton.setEnabled(count > 0);
+        int stable = resultsWorkspace.patternBlockedRetryCount();
+        retryQueueButton.setText(stable > 0
+            ? "Retry queue (" + count + " retryable, " + stable + " stable)"
+            : "Retry queue (" + count + ")");
+        retryQueueButton.setEnabled(count + stable > 0);
         updateExportButton();
     }
 
