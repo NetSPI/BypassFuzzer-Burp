@@ -1010,7 +1010,8 @@ public class CoverageSweepPanel extends JPanel {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Import Sweep Targets");
         chooser.setFileFilter(new FileNameExtensionFilter(
-            "Target lists and OpenAPI specs (*.txt, *.json, *.yaml, *.yml)", "txt", "json", "yaml", "yml"));
+            "Targets, retry JSON, and OpenAPI specs (*.txt, *.json, *.yaml, *.yml)",
+            "txt", "json", "yaml", "yml"));
         int result = chooser.showOpenDialog(api.userInterface().swingUtils().suiteFrame());
         if (result != JFileChooser.APPROVE_OPTION || chooser.getSelectedFile() == null) {
             return;
@@ -1083,6 +1084,25 @@ public class CoverageSweepPanel extends JPanel {
         setControlsForLoading();
         try {
             String source = Files.readString(path);
+            RetryPackage retryPackage = parseRetryPackage(source);
+            if (retryPackage != null) {
+                List<String> retryUrls = retryPackage.entries().stream()
+                    .filter(entry -> entry != null && entry.url() != null && !entry.url().isBlank())
+                    .map(RetryPackageEntry::url)
+                    .toList();
+                if (retryUrls.isEmpty()) {
+                    throw new IllegalArgumentException("Retry package contains no request URLs");
+                }
+                boolean dedupeEndpoints = dedupeImportedEndpointsCheckBox.isSelected();
+                CoverageSweepPreview preview = engine.collectPreviewFromUrls(
+                    retryUrls, currentOptions(), dedupeEndpoints);
+                importedOpenApiDocument = null;
+                applyImportedPreview(preview, false, dedupeEndpoints);
+                statusLabel.setText("Imported " + retryUrls.size()
+                    + " retry-package request(s) as Sweep candidates; "
+                    + importedPreviewCounts(preview, dedupeEndpoints));
+                return true;
+            }
             boolean openApi = isOpenApiSource(path, source);
             String fileName = path.getFileName().toString();
             CoverageSweepPreview preview = openApi
@@ -1301,6 +1321,21 @@ public class CoverageSweepPanel extends JPanel {
             statusLabel.setText(inFlight > 0
                 ? "Paused. Waiting for " + inFlight + " already-sent request(s) to finish."
                 : "Paused. No new requests will be sent.");
+        }
+    }
+
+    private RetryPackage parseRetryPackage(String source) {
+        if (source == null || source.isBlank() || !source.stripLeading().startsWith("{")) {
+            return null;
+        }
+        try {
+            RetryPackage retryPackage = new Gson().fromJson(source, RetryPackage.class);
+            return retryPackage != null
+                && "bypassfuzzer-retry-queue".equals(retryPackage.type())
+                && retryPackage.entries() != null
+                ? retryPackage : null;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

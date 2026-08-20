@@ -521,6 +521,45 @@ class CoverageSweepPanelTest {
     }
 
     @Test
+    void importsRetryQueueJsonEntriesAsRegularSweepCandidates() throws Exception {
+        Path retryPackage = tempDir.resolve("bypassfuzzer-retry-queue.json");
+        Files.writeString(retryPackage, """
+            {
+              "version": "1",
+              "type": "bypassfuzzer-retry-queue",
+              "entries": [
+                {"url": "https://dev.example.test/api/docs/.bak", "method": "GET"},
+                {"url": "https://dev.example.test/api/docs/.old", "method": "GET"}
+              ]
+            }
+            """);
+        CoverageSweepEngine engine = mock(CoverageSweepEngine.class);
+        CoverageSweepPreview preview = new CoverageSweepPreview(2, 2, List.of(
+            candidate("https://dev.example.test/api/docs/.bak", "/api/docs/.bak"),
+            candidate("https://dev.example.test/api/docs/.old", "/api/docs/.old")
+        ));
+        when(engine.collectPreviewFromUrls(eq(List.of(
+            "https://dev.example.test/api/docs/.bak",
+            "https://dev.example.test/api/docs/.old"
+        )), any(CoverageSweepOptions.class), eq(false))).thenReturn(preview);
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()), engine);
+
+        assertTrue(panel.importTargetsFromFile(retryPackage));
+
+        JTable table = field(panel, "candidateTable", JTable.class);
+        assertEquals(2, table.getRowCount());
+        assertEquals("/api/docs/.bak", table.getValueAt(0, 3));
+        assertEquals("/api/docs/.old", table.getValueAt(1, 3));
+        assertTrue(button(panel, "startButton").isEnabled());
+        assertTrue(field(panel, "statusLabel", JLabel.class).getText()
+            .contains("retry-package request(s) as Sweep candidates"));
+        verify(engine).collectPreviewFromUrls(eq(List.of(
+            "https://dev.example.test/api/docs/.bak",
+            "https://dev.example.test/api/docs/.old"
+        )), any(CoverageSweepOptions.class), eq(false));
+    }
+
+    @Test
     void clearImportRemovesCandidatesAndBaseUrlForFreshStart() throws Exception {
         Path targets = tempDir.resolve("sweep-targets.txt");
         Files.writeString(targets, "https://victim.example/admin/users\n");
