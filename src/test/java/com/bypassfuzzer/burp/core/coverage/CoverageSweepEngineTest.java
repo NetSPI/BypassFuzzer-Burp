@@ -901,6 +901,67 @@ class CoverageSweepEngineTest {
     }
 
     @Test
+    void reportsExactMainProgressAndQuarantinesPatternThrottledRetryGroup() throws Exception {
+        CoverageSweepEngine engine = new CoverageSweepEngine(
+            api(List.of()),
+            new SequenceSender(List.of(
+                response(403, "text/plain", "blocked"), // main control
+                response(429, "text/plain", "limited"), // main mutation
+                response(403, "text/plain", "blocked"), // retry control canary
+                response(429, "text/plain", "limited")  // sampled mutation
+            )),
+            new CoverageSweepProbeGenerator()
+        );
+        List<AttackResult> results = Collections.synchronizedList(new ArrayList<>());
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            CoverageSweepOptions.defaults().statuses(), true, 100, 2, 1, 1,
+            CoverageSweepOptions.defaults().throttleStatusCodes()
+        );
+
+        assertTrue(engine.start(List.of(candidate(request("/limited", "", "GET", null, ""), 403)),
+            options, results::add, () -> { }));
+        for (int i = 0; i < 100 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(CoverageSweepEngine.SweepPhase.COMPLETE, engine.phase());
+        assertEquals(2, engine.plannedMainRequestCount());
+        assertEquals(2, engine.completedMainRequestCount());
+        assertEquals(4, engine.sentRequestCount());
+        assertEquals(2, engine.automaticRetryRequestCount());
+        assertEquals(1, engine.quarantinedRetryRequestCount());
+        assertEquals(1, engine.deferredRetryCount());
+        assertEquals(3, results.size());
+        assertEquals(1, results.get(2).getThrottleRetryAttempt());
+    }
+
+    @Test
+    void doesNotReplayMutationWhenRetryControlCanaryIsAlsoThrottled() throws Exception {
+        CoverageSweepEngine engine = new CoverageSweepEngine(
+            api(List.of()),
+            new SequenceSender(List.of(
+                response(403, "text/plain", "blocked"),
+                response(429, "text/plain", "limited"),
+                response(429, "text/plain", "host limited")
+            )),
+            new CoverageSweepProbeGenerator()
+        );
+        List<AttackResult> results = Collections.synchronizedList(new ArrayList<>());
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            CoverageSweepOptions.defaults().statuses(), true, 100, 2, 1, 1,
+            CoverageSweepOptions.defaults().throttleStatusCodes()
+        );
+
+        assertTrue(engine.start(List.of(candidate(request("/limited", "", "GET", null, ""), 403)),
+            options, results::add, () -> { }));
+        for (int i = 0; i < 100 && engine.isRunning(); i++) Thread.sleep(20);
+
+        assertEquals(3, engine.sentRequestCount());
+        assertEquals(1, engine.automaticRetryRequestCount());
+        assertEquals(0, engine.quarantinedRetryRequestCount());
+        assertEquals(1, engine.deferredRetryCount());
+        assertEquals(2, results.size());
+    }
+
+    @Test
     void executesCandidatesConcurrentlyWhenConfigured() throws Exception {
         ConcurrentTrackingSender sender = new ConcurrentTrackingSender(response(403, "text/plain", "blocked"), 120);
         CoverageSweepEngine engine = new CoverageSweepEngine(

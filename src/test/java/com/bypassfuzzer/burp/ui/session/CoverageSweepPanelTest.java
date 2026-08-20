@@ -151,13 +151,16 @@ class CoverageSweepPanelTest {
 
     @Test
     void payloadSetDefaultsToHighSignalAndCanSelectAllPayloads() throws Exception {
-        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of(history("/blocked", 403))));
         JComboBox<?> payloadSet = field(panel, "payloadSetComboBox", JComboBox.class);
         JLabel estimate = field(panel, "estimateLabel", JLabel.class);
+        button(panel, "loadButton").doClick();
 
         assertEquals(2, payloadSet.getItemCount());
         assertEquals("High signal", payloadSet.getSelectedItem());
         assertEquals(CoverageSweepPayloadSet.HIGH_SIGNAL, currentOptions(panel).payloadSet());
+        assertTrue(estimate.getText().contains("configuration ceiling"));
+        assertTrue(estimate.getText().contains("Exact generated count"));
 
         payloadSet.setSelectedIndex(1);
 

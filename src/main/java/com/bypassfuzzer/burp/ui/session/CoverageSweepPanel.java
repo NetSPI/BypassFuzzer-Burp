@@ -1271,7 +1271,7 @@ public class CoverageSweepPanel extends JPanel {
         if (engine.isPaused()) {
             engine.resume();
             pauseButton.setText("Pause");
-            statusLabel.setText("Coverage sweep resumed...");
+            statusLabel.setText(runningStatusText("Resumed. "));
         } else {
             engine.pause();
             pauseButton.setText("Resume");
@@ -1297,9 +1297,7 @@ public class CoverageSweepPanel extends JPanel {
             updateExportButton();
             updateRetryQueueButton();
             updateCompletedHostsLabel();
-        statusLabel.setText((engine.isPaused() ? "Paused" : "Coverage sweep running")
-            + " (" + payloadSetLabel(activePayloadSet) + "): "
-            + resultsWorkspace.allResultsCount() + " requests sent.");
+            statusLabel.setText(runningStatusText(engine.isPaused() ? "Paused. " : ""));
         });
     }
 
@@ -1308,7 +1306,13 @@ public class CoverageSweepPanel extends JPanel {
             resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi((stopRequested ? "Stopped" : "Completed")
                 + " (" + payloadSetLabel(activePayloadSet) + "): "
-                + resultsWorkspace.allResultsCount() + " requests sent.");
+                + engine.completedMainRequestCount() + " / " + engine.plannedMainRequestCount()
+                + " generated main request(s) completed; " + engine.sentRequestCount()
+                + " actual HTTP request(s) sent; " + resultsWorkspace.throttledRetryCount()
+                + " remain in the retry queue"
+                + (engine.quarantinedRetryRequestCount() > 0
+                    ? " (" + engine.quarantinedRetryRequestCount() + " pattern-throttled)" : "")
+                + ".");
             updateRetryQueueButton();
             updateCompletedHostsLabel();
         });
@@ -1333,6 +1337,28 @@ public class CoverageSweepPanel extends JPanel {
 
     private String payloadSetLabel(CoverageSweepPayloadSet payloadSet) {
         return payloadSet == CoverageSweepPayloadSet.ALL_PAYLOADS ? "All payloads" : "High signal";
+    }
+
+    private String runningStatusText(String prefix) {
+        CoverageSweepEngine.SweepPhase phase = engine.phase();
+        String paused = prefix == null ? "" : prefix;
+        if (phase == CoverageSweepEngine.SweepPhase.PREPARING) {
+            return paused + "Preparing exact Sweep probe plan...";
+        }
+        if (phase == CoverageSweepEngine.SweepPhase.AUTOMATIC_RETRIES) {
+            return paused + "Automatic throttle retry phase: main sweep "
+                + engine.completedMainRequestCount() + " / " + engine.plannedMainRequestCount()
+                + " complete; " + engine.automaticRetryRequestCount() + " retry/control request(s) sent; "
+                + resultsWorkspace.throttledRetryCount() + " unique request(s) currently queued"
+                + (engine.quarantinedRetryRequestCount() > 0
+                    ? "; " + engine.quarantinedRetryRequestCount() + " pattern-throttled" : "")
+                + ".";
+        }
+        return paused + "Main sweep (" + payloadSetLabel(activePayloadSet) + "): "
+            + engine.completedMainRequestCount() + " / " + engine.plannedMainRequestCount()
+            + " generated request(s) completed; " + engine.sentRequestCount()
+            + " actual HTTP request(s) sent; " + resultsWorkspace.throttledRetryCount()
+            + " unique request(s) currently queued.";
     }
 
     private void setControlsForLoading() {
@@ -1384,7 +1410,8 @@ public class CoverageSweepPanel extends JPanel {
         int enabled = options.familySelection().highSignalFamilies().size();
         estimateLabel.setText("Selected " + selected + " endpoint(s); " + enabled + "/"
             + com.bypassfuzzer.burp.core.coverage.CoverageSweepFamilySelection.HIGH_SIGNAL_FAMILIES.size()
-            + " High Signal families enabled; estimated max " + estimate + " request(s).");
+            + " High Signal families enabled; configuration ceiling " + estimate
+            + " request(s). Exact generated count is calculated when the sweep starts.");
     }
 
     private record RemoteOpenApiImport(CoverageSweepPreview preview, ImportedOpenApiDocument document) {

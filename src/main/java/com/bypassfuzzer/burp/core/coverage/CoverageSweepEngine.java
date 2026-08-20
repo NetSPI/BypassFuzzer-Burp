@@ -22,6 +22,7 @@ import java.net.URI;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -64,6 +65,21 @@ public class CoverageSweepEngine {
     private final Set<String> sweepHosts = ConcurrentHashMap.newKeySet();
     private final Set<String> completedSweepHosts = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, AtomicInteger> pendingHostCandidates = new ConcurrentHashMap<>();
+    private final AtomicInteger plannedMainRequests = new AtomicInteger();
+    private final AtomicInteger completedMainRequests = new AtomicInteger();
+    private final AtomicInteger sentRequests = new AtomicInteger();
+    private final AtomicInteger automaticRetryRequests = new AtomicInteger();
+    private final AtomicInteger quarantinedRetryRequests = new AtomicInteger();
+    private volatile SweepPhase phase = SweepPhase.IDLE;
+
+    public enum SweepPhase {
+        IDLE,
+        PREPARING,
+        MAIN_SWEEP,
+        AUTOMATIC_RETRIES,
+        COMPLETE,
+        STOPPED
+    }
 
     public CoverageSweepEngine(MontoyaApi api) {
         this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
@@ -238,12 +254,20 @@ public class CoverageSweepEngine {
 
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
         pauseController.reset();
+        plannedMainRequests.set(0);
+        completedMainRequests.set(0);
+        sentRequests.set(0);
+        automaticRetryRequests.set(0);
+        quarantinedRetryRequests.set(0);
+        phase = SweepPhase.PREPARING;
         running = true;
         runnerThread = new Thread(() -> {
             try {
                 execute(candidates, effectiveOptions, resultCallback);
             } finally {
                 running = false;
+                phase = Thread.currentThread().isInterrupted() || phase == SweepPhase.STOPPED
+                    ? SweepPhase.STOPPED : SweepPhase.COMPLETE;
                 if (completionCallback != null) {
                     completionCallback.run();
                 }
@@ -255,6 +279,7 @@ public class CoverageSweepEngine {
 
     public void stop() {
         running = false;
+        phase = SweepPhase.STOPPED;
         HostThrottleCoordinator currentCoordinator = coordinator;
         if (currentCoordinator != null) currentCoordinator.manualResume();
         pauseController.resume();
@@ -309,6 +334,30 @@ public class CoverageSweepEngine {
         return sweepHosts.size();
     }
 
+    public SweepPhase phase() {
+        return phase;
+    }
+
+    public int plannedMainRequestCount() {
+        return plannedMainRequests.get();
+    }
+
+    public int completedMainRequestCount() {
+        return completedMainRequests.get();
+    }
+
+    public int sentRequestCount() {
+        return sentRequests.get();
+    }
+
+    public int automaticRetryRequestCount() {
+        return automaticRetryRequests.get();
+    }
+
+    public int quarantinedRetryRequestCount() {
+        return quarantinedRetryRequests.get();
+    }
+
     public List<String> completedHostSnapshot() {
         return completedSweepHosts.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
     }
@@ -332,6 +381,22 @@ public class CoverageSweepEngine {
                          Consumer<AttackResult> resultCallback) {
         ThrottleSettings throttleSettings = options.throttleSettings();
         coordinator = new HostThrottleCoordinator(throttleSettings, api);
+        List<CandidatePlan> plans = new ArrayList<>(candidates.size());
+        int planned = 0;
+        for (CoverageSweepCandidate candidate : candidates) {
+            if (!canContinue()) {
+                return;
+            }
+            List<CoverageSweepProbe> probes = buildProbes(candidate, options);
+            plans.add(new CandidatePlan(candidate, probes));
+            planned += probes.size();
+            if (options.mode() == CoverageSweepMode.AUTHENTICATED_TRAFFIC
+                && options.verifyUnauthenticatedAccess()) {
+                planned++;
+            }
+        }
+        plannedMainRequests.set(planned);
+        phase = SweepPhase.MAIN_SWEEP;
         // The adaptive controller paces every host; the thread pool is sized to the global in-flight
         // cap so workers can keep all hosts saturated up to each host's discovered rate.
         int concurrency = throttleSettings.globalConcurrency();
@@ -359,15 +424,16 @@ public class CoverageSweepEngine {
 
         // Interleave candidates by host so the thread pool works on all hosts
         // concurrently instead of draining one host at a time.
-        List<CoverageSweepCandidate> interleaved = interleaveByHost(candidates);
+        List<CandidatePlan> interleaved = interleavePlansByHost(plans);
 
-        for (CoverageSweepCandidate candidate : interleaved) {
+        for (CandidatePlan plan : interleaved) {
             if (!canContinue()) {
                 break;
             }
             executor.submit(() -> {
+                CoverageSweepCandidate candidate = plan.candidate();
                 try {
-                    executeCandidate(candidate, options, resultCallback, retryQueue);
+                    executeCandidate(candidate, plan.probes(), options, resultCallback, retryQueue);
                 } catch (Exception e) {
                     safeLogError("Coverage sweep candidate failed for " + candidate.displayUrl() + ": "
                         + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
@@ -393,12 +459,16 @@ public class CoverageSweepEngine {
                 executor.shutdownNow();
             }
         }
+        if (canContinue() && !retryQueue.isEmpty()) {
+            phase = SweepPhase.AUTOMATIC_RETRIES;
+        }
         runDeferredRetries(retryQueue, options, resultCallback, concurrency);
         safeLog("Coverage sweep worker pool finished: " + candidates.size() + " candidate(s) submitted; payload set: "
             + options.payloadSet() + "; deferred retries remaining: " + retryQueue.size());
     }
 
     private void executeCandidate(CoverageSweepCandidate candidate,
+                                  List<CoverageSweepProbe> probes,
                                   CoverageSweepOptions options,
                                   Consumer<AttackResult> resultCallback,
                                   ConcurrentLinkedQueue<RetryTask> retryQueue) {
@@ -415,6 +485,7 @@ public class CoverageSweepEngine {
             HttpRequest scheduledVerificationRequest = verificationRequest;
             anonymousControlResponse = sendScheduled(scheduledVerificationRequest,
                 () -> requestSender.send(scheduledVerificationRequest));
+            completedMainRequests.incrementAndGet();
             if (resultCallback != null) {
                 String signal = anonymousControlResponse == null
                     ? "No response"
@@ -435,13 +506,14 @@ public class CoverageSweepEngine {
             }
         }
 
-        for (CoverageSweepProbe probe : buildProbes(candidate, options)) {
+        for (CoverageSweepProbe probe : probes) {
             if (!canContinue()) {
                 return;
             }
             HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
                 ? requestSender.send(probe.request())
                 : requestSender.send(probe.request(), probe.httpMode()));
+            completedMainRequests.incrementAndGet();
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
             }
@@ -492,6 +564,8 @@ public class CoverageSweepEngine {
                                     CoverageSweepOptions options,
                                     Consumer<AttackResult> resultCallback,
                                     int concurrency) {
+        Set<RetryGroupKey> quarantinedGroups = new HashSet<>();
+        Set<String> hostWideThrottles = new HashSet<>();
         for (int attempt = 1; attempt <= MAX_AUTOMATIC_THROTTLE_RETRIES
             && canContinue() && !retryQueue.isEmpty(); attempt++) {
             List<RetryTask> pending = new ArrayList<>();
@@ -504,6 +578,10 @@ public class CoverageSweepEngine {
             }
             safeLog("Coverage sweep deferred throttle retry pass " + attempt + ": "
                 + pending.size() + " payload(s).");
+            Map<RetryGroupKey, List<RetryTask>> groups = new LinkedHashMap<>();
+            for (RetryTask retry : pending) {
+                groups.computeIfAbsent(retryGroupKey(retry), ignored -> new ArrayList<>()).add(retry);
+            }
             int retryAttempt = attempt;
             AtomicInteger workerCounter = new AtomicInteger(1);
             executor = Executors.newFixedThreadPool(Math.max(1, Math.min(concurrency, pending.size())), runnable -> {
@@ -512,8 +590,51 @@ public class CoverageSweepEngine {
                 thread.setDaemon(true);
                 return thread;
             });
-            for (RetryTask retry : pending) {
-                executor.submit(() -> executeDeferredRetry(retry, retryAttempt, options, resultCallback, retryQueue));
+            for (Map.Entry<RetryGroupKey, List<RetryTask>> entry : groups.entrySet()) {
+                RetryGroupKey group = entry.getKey();
+                List<RetryTask> retries = entry.getValue();
+                if (quarantinedGroups.contains(group) || hostWideThrottles.contains(group.authority())) {
+                    retryQueue.addAll(retries);
+                    continue;
+                }
+
+                RetryTask sample = retries.get(0);
+                HttpRequest controlRequest = sample.result().getOriginalRequest();
+                if (controlRequest == null) {
+                    controlRequest = sample.probe().request();
+                }
+                HttpRequest scheduledControl = controlRequest;
+                HttpResponse controlResponse = sendScheduled(scheduledControl,
+                    () -> requestSender.send(scheduledControl));
+                if (!canContinue() || controlResponse == null || isThrottleResponse(controlResponse, options)) {
+                    retryQueue.addAll(retries);
+                    hostWideThrottles.add(group.authority());
+                    safeLog("Coverage sweep automatic retries paused for " + group.authority()
+                        + ": the unmodified control canary "
+                        + (controlResponse == null ? "had no response" : "returned " + controlResponse.statusCode())
+                        + ". Requests remain in the manual retry queue.");
+                    continue;
+                }
+
+                boolean sampleStillThrottled = executeDeferredRetry(
+                    sample, retryAttempt, options, resultCallback, retryQueue);
+                if (sampleStillThrottled) {
+                    if (retries.size() > 1) {
+                        retryQueue.addAll(retries.subList(1, retries.size()));
+                    }
+                    quarantinedGroups.add(group);
+                    quarantinedRetryRequests.addAndGet(retries.size());
+                    safeLog("Coverage sweep quarantined " + retries.size() + " " + group.family()
+                        + " retry payload(s) for " + group.authority()
+                        + ": the control canary was accepted but the sampled mutation was still throttled.");
+                    continue;
+                }
+
+                for (int index = 1; index < retries.size(); index++) {
+                    RetryTask retry = retries.get(index);
+                    executor.submit(() -> executeDeferredRetry(
+                        retry, retryAttempt, options, resultCallback, retryQueue));
+                }
             }
             executor.shutdown();
             try {
@@ -534,11 +655,11 @@ public class CoverageSweepEngine {
         }
     }
 
-    private void executeDeferredRetry(RetryTask retry,
-                                      int attempt,
-                                      CoverageSweepOptions options,
-                                      Consumer<AttackResult> resultCallback,
-                                      ConcurrentLinkedQueue<RetryTask> retryQueue) {
+    private boolean executeDeferredRetry(RetryTask retry,
+                                         int attempt,
+                                         CoverageSweepOptions options,
+                                         Consumer<AttackResult> resultCallback,
+                                         ConcurrentLinkedQueue<RetryTask> retryQueue) {
         CoverageSweepProbe probe = retry.probe();
         HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
             ? requestSender.send(probe.request())
@@ -547,9 +668,18 @@ public class CoverageSweepEngine {
         if (resultCallback != null) {
             resultCallback.accept(retryResult);
         }
-        if (isThrottleResponse(response, options)) {
+        boolean throttled = isThrottleResponse(response, options);
+        if (throttled) {
             retryQueue.add(new RetryTask(retryResult, probe));
         }
+        return throttled;
+    }
+
+    private RetryGroupKey retryGroupKey(RetryTask retry) {
+        HttpRequest request = retry.probe().request();
+        String authority = authorityKey(request, request == null ? "" : safeUrl(request));
+        String family = safe(retry.result().getPayloadFamily());
+        return new RetryGroupKey(authority, family.isBlank() ? safe(retry.probe().family()) : family);
     }
 
     private boolean isThrottleResponse(HttpResponse response, CoverageSweepOptions options) {
@@ -1015,10 +1145,17 @@ public class CoverageSweepEngine {
         if (!pauseController.awaitIfPaused(this::canContinue)) {
             return null;
         }
+        java.util.function.Supplier<HttpResponse> countedSender = () -> {
+            sentRequests.incrementAndGet();
+            if (phase == SweepPhase.AUTOMATIC_RETRIES) {
+                automaticRetryRequests.incrementAndGet();
+            }
+            return sender.get();
+        };
         HostThrottleCoordinator currentCoordinator = coordinator;
         return currentCoordinator == null
-            ? (pauseController.awaitIfPaused(this::canContinue) ? sender.get() : null)
-            : currentCoordinator.send(request, sender,
+            ? (pauseController.awaitIfPaused(this::canContinue) ? countedSender.get() : null)
+            : currentCoordinator.send(request, countedSender,
                 () -> pauseController.awaitIfPaused(this::canContinue));
     }
 
@@ -1040,28 +1177,31 @@ public class CoverageSweepEngine {
         return value == null ? "" : value;
     }
 
-    /**
-     * Round-robin interleave candidates by host so the thread pool picks up
-     * candidates from different hosts concurrently instead of draining one
-     * host at a time (which happens when candidates are sorted by URL).
-     */
-    private List<CoverageSweepCandidate> interleaveByHost(List<CoverageSweepCandidate> candidates) {
-        Map<String, List<CoverageSweepCandidate>> byHost = new LinkedHashMap<>();
-        for (CoverageSweepCandidate candidate : candidates) {
+    /** Round-robin interleave prepared candidates so all hosts make progress concurrently. */
+    private List<CandidatePlan> interleavePlansByHost(List<CandidatePlan> plans) {
+        Map<String, List<CandidatePlan>> byHost = new LinkedHashMap<>();
+        for (CandidatePlan plan : plans) {
+            CoverageSweepCandidate candidate = plan.candidate();
             String h = host(candidate.request(), candidate.displayUrl());
-            byHost.computeIfAbsent(h, ignored -> new ArrayList<>()).add(candidate);
+            byHost.computeIfAbsent(h, ignored -> new ArrayList<>()).add(plan);
         }
-        List<CoverageSweepCandidate> result = new ArrayList<>(candidates.size());
+        List<CandidatePlan> result = new ArrayList<>(plans.size());
         int maxSize = byHost.values().stream().mapToInt(List::size).max().orElse(0);
-        List<List<CoverageSweepCandidate>> buckets = new ArrayList<>(byHost.values());
+        List<List<CandidatePlan>> buckets = new ArrayList<>(byHost.values());
         for (int i = 0; i < maxSize; i++) {
-            for (List<CoverageSweepCandidate> bucket : buckets) {
+            for (List<CandidatePlan> bucket : buckets) {
                 if (i < bucket.size()) {
                     result.add(bucket.get(i));
                 }
             }
         }
         return result;
+    }
+
+    private record CandidatePlan(CoverageSweepCandidate candidate, List<CoverageSweepProbe> probes) {
+    }
+
+    private record RetryGroupKey(String authority, String family) {
     }
 
     @FunctionalInterface
