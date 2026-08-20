@@ -18,6 +18,8 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -105,6 +107,53 @@ class SessionResultsWorkspaceTest {
         assertEquals(0, sender.sendCount);
     }
 
+    @Test
+    void manualRetryCanPauseBetweenRequestsAndResumeWhereItLeftOff() throws Exception {
+        BlockingFirstSender sender = new BlockingFirstSender(response(429));
+        SessionResultsWorkspace workspace = workspace(sender);
+        workspace.configureThrottleRetries(Set.of(429));
+        workspace.addResult(new AttackResult("Path", "one",
+            request("/one", "", "GET", null, ""), response(429)));
+        workspace.addResult(new AttackResult("Path", "two",
+            request("/two", "", "GET", null, ""), response(429)));
+
+        workspace.retryThrottled(false);
+        assertTrue(sender.firstStarted.await(2, TimeUnit.SECONDS));
+        workspace.pauseThrottleRetry();
+        sender.releaseFirst.countDown();
+        Thread.sleep(150);
+
+        assertTrue(workspace.isRetryRunning());
+        assertTrue(workspace.isRetryPaused());
+        assertEquals(1, sender.sendCount.get());
+
+        workspace.resumeThrottleRetry();
+        waitForRetry(workspace);
+
+        assertEquals(2, sender.sendCount.get());
+        assertEquals(2, workspace.throttledRetryCount());
+    }
+
+    @Test
+    void stoppingManualRetryKeepsUnfinishedRequestsQueued() throws Exception {
+        BlockingFirstSender sender = new BlockingFirstSender(response(429));
+        SessionResultsWorkspace workspace = workspace(sender);
+        workspace.configureThrottleRetries(Set.of(429));
+        workspace.addResult(new AttackResult("Path", "one",
+            request("/one", "", "GET", null, ""), response(429)));
+        workspace.addResult(new AttackResult("Path", "two",
+            request("/two", "", "GET", null, ""), response(429)));
+
+        workspace.retryThrottled(false);
+        assertTrue(sender.firstStarted.await(2, TimeUnit.SECONDS));
+        workspace.stopThrottleRetry();
+        sender.releaseFirst.countDown();
+        waitForRetry(workspace);
+
+        assertEquals(2, workspace.throttledRetryCount());
+        assertTrue(workspace.retryStatusText().contains("stopped"));
+    }
+
     private SessionResultsWorkspace workspace(RequestSender sender) {
         return new SessionResultsWorkspace(
             api(),
@@ -157,6 +206,35 @@ class SessionResultsWorkspaceTest {
                 default -> null;
             }
         );
+    }
+
+    private static final class BlockingFirstSender implements RequestSender {
+        private final HttpResponse response;
+        private final AtomicInteger sendCount = new AtomicInteger();
+        private final CountDownLatch firstStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFirst = new CountDownLatch(1);
+
+        private BlockingFirstSender(HttpResponse response) {
+            this.response = response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request) {
+            if (sendCount.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                try {
+                    releaseFirst.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return response;
+        }
+
+        @Override
+        public HttpResponse send(HttpRequest request, long timeout, TimeUnit timeUnit) {
+            return send(request);
+        }
     }
 
     private static final class SequenceSender implements RequestSender {

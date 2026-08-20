@@ -114,6 +114,7 @@ public class CoverageSweepPanel extends JPanel {
     private RetryQueueTableModel retryQueueTableModel;
     private JButton retryQueueExportJsonButton;
     private volatile boolean stopRequested = false;
+    private boolean retryExecutionControlsActive;
     private List<CoverageSweepCandidate> cachedHistoryCandidates = List.of();
     private CoverageSweepPreview cachedHistoryPreview;
     private Set<String> discoveredAuthHeaders = Set.of();
@@ -788,6 +789,7 @@ public class CoverageSweepPanel extends JPanel {
         resultsWorkspace.setThrottleRetryQueueChangedListener(() -> {
             updateRetryQueueButton();
             refreshRetryQueueDialog();
+            updateExecutionControlsForRetry();
         });
 
         centerSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, candidatesScrollPane, resultsWorkspace.component());
@@ -1259,6 +1261,13 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void stopSweep() {
+        if (resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.stopThrottleRetry();
+            stopButton.setEnabled(false);
+            pauseButton.setEnabled(false);
+            statusLabel.setText("Stopping throttle retry pass...");
+            return;
+        }
         stopRequested = true;
         stopButton.setEnabled(false);
         pauseButton.setEnabled(false);
@@ -1267,6 +1276,17 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void togglePause() {
+        if (resultsWorkspace.isRetryRunning()) {
+            if (resultsWorkspace.isRetryPaused()) {
+                resultsWorkspace.resumeThrottleRetry();
+                pauseButton.setText("Pause");
+            } else {
+                resultsWorkspace.pauseThrottleRetry();
+                pauseButton.setText("Resume");
+            }
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+            return;
+        }
         if (!engine.isRunning()) return;
         if (engine.isPaused()) {
             engine.resume();
@@ -1339,6 +1359,35 @@ public class CoverageSweepPanel extends JPanel {
         return payloadSet == CoverageSweepPayloadSet.ALL_PAYLOADS ? "All payloads" : "High signal";
     }
 
+    private void updateExecutionControlsForRetry() {
+        if (startButton == null || stopButton == null || pauseButton == null) return;
+        if (resultsWorkspace.isRetryRunning()) {
+            retryExecutionControlsActive = true;
+            startButton.setText("Retrying queue...");
+            startButton.setEnabled(false);
+            stopButton.setText("Stop Retry");
+            stopButton.setEnabled(true);
+            pauseButton.setText(resultsWorkspace.isRetryPaused() ? "Resume" : "Pause");
+            pauseButton.setEnabled(true);
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+            return;
+        }
+        if (!retryExecutionControlsActive) return;
+        retryExecutionControlsActive = false;
+        startButton.setText("Start Sweep");
+        stopButton.setText("Stop");
+        if (!engine.isRunning() && sweepPreparationWorker == null) {
+            startButton.setEnabled(!candidateTableModel.selectedCandidates().isEmpty());
+            stopButton.setEnabled(false);
+            pauseButton.setText("Pause");
+            pauseButton.setEnabled(false);
+            if (resultsWorkspace.retryStatusText() != null
+                && !resultsWorkspace.retryStatusText().isBlank()) {
+                statusLabel.setText(resultsWorkspace.retryStatusText());
+            }
+        }
+    }
+
     private String runningStatusText(String prefix) {
         CoverageSweepEngine.SweepPhase phase = engine.phase();
         String paused = prefix == null ? "" : prefix;
@@ -1377,6 +1426,8 @@ public class CoverageSweepPanel extends JPanel {
 
     private void updateIdleUi(String message) {
         statusLabel.setText(message);
+        startButton.setText("Start Sweep");
+        stopButton.setText("Stop");
         loadButton.setEnabled(true);
         importButton.setEnabled(true);
         clearImportButton.setEnabled(currentMode() == CoverageSweepMode.IMPORTED_TARGETS

@@ -5,10 +5,11 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
-import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
-import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.filter.ResultFilterController;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestSender;
 
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -58,9 +60,13 @@ public class SessionResultsWorkspace {
     private final Map<String, DeferredRetry> throttledRetries = new LinkedHashMap<>();
     private Set<Integer> throttleStatusCodes = Set.of(429, 503);
     private boolean primaryRunActive;
-    private boolean retryRunning;
+    private volatile boolean retryRunning;
     private long queueGeneration;
     private SwingWorker<Void, RetryOutcome> retryWorker;
+    private final ExecutionPauseController retryPauseController = new ExecutionPauseController();
+    private volatile HostThrottleCoordinator retryCoordinator;
+    private volatile boolean retryPaused;
+    private volatile boolean retryStopRequested;
     private boolean filtersCollapsed;
     private Runnable throttleRetryQueueChangedListener = () -> { };
 
@@ -187,6 +193,47 @@ public class SessionResultsWorkspace {
         return retryRunning;
     }
 
+    public boolean isRetryPaused() {
+        return retryRunning && retryPaused;
+    }
+
+    public String retryStatusText() {
+        return retryStatusLabel.getText();
+    }
+
+    public void pauseThrottleRetry() {
+        if (!retryRunning || retryPaused) return;
+        retryPaused = true;
+        retryPauseController.pause();
+        HostThrottleCoordinator current = retryCoordinator;
+        if (current != null) current.manualPause();
+        retryStatusLabel.setText("Throttle retry pass paused. Already-sent requests may still finish.");
+        updateRetryControls();
+    }
+
+    public void resumeThrottleRetry() {
+        if (!retryRunning || !retryPaused) return;
+        HostThrottleCoordinator current = retryCoordinator;
+        if (current != null) current.manualResume();
+        retryPaused = false;
+        retryPauseController.resume();
+        retryStatusLabel.setText("Throttle retry pass resumed...");
+        updateRetryControls();
+    }
+
+    public void stopThrottleRetry() {
+        if (!retryRunning) return;
+        retryStopRequested = true;
+        retryPaused = false;
+        retryPauseController.resume();
+        HostThrottleCoordinator current = retryCoordinator;
+        if (current != null) current.manualResume();
+        SwingWorker<Void, RetryOutcome> worker = retryWorker;
+        if (worker != null) worker.cancel(true);
+        retryStatusLabel.setText("Stopping throttle retry pass...");
+        updateRetryControls();
+    }
+
     void retryThrottled(boolean includeUnsafeMethods) {
         List<Map.Entry<String, DeferredRetry>> selected = new ArrayList<>();
         long generation;
@@ -205,6 +252,9 @@ public class SessionResultsWorkspace {
             selected.forEach(entry -> throttledRetries.remove(entry.getKey()));
             generation = queueGeneration;
             retryRunning = true;
+            retryPaused = false;
+            retryStopRequested = false;
+            retryPauseController.reset();
         }
 
         retryStatusLabel.setText("Retrying " + selected.size() + " throttled request(s) serially...");
@@ -215,16 +265,24 @@ public class SessionResultsWorkspace {
         HostThrottleCoordinator coordinator = new HostThrottleCoordinator(
             new ThrottleSettings(throttleStatusCodes, 1, 1, 400.0, ThrottleSettings.Posture.CONSERVATIVE),
             (burp.api.montoya.MontoyaApi) null);
+        retryCoordinator = coordinator;
+        Set<String> processedKeys = ConcurrentHashMap.newKeySet();
         retryWorker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() {
                 for (Map.Entry<String, DeferredRetry> queued : selected) {
-                    if (isCancelled() || Thread.currentThread().isInterrupted()) {
+                    if (!retryPauseController.awaitIfPaused(() -> !retryStopRequested && !isCancelled())
+                        || retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
                         break;
                     }
                     DeferredRetry retry = queued.getValue();
                     HttpRequest retryRequest = retry.result().getRequest();
-                    HttpResponse response = coordinator.send(retryRequest, () -> sendRetry(retryRequest));
+                    HttpResponse response = coordinator.send(retryRequest, () -> sendRetry(retryRequest),
+                        () -> retryPauseController.awaitIfPaused(
+                            () -> !retryStopRequested && !isCancelled()));
+                    if (retryStopRequested || isCancelled() || Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
                     publish(new RetryOutcome(queued.getKey(), retry, response, generation));
                 }
                 return null;
@@ -240,6 +298,7 @@ public class SessionResultsWorkspace {
                     AttackResult retryResult = AttackResult.throttleRetryOf(
                         outcome.retry().result(), outcome.response(), attempt);
                     addResult(retryResult);
+                    processedKeys.add(outcome.key());
                 }
             }
 
@@ -254,13 +313,23 @@ public class SessionResultsWorkspace {
                         if (retryWorker != this) {
                             return;
                         }
+                        for (Map.Entry<String, DeferredRetry> queued : selected) {
+                            if (!processedKeys.contains(queued.getKey())) {
+                                throttledRetries.putIfAbsent(queued.getKey(), queued.getValue());
+                            }
+                        }
                         retryRunning = false;
+                        retryPaused = false;
                         retryWorker = null;
+                        retryCoordinator = null;
                     }
                     int remaining = throttledRetryCount();
-                    retryStatusLabel.setText(remaining == 0
-                        ? "Throttle retry pass completed; no requests remain throttled."
-                        : "Throttle retry pass completed; " + remaining + " request(s) remain throttled.");
+                    retryStatusLabel.setText(retryStopRequested
+                        ? "Throttle retry pass stopped; " + remaining + " request(s) remain queued."
+                        : remaining == 0
+                            ? "Throttle retry pass completed; no requests remain throttled."
+                            : "Throttle retry pass completed; " + remaining + " request(s) remain throttled.");
+                    retryStopRequested = false;
                     updateRetryControls();
                 }
             }
@@ -457,6 +526,12 @@ public class SessionResultsWorkspace {
         SwingWorker<Void, RetryOutcome> worker = retryWorker;
         retryWorker = null;
         retryRunning = false;
+        retryPaused = false;
+        retryStopRequested = true;
+        retryPauseController.resume();
+        HostThrottleCoordinator current = retryCoordinator;
+        retryCoordinator = null;
+        if (current != null) current.manualResume();
         if (worker != null) {
             worker.cancel(true);
         }
