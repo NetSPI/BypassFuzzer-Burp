@@ -20,6 +20,7 @@ import com.bypassfuzzer.burp.ui.session.UrlValidationPanel;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -27,6 +28,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -46,10 +48,13 @@ public class FuzzingSessionTab extends JPanel {
 
     private JButton startButton;
     private JButton stopButton;
+    private JButton pauseButton;
     private JLabel statusLabel;
     private JLabel warningLabel;
     private AttackSelectionPanel attackSelectionPanel;
     private RunOptionsPanel runOptionsPanel;
+    private JButton optionsButton;
+    private JDialog optionsDialog;
     private SessionResultsWorkspace resultsWorkspace;
     private UrlValidationPanel urlValidationPanel;
     private IdorPanel idorPanel;
@@ -82,6 +87,7 @@ public class FuzzingSessionTab extends JPanel {
         sessionController.stop();
         startButton.setEnabled(false);
         stopButton.setEnabled(false);
+        pauseButton.setEnabled(false);
         statusLabel.setText("Stopping...");
     }
 
@@ -96,6 +102,9 @@ public class FuzzingSessionTab extends JPanel {
         }
         if (idorPanel != null) {
             idorPanel.cleanup();
+        }
+        if (optionsDialog != null) {
+            optionsDialog.dispose();
         }
     }
 
@@ -134,11 +143,19 @@ public class FuzzingSessionTab extends JPanel {
         stopButton = new JButton("Stop");
         stopButton.setEnabled(false);
         stopButton.addActionListener(e -> stopFuzzing());
+        pauseButton = new JButton("Pause");
+        pauseButton.setEnabled(false);
+        pauseButton.addActionListener(e -> togglePause());
         JButton clearButton = new JButton("Clear Results");
         clearButton.addActionListener(e -> clearResults());
+        optionsButton = new JButton("Options...");
+        optionsButton.setToolTipText("Configure execution, throttling, headers, and Collaborator payloads.");
+        optionsButton.addActionListener(e -> openOptionsDialog());
         controlPanel.add(startButton);
         controlPanel.add(stopButton);
+        controlPanel.add(pauseButton);
         controlPanel.add(clearButton);
+        controlPanel.add(optionsButton);
 
         statusLabel = new JLabel("Ready. Target: " + request.method() + " " + request.url());
         warningLabel = new JLabel("");
@@ -162,11 +179,33 @@ public class FuzzingSessionTab extends JPanel {
 
         JPanel optionsRow = new JPanel(new BorderLayout());
         optionsRow.add(attackSelectionPanel, BorderLayout.CENTER);
-        optionsRow.add(runOptionsPanel, BorderLayout.EAST);
         topContent.add(optionsRow);
 
         topPanel.add(topContent, BorderLayout.CENTER);
         return topPanel;
+    }
+
+    private void openOptionsDialog() {
+        if (optionsDialog == null) {
+            optionsDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), "Bypass Options", false);
+            optionsDialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+
+            JPanel content = new JPanel(new BorderLayout(8, 8));
+            content.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            content.add(runOptionsPanel, BorderLayout.CENTER);
+
+            JButton closeButton = new JButton("Close");
+            closeButton.addActionListener(e -> optionsDialog.setVisible(false));
+            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            buttons.add(closeButton);
+            content.add(buttons, BorderLayout.SOUTH);
+
+            optionsDialog.setContentPane(content);
+            optionsDialog.pack();
+            optionsDialog.setMinimumSize(new Dimension(520, 260));
+        }
+        optionsDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
+        optionsDialog.setVisible(true);
     }
 
     private JSplitPane buildCenterPanel() {
@@ -233,6 +272,22 @@ public class FuzzingSessionTab extends JPanel {
             stopButton.setEnabled(false);
             setAttackControlsEnabled(true);
             statusLabel.setText("Unable to start fuzzing");
+        } else {
+            pauseButton.setText("Pause");
+            pauseButton.setEnabled(true);
+        }
+    }
+
+    private void togglePause() {
+        if (!sessionController.isRunning()) return;
+        if (sessionController.isPaused()) {
+            sessionController.resume();
+            pauseButton.setText("Pause");
+            statusLabel.setText("Fuzzing resumed...");
+        } else {
+            sessionController.pause();
+            pauseButton.setText("Resume");
+            statusLabel.setText("Paused after the current request.");
         }
     }
 
@@ -256,9 +311,11 @@ public class FuzzingSessionTab extends JPanel {
 
                 int totalSent = resultsWorkspace.allResultsCount();
                 int showing = resultsWorkspace.shownResultsCount();
-                statusLabel.setText(sessionController.isRunning()
-                    ? "Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")"
-                    : "Completed: " + totalSent + " requests sent, showing " + showing);
+                statusLabel.setText(sessionController.isPaused()
+                    ? "Paused (" + totalSent + " requests sent, showing " + showing + ")"
+                    : sessionController.isRunning()
+                        ? "Fuzzing... (" + totalSent + " requests sent, showing " + showing + ")"
+                        : "Completed: " + totalSent + " requests sent, showing " + showing);
 
                 if (!sessionController.isRunning()) {
                     startButton.setEnabled(true);
@@ -279,6 +336,8 @@ public class FuzzingSessionTab extends JPanel {
                 statusLabel.setText("Fuzzing in progress...");
                 startButton.setEnabled(false);
                 stopButton.setEnabled(true);
+                pauseButton.setText("Pause");
+                pauseButton.setEnabled(true);
                 setAttackControlsEnabled(false);
                 return;
             }
@@ -303,6 +362,7 @@ public class FuzzingSessionTab extends JPanel {
                     resultsWorkspace.setPrimaryRunActive(false);
                     startButton.setEnabled(false);
                     stopButton.setEnabled(false);
+                    pauseButton.setEnabled(false);
                 }
                 default -> {
                 }
@@ -314,6 +374,8 @@ public class FuzzingSessionTab extends JPanel {
         statusLabel.setText(message);
         startButton.setEnabled(true);
         stopButton.setEnabled(false);
+        pauseButton.setText("Pause");
+        pauseButton.setEnabled(false);
         setAttackControlsEnabled(true);
     }
 
@@ -324,6 +386,7 @@ public class FuzzingSessionTab extends JPanel {
 
         attackSelectionPanel.setControlsEnabled(enabled);
         runOptionsPanel.setControlsEnabled(enabled, isCollaboratorAvailable());
+        optionsButton.setEnabled(enabled);
     }
 
     private boolean isCollaboratorAvailable() {

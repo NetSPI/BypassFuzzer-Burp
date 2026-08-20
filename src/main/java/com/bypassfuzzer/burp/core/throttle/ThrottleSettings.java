@@ -17,7 +17,9 @@ public record ThrottleSettings(
     int globalConcurrency,
     int perHostConcurrency,
     double maxRatePerHost,
-    Posture posture
+    Posture posture,
+    PauseMode pauseMode,
+    long fixedPauseMillis
 ) {
 
     /** How aggressively to ride the discovered ceiling. */
@@ -28,6 +30,18 @@ public record ThrottleSettings(
         CONSERVATIVE
     }
 
+    public enum PauseMode {
+        OFF,
+        FIXED,
+        SMART
+    }
+
+    public ThrottleSettings(Set<Integer> throttleStatusCodes, int globalConcurrency,
+                            int perHostConcurrency, double maxRatePerHost, Posture posture) {
+        this(throttleStatusCodes, globalConcurrency, perHostConcurrency, maxRatePerHost, posture,
+            PauseMode.OFF, 30_000L);
+    }
+
     public ThrottleSettings {
         throttleStatusCodes = throttleStatusCodes == null || throttleStatusCodes.isEmpty()
             ? Set.of(429, 503) : Set.copyOf(throttleStatusCodes);
@@ -35,10 +49,13 @@ public record ThrottleSettings(
         perHostConcurrency = Math.max(1, perHostConcurrency);
         maxRatePerHost = maxRatePerHost <= 0 ? 400.0 : maxRatePerHost;
         posture = posture == null ? Posture.RIDE_HARD : posture;
+        pauseMode = pauseMode == null ? PauseMode.OFF : pauseMode;
+        fixedPauseMillis = Math.max(1_000L, fixedPauseMillis);
     }
 
     public static ThrottleSettings defaults() {
-        return new ThrottleSettings(Set.of(429, 503), 200, 50, 400.0, Posture.RIDE_HARD);
+        return new ThrottleSettings(Set.of(429, 503), 200, 50, 400.0, Posture.RIDE_HARD,
+            PauseMode.OFF, 30_000L);
     }
 
     /** The control-law tuning implied by this posture and per-host rate cap. */

@@ -20,6 +20,7 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbeGenerator;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
 import com.bypassfuzzer.burp.http.ConfiguredHeader;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,6 +32,8 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import java.awt.Component;
+import java.awt.Container;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -148,7 +151,44 @@ class CoverageSweepPanelTest {
         payloadSet.setSelectedIndex(1);
 
         assertEquals(CoverageSweepPayloadSet.ALL_PAYLOADS, currentOptions(panel).payloadSet());
-        assertTrue(estimate.getText().contains("all Bypass payload families"));
+        assertTrue(estimate.getText().contains("Bypass payload families enabled"));
+    }
+
+    @Test
+    void sweepThrottleSupportsFixedAndSmartGlobalPauses() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        ThrottleSettingsControl throttle = field(panel, "throttleControl", ThrottleSettingsControl.class);
+        JComboBox<?> pauseMode = field(throttle, "pauseModeComboBox", JComboBox.class);
+        JTextField fixedSeconds = field(throttle, "fixedPauseSecondsField", JTextField.class);
+
+        assertEquals(ThrottleSettings.PauseMode.OFF, currentOptions(panel).pauseMode());
+
+        pauseMode.setSelectedIndex(1);
+        fixedSeconds.setText("45");
+        assertEquals(ThrottleSettings.PauseMode.FIXED, currentOptions(panel).pauseMode());
+        assertEquals(45_000L, currentOptions(panel).fixedPauseMillis());
+
+        pauseMode.setSelectedIndex(2);
+        assertEquals(ThrottleSettings.PauseMode.SMART, currentOptions(panel).pauseMode());
+    }
+
+    @Test
+    void payloadFamiliesCanBeControlledIndependentlyForBothSweepInventories() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        CoverageSweepFamilyControl control = field(
+            panel, "payloadFamilyControl", CoverageSweepFamilyControl.class);
+
+        assertTrue(control.button().isVisible());
+        control.setHighSignalFamilyEnabled("Header", false);
+        assertFalse(currentOptions(panel).familySelection().highSignalFamilies().contains("Header"));
+
+        field(panel, "payloadSetComboBox", JComboBox.class).setSelectedIndex(1);
+        control.setBypassFamilyEnabled(
+            com.bypassfuzzer.burp.core.attacks.AttackType.HEADER, false);
+        assertFalse(currentOptions(panel).familySelection().bypassFamilies().contains(
+            com.bypassfuzzer.burp.core.attacks.AttackType.HEADER));
+        assertTrue(currentOptions(panel).familySelection().bypassFamilies().contains(
+            com.bypassfuzzer.burp.core.attacks.AttackType.PATH));
     }
 
     @Test
@@ -226,6 +266,7 @@ class CoverageSweepPanelTest {
         JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
         JButton load = button(panel, "loadButton");
         JButton importTargets = button(panel, "importButton");
+        JButton importMenu = button(panel, "importMenuButton");
         JButton clearImport = button(panel, "clearImportButton");
         JButton applyBaseUrl = button(panel, "applyOpenApiBaseUrlButton");
         JButton authIdentifiers = button(panel, "authIdentifiersButton");
@@ -241,9 +282,11 @@ class CoverageSweepPanelTest {
         assertFalse(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
+        assertFalse(importMenu.isVisible());
         assertFalse(clearImport.isVisible());
         assertFalse(applyBaseUrl.isVisible());
         assertTrue(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+        assertSame(load, firstVisibleComponent(load.getParent()));
 
         mode.setSelectedIndex(1);
 
@@ -252,9 +295,11 @@ class CoverageSweepPanelTest {
         assertTrue(authIdentifiers.isVisible());
         assertTrue(load.isVisible());
         assertFalse(importTargets.isVisible());
+        assertFalse(importMenu.isVisible());
         assertFalse(clearImport.isVisible());
         assertFalse(applyBaseUrl.isVisible());
         assertFalse(field(panel, "pullResponsesLabel", javax.swing.JLabel.class).isVisible());
+        assertSame(load, firstVisibleComponent(load.getParent()));
 
         mode.setSelectedIndex(2);
 
@@ -264,6 +309,8 @@ class CoverageSweepPanelTest {
         assertFalse(load.isVisible());
         assertTrue(importTargets.isVisible());
         assertTrue(importTargets.isEnabled());
+        assertTrue(importMenu.isVisible());
+        assertTrue(importMenu.isEnabled());
         assertTrue(clearImport.isVisible());
         assertFalse(clearImport.isEnabled());
         assertTrue(applyBaseUrl.isVisible());
@@ -280,12 +327,59 @@ class CoverageSweepPanelTest {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
         JComboBox<?> mode = field(panel, "modeComboBox", JComboBox.class);
         JCheckBox verify = checkbox(panel, "verifyUnauthenticatedAccessCheckBox");
+        SessionResultsWorkspace workspace = field(panel, "resultsWorkspace", SessionResultsWorkspace.class);
+        SessionResultsPanel resultsPanel = field(workspace, "resultsPanel", SessionResultsPanel.class);
+        javax.swing.JTabbedPane viewerTabs = field(resultsPanel, "viewerTabs", javax.swing.JTabbedPane.class);
 
         assertTrue(verify.isSelected());
         assertFalse(verify.isVisible());
+        assertEquals(4, viewerTabs.getTabCount());
 
         mode.setSelectedIndex(1);
         assertTrue(verify.isVisible());
+        assertEquals(6, viewerTabs.getTabCount());
+
+        mode.setSelectedIndex(0);
+        assertEquals(4, viewerTabs.getTabCount());
+    }
+
+    @Test
+    void browserUserAgentSitsBesideStateChangingMethodsAndSweepHidesInlineRetryRow() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        JCheckBox browser = checkbox(panel, "browserUserAgentCheckBox");
+        JCheckBox unsafe = checkbox(panel, "includeUnsafeMethodsCheckBox");
+        SessionResultsWorkspace workspace = field(panel, "resultsWorkspace", SessionResultsWorkspace.class);
+        JPanel retryRow = field(workspace, "retryRow", JPanel.class);
+
+        assertSame(unsafe.getParent(), browser.getParent());
+        assertFalse(retryRow.isVisible());
+        assertTrue(button(panel, "retryQueueButton").getText().startsWith("Retry queue"));
+        assertEquals("Pause", button(panel, "pauseButton").getText());
+        assertFalse(button(panel, "pauseButton").isEnabled());
+    }
+
+    @Test
+    void retryQueueAndRetryThrottledAlwaysUseTheSameVisibleQueueCount() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        SessionResultsWorkspace workspace = field(panel, "resultsWorkspace", SessionResultsWorkspace.class);
+        JButton queueButton = button(panel, "retryQueueButton");
+        JButton retryButton = workspace.retryThrottledButton();
+        HttpRequest throttledRequest = request("/limited", "", "GET", null, "");
+
+        workspace.addResult(new AttackResult(
+            "Coverage Sweep", "header probe", "GET /limited", "Header", "",
+            throttledRequest, response(429, "text/plain", "slow down")));
+        SwingUtilities.invokeAndWait(() -> { });
+
+        assertEquals("Retry queue (1)", queueButton.getText());
+        assertEquals("Retry Throttled (1)", retryButton.getText());
+        assertEquals(1, workspace.throttledRetrySnapshot().size());
+
+        workspace.clear();
+        SwingUtilities.invokeAndWait(() -> { });
+
+        assertEquals("Retry queue (0)", queueButton.getText());
+        assertEquals("Retry Throttled (0)", retryButton.getText());
     }
 
     @Test
@@ -762,12 +856,16 @@ class CoverageSweepPanelTest {
 
     private MontoyaApi api(List<ProxyHttpRequestResponse> history, long responseDelayMs) {
         MontoyaApi api = mock(MontoyaApi.class, org.mockito.Mockito.RETURNS_DEEP_STUBS);
-        HttpRequestEditor requestEditor = mock(HttpRequestEditor.class);
-        HttpResponseEditor responseEditor = mock(HttpResponseEditor.class);
-        when(api.userInterface().createHttpRequestEditor()).thenReturn(requestEditor);
-        when(api.userInterface().createHttpResponseEditor()).thenReturn(responseEditor);
-        when(requestEditor.uiComponent()).thenReturn(new JPanel());
-        when(responseEditor.uiComponent()).thenReturn(new JPanel());
+        when(api.userInterface().createHttpRequestEditor()).thenAnswer(invocation -> {
+            HttpRequestEditor editor = mock(HttpRequestEditor.class);
+            when(editor.uiComponent()).thenReturn(new JPanel());
+            return editor;
+        });
+        when(api.userInterface().createHttpResponseEditor()).thenAnswer(invocation -> {
+            HttpResponseEditor editor = mock(HttpResponseEditor.class);
+            when(editor.uiComponent()).thenReturn(new JPanel());
+            return editor;
+        });
         when(api.scope().isInScope(any())).thenReturn(true);
         when(api.proxy().history()).thenReturn(history);
         when(api.proxy().history(any())).thenAnswer(invocation -> {
@@ -864,6 +962,13 @@ class CoverageSweepPanelTest {
 
     private JButton button(CoverageSweepPanel panel, String fieldName) throws Exception {
         return field(panel, fieldName, JButton.class);
+    }
+
+    private Component firstVisibleComponent(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component.isVisible()) return component;
+        }
+        return null;
     }
 
     private JCheckBox checkbox(CoverageSweepPanel panel, String fieldName) throws Exception {

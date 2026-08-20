@@ -77,6 +77,7 @@ public class SessionResultsPanel extends JPanel {
     private final HttpResponseEditor originalResponseViewer;
     private final HttpRequestEditor verificationRequestViewer;
     private final HttpResponseEditor verificationResponseViewer;
+    private JTabbedPane viewerTabs;
     private JPopupMenu tablePopupMenu;
     private AttackResult displayedResult;
 
@@ -189,14 +190,12 @@ public class SessionResultsPanel extends JPanel {
 
         JScrollPane tableScrollPane = new JScrollPane(resultsTable);
 
-        JTabbedPane viewerTabs = new JTabbedPane();
+        viewerTabs = new JTabbedPane();
         viewerTabs.addTab("Request", requestViewer.uiComponent());
         viewerTabs.addTab("Response", responseViewer.uiComponent());
         if (originalRequestViewer != null && originalResponseViewer != null) {
             viewerTabs.addTab("Original Request", originalRequestViewer.uiComponent());
             viewerTabs.addTab("Original Response", originalResponseViewer.uiComponent());
-            viewerTabs.addTab("Auth Verification Request", verificationRequestViewer.uiComponent());
-            viewerTabs.addTab("Auth Verification Response", verificationResponseViewer.uiComponent());
         }
 
         int splitOrientation = viewerLayout == ViewerLayout.RIGHT_OF_TABLE
@@ -210,6 +209,30 @@ public class SessionResultsPanel extends JPanel {
             SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(0.5));
         }
         add(splitPane, BorderLayout.CENTER);
+    }
+
+    /** Shows authentication verification exchanges only for authenticated-traffic sweeps. */
+    public void setAuthVerificationTabsVisible(boolean visible) {
+        if (viewerTabs == null || verificationRequestViewer == null || verificationResponseViewer == null) {
+            return;
+        }
+
+        Component requestComponent = verificationRequestViewer.uiComponent();
+        Component responseComponent = verificationResponseViewer.uiComponent();
+        boolean currentlyVisible = viewerTabs.indexOfComponent(requestComponent) >= 0;
+        if (visible == currentlyVisible) {
+            return;
+        }
+
+        if (visible) {
+            viewerTabs.addTab("Auth Verification Request", requestComponent);
+            viewerTabs.addTab("Auth Verification Response", responseComponent);
+        } else {
+            viewerTabs.remove(requestComponent);
+            viewerTabs.remove(responseComponent);
+        }
+        viewerTabs.revalidate();
+        viewerTabs.repaint();
     }
 
     private void configureRenderer() {

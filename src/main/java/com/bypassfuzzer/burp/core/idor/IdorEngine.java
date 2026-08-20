@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.idor;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybook;
@@ -30,6 +31,7 @@ public class IdorEngine {
     private volatile boolean running = false;
     private Thread runnerThread;
     private HostThrottleCoordinator coordinator;
+    private final ExecutionPauseController pauseController = new ExecutionPauseController();
 
     public IdorEngine(MontoyaApi api) {
         this(api, new IdorRequestContextAnalyzer(), new IdorPlaybookRegistry(), new MontoyaRequestSender(api));
@@ -50,6 +52,7 @@ public class IdorEngine {
             return false;
         }
 
+        pauseController.reset();
         running = true;
         runnerThread = new Thread(() -> {
             try {
@@ -67,6 +70,7 @@ public class IdorEngine {
 
     public void stop() {
         running = false;
+        pauseController.resume();
         if (runnerThread != null) {
             runnerThread.interrupt();
         }
@@ -86,6 +90,10 @@ public class IdorEngine {
     public boolean isRunning() {
         return running;
     }
+
+    public void pause() { if (running) pauseController.pause(); }
+    public void resume() { pauseController.resume(); }
+    public boolean isPaused() { return pauseController.isPaused(); }
 
     private void execute(HttpRequest request, IdorOptions options, Consumer<AttackResult> resultCallback) {
         if (request == null || options == null || options.runOptions() == null) {
@@ -109,6 +117,7 @@ public class IdorEngine {
 
         AttackExecutor attackExecutor = new AttackExecutor(
             requestSender, mutated -> headerPolicy.reconcileMutation(request, mutated));
+        attackExecutor.enablePauseController(pauseController);
         Consumer<AttackResult> publishingCallback = result -> {
             if (!running) {
                 return;

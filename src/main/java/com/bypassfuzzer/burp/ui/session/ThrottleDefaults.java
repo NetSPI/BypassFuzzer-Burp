@@ -23,7 +23,10 @@ public record ThrottleDefaults(
     int perHostConcurrency,
     Set<Integer> throttleStatusCodes,
     ThrottleSettings.Posture posture,
-    String concurrencyLabel
+    String concurrencyLabel,
+    boolean showGlobalPause,
+    ThrottleSettings.PauseMode pauseMode,
+    long fixedPauseMillis
 ) {
 
     static ThrottleDefaults forBypassFuzzer(FuzzerConfig config) {
@@ -32,7 +35,7 @@ public record ThrottleDefaults(
             -1,
             config.getThrottleStatusCodes(),
             config.getThrottlePosture(),
-            "Concurrency"
+            "Concurrency", false, ThrottleSettings.PauseMode.OFF, 30_000L
         );
     }
 
@@ -42,7 +45,7 @@ public record ThrottleDefaults(
             defaults.perHostConcurrency(),
             defaults.throttleStatusCodes(),
             defaults.throttlePosture(),
-            "Global concurrency"
+            "Global concurrency", true, defaults.pauseMode(), defaults.fixedPauseMillis()
         );
     }
 
@@ -52,7 +55,7 @@ public record ThrottleDefaults(
             -1,
             defaults.throttleStatusCodes(),
             defaults.throttlePosture(),
-            "Concurrency"
+            "Concurrency", false, ThrottleSettings.PauseMode.OFF, 30_000L
         );
     }
 
@@ -62,7 +65,7 @@ public record ThrottleDefaults(
             -1,
             Set.of(429, 503),
             ThrottleSettings.Posture.RIDE_HARD,
-            "Concurrency"
+            "Concurrency", false, ThrottleSettings.PauseMode.OFF, 30_000L
         );
     }
 }

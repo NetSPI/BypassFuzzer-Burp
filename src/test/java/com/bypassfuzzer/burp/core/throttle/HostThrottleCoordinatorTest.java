@@ -65,6 +65,42 @@ class HostThrottleCoordinatorTest {
     }
 
     @Test
+    void fixedPauseStartsAGlobalCooldownOnTheFirstThrottleResponse() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.FIXED, 30_000L);
+        HostThrottleCoordinator coordinator = coordinator(settings);
+
+        coordinator.send(requestTo("https://a.example.com/x"), () -> response(429, null));
+
+        assertTrue(coordinator.globalPauseRemainingMillis() >= 29_000L);
+    }
+
+    @Test
+    void smartPauseDetectsAThrottleBurstAcrossHosts() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.SMART, 30_000L);
+        HostThrottleCoordinator coordinator = coordinator(settings);
+
+        coordinator.send(requestTo("https://a.example.com/x"), () -> response(429, null));
+        coordinator.send(requestTo("https://b.example.com/y"), () -> response(429, null));
+        coordinator.send(requestTo("https://c.example.com/z"), () -> response(429, null));
+
+        assertTrue(coordinator.globalPauseRemainingMillis() >= 9_000L,
+            "three clustered throttle responses should trip the global circuit breaker");
+    }
+
+    @Test
+    void retryAfterExtendsTheFixedGlobalCooldown() {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 4, 2, 100,
+            ThrottleSettings.Posture.RIDE_HARD, ThrottleSettings.PauseMode.FIXED, 5_000L);
+        HostThrottleCoordinator coordinator = coordinator(settings);
+
+        coordinator.send(requestTo("https://a.example.com/x"), () -> response(429, "30"));
+
+        assertTrue(coordinator.globalPauseRemainingMillis() >= 29_000L);
+    }
+
+    @Test
     void concurrencyNeverExceedsGlobalOrPerHostBounds() throws Exception {
         int globalLimit = 4;
         int perHostLimit = 2;

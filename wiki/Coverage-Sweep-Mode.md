@@ -139,15 +139,40 @@ adaptive controller that discovers that host's rate-limit ceiling and rides just
 - Because limits are tracked per host, all hosts in an imported target list are swept in parallel,
   each at its own discovered speed — there is no single global speed limit holding faster hosts back.
 
-There are no manual delay / requests-per-second / smart-throttle knobs to tune: the controller finds
-the right pace on its own. `Concurrency` and `Per-host` now bound how many requests may be *in flight*
-at once (a resource cap), not the rate. `Throttle codes` defaults to `429,503` and defines which
-responses count as a rate-limit signal.
+The `Throttle...` dialog also offers a Sweep-wide CDN/WAF cooldown layered on top of the per-host
+controllers:
+
+- `Adaptive only` keeps the original independent per-host behavior.
+- `Fixed pause` stops new requests to every Sweep host after any configured throttle response for
+  the chosen number of seconds.
+- `Smart Pause` detects a burst of three throttle responses within three seconds across the Sweep,
+  then pauses all hosts for an escalating 10, 20, 40, 80, or 120 seconds. After a quiet minute, the
+  escalation resets. A server-provided `Retry-After` value is always used when it requires a longer
+  cooldown.
+
+`Concurrency` and `Per-host` bound how many requests may be *in flight* at once (a resource cap), not
+the rate. `Throttle codes` defaults to `429,503` and defines which responses count as a rate-limit
+signal.
 
 ### Browser User-Agent
 
 The `Browser User-Agent` preset (on by default) sends every probe with a current desktop Chrome
 `User-Agent`. If you set your own `User-Agent` in `Request Headers`, that value is used instead.
+
+### Payload families
+
+`Payload Families...` controls which technique categories Sweep may send. The dialog keeps separate
+selections for the two payload inventories:
+
+- `High Signal` lists the curated Sweep categories such as Header, Path Normalization, Encoding,
+  Debug Params, and Content-Type.
+- `All Bypass Families` lists the complete Bypass attack families such as Header, Path, Verb,
+  Debug Cookies, Protocol, and Case Variation.
+
+All families are enabled by default. Clear an individual family, such as `Header`, or use
+`Uncheck All` and select only the families needed for the current assessment. Switching the payload
+set does not discard either tab's selections. Disabled families are removed before the probe budget
+and request deduplication are applied.
 
 ## Probe Budget
 

@@ -47,6 +47,7 @@ public class UrlValidationPanel extends JPanel {
 
     private JButton startButton;
     private JButton stopButton;
+    private JButton pauseButton;
     private JButton configButton;
     private JButton resetRequestButton;
     private JButton viewPayloadsButton;
@@ -99,6 +100,9 @@ public class UrlValidationPanel extends JPanel {
         stopButton = new JButton("Stop");
         stopButton.setEnabled(false);
         stopButton.addActionListener(e -> stopValidation());
+        pauseButton = new JButton("Pause");
+        pauseButton.setEnabled(false);
+        pauseButton.addActionListener(e -> togglePause());
 
         configButton = new JButton("Configure Attack");
         configButton.addActionListener(e -> openConfigDialog());
@@ -107,6 +111,7 @@ public class UrlValidationPanel extends JPanel {
         clearButton.addActionListener(e -> clearResults());
 
         buttonRow.add(stopButton);
+        buttonRow.add(pauseButton);
         buttonRow.add(configButton);
         buttonRow.add(clearButton);
 
@@ -264,6 +269,8 @@ public class UrlValidationPanel extends JPanel {
             updateIdleUi("Unable to start URL validation fuzzing");
             return;
         }
+        pauseButton.setText("Pause");
+        pauseButton.setEnabled(true);
 
         if (configDialog != null) {
             configDialog.setVisible(false);
@@ -276,7 +283,21 @@ public class UrlValidationPanel extends JPanel {
         engine.stop();
         startButton.setEnabled(false);
         stopButton.setEnabled(false);
+        pauseButton.setEnabled(false);
         statusLabel.setText("Stopping URL validation fuzzing...");
+    }
+
+    private void togglePause() {
+        if (!engine.isRunning()) return;
+        if (engine.isPaused()) {
+            engine.resume();
+            pauseButton.setText("Pause");
+            statusLabel.setText("URL validation resumed...");
+        } else {
+            engine.pause();
+            pauseButton.setText("Resume");
+            statusLabel.setText("Paused after the current request.");
+        }
     }
 
     private void clearResults() {
@@ -289,9 +310,11 @@ public class UrlValidationPanel extends JPanel {
             resultsWorkspace.addResult(result);
             int totalSent = resultsWorkspace.allResultsCount();
             int showing = resultsWorkspace.shownResultsCount();
-            statusLabel.setText(engine.isRunning()
-                ? "URL Validation... (" + totalSent + " requests sent, showing " + showing + ")"
-                : "Completed: " + totalSent + " requests sent, showing " + showing);
+            statusLabel.setText(engine.isPaused()
+                ? "Paused (" + totalSent + " requests sent, showing " + showing + ")"
+                : engine.isRunning()
+                    ? "URL Validation... (" + totalSent + " requests sent, showing " + showing + ")"
+                    : "Completed: " + totalSent + " requests sent, showing " + showing);
         });
     }
 
@@ -301,6 +324,7 @@ public class UrlValidationPanel extends JPanel {
             if (shuttingDown) {
                 startButton.setEnabled(false);
                 stopButton.setEnabled(false);
+                pauseButton.setEnabled(false);
                 return;
             }
 
@@ -318,6 +342,8 @@ public class UrlValidationPanel extends JPanel {
         statusLabel.setText(message);
         startButton.setEnabled(true);
         stopButton.setEnabled(false);
+        pauseButton.setText("Pause");
+        pauseButton.setEnabled(false);
         setControlsEnabled(true);
     }
 

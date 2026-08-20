@@ -4,6 +4,7 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.core.ThrottledRequest;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.throttle.RetryQueue;
 import com.bypassfuzzer.burp.http.RequestSender;
@@ -32,6 +33,7 @@ public class AttackExecutor {
     private volatile Semaphore inFlightPermits;
     private volatile int maxInFlight;
     private volatile RetryQueue<ThrottledRequest> retryQueue;
+    private volatile ExecutionPauseController pauseController;
 
     public AttackExecutor(RequestSender requestSender) {
         this(requestSender, UnaryOperator.identity());
@@ -60,6 +62,10 @@ public class AttackExecutor {
      */
     public void enableRetryQueue(RetryQueue<ThrottledRequest> retryQueue) {
         this.retryQueue = retryQueue;
+    }
+
+    public void enablePauseController(ExecutionPauseController pauseController) {
+        this.pauseController = pauseController;
     }
 
     /** Wait for all in-flight concurrent sends to complete. */
@@ -123,6 +129,9 @@ public class AttackExecutor {
             }
             sendPool.submit(() -> {
                 try {
+                    if (!awaitResume(shouldContinue)) {
+                        return;
+                    }
                     HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
                     if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload,
                             targetLabel, payloadFamily, payloadEncoding)) {
@@ -137,6 +146,9 @@ public class AttackExecutor {
             return true;
         }
 
+        if (!awaitResume(shouldContinue)) {
+            return false;
+        }
         HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
         if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload, targetLabel,
                 payloadFamily, payloadEncoding)) {
@@ -158,6 +170,9 @@ public class AttackExecutor {
         }
 
         HttpRequest sentRequest = requestTransformer.apply(request);
+        if (!awaitResume(shouldContinue)) {
+            return AttackExecutionResult.stopped();
+        }
         Supplier<HttpResponse> sender = () -> requestSender.send(sentRequest, timeout, timeUnit);
         HttpResponse response = coordinator == null ? sender.get() : coordinator.send(sentRequest, sender);
         if (response == null) {
@@ -178,6 +193,11 @@ public class AttackExecutor {
             ? () -> requestSender.send(request)
             : () -> requestSender.send(request, httpMode);
         return coordinator == null ? sender.get() : coordinator.send(request, sender);
+    }
+
+    private boolean awaitResume(BooleanSupplier shouldContinue) {
+        ExecutionPauseController controller = pauseController;
+        return controller == null || controller.awaitIfPaused(shouldContinue);
     }
 
     /**

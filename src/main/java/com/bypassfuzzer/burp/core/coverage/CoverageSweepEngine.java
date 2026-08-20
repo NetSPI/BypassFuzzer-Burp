@@ -8,6 +8,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
@@ -51,6 +52,7 @@ public class CoverageSweepEngine {
     private final RequestSender requestSender;
     private final CoverageSweepProbeGenerator probeGenerator;
     private final FullBypassSweepProbeGenerator fullProbeGenerator;
+    private final ExecutionPauseController pauseController = new ExecutionPauseController();
     private final UrlRequestFactory urlRequestFactory;
     private final TargetUrlResolver targetUrlResolver = new TargetUrlResolver();
 
@@ -221,7 +223,7 @@ public class CoverageSweepEngine {
                                                      CoverageSweepOptions options,
                                                      boolean includeControl) {
         if (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS) {
-            return fullProbeGenerator.buildProbes(request, includeControl);
+            return fullProbeGenerator.buildProbes(request, includeControl, options.familySelection());
         }
         return probeGenerator.buildProbes(request, options, includeControl);
     }
@@ -235,6 +237,7 @@ public class CoverageSweepEngine {
         }
 
         CoverageSweepOptions effectiveOptions = options == null ? CoverageSweepOptions.defaults() : options;
+        pauseController.reset();
         running = true;
         runnerThread = new Thread(() -> {
             try {
@@ -252,6 +255,7 @@ public class CoverageSweepEngine {
 
     public void stop() {
         running = false;
+        pauseController.resume();
         if (executor != null) {
             executor.shutdownNow();
         }
@@ -275,6 +279,10 @@ public class CoverageSweepEngine {
     public boolean isRunning() {
         return running;
     }
+
+    public void pause() { if (running) pauseController.pause(); }
+    public void resume() { pauseController.resume(); }
+    public boolean isPaused() { return pauseController.isPaused(); }
 
     public int completedHostCount() {
         return completedSweepHosts.size();
@@ -987,6 +995,9 @@ public class CoverageSweepEngine {
     }
 
     private HttpResponse sendScheduled(HttpRequest request, java.util.function.Supplier<HttpResponse> sender) {
+        if (!pauseController.awaitIfPaused(this::canContinue)) {
+            return null;
+        }
         HostThrottleCoordinator currentCoordinator = coordinator;
         return currentCoordinator == null ? sender.get() : currentCoordinator.send(request, sender);
     }

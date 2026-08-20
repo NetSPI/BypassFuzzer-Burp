@@ -31,14 +31,40 @@ class FuzzingSessionTabTest {
     }
 
     @Test
-    void bypassOptionsShowThrottleButtonWithoutRequestsPerSecond() {
+    void bypassKeepsAttackTypesInlineAndMovesRunOptionsBehindButton() {
         FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
         JTabbedPane sessionTabs = findTabbedPane(tab);
 
         String uiText = visibleText(sessionTabs.getComponentAt(0));
 
-        assertTrue(uiText.contains("Throttle..."));
+        assertTrue(uiText.contains("Options..."));
+        assertTrue(uiText.contains("Header"));
+        assertTrue(uiText.contains("Check All"));
+        assertFalse(uiText.contains("Throttle..."));
         assertFalse(uiText.contains("Requests/second"));
+    }
+
+    @Test
+    void idorMovesIdentifiersAndRunOptionsBehindConfigureAttack() {
+        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/users/alice", "", "GET", null, "")));
+        JTabbedPane sessionTabs = findTabbedPane(tab);
+
+        String uiText = visibleText(sessionTabs.getComponentAt(1));
+
+        assertTrue(uiText.contains("Configure Attack"));
+        assertFalse(uiText.contains("Identifier 1 (authorized):"));
+        assertFalse(uiText.contains("IDOR Options"));
+    }
+
+    @Test
+    void everyTargetedModeExposesPauseControl() {
+        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
+        JTabbedPane sessionTabs = findTabbedPane(tab);
+
+        for (int index = 0; index < sessionTabs.getTabCount(); index++) {
+            assertTrue(visibleText(sessionTabs.getComponentAt(index)).contains("Pause"),
+                sessionTabs.getTitleAt(index) + " should expose Pause");
+        }
     }
 
     private MontoyaApi api() {

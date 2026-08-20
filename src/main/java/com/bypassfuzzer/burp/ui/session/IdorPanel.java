@@ -23,6 +23,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -54,12 +55,16 @@ public class IdorPanel extends JPanel {
 
     private JButton startButton;
     private JButton stopButton;
+    private JButton pauseButton;
+    private JButton configureButton;
     private JLabel statusLabel;
     private JLabel warningLabel;
     private JTextField authorizedIdentifierField;
     private JTextField targetIdentifierField;
     private IdorRunOptionsPanel runOptionsPanel;
     private SessionResultsWorkspace resultsWorkspace;
+    private JDialog configDialog;
+    private JLabel configWarningLabel;
 
     private volatile boolean shuttingDown = false;
     private volatile boolean stopRequested = false;
@@ -79,9 +84,15 @@ public class IdorPanel extends JPanel {
         if (resultsWorkspace != null) {
             resultsWorkspace.cleanup();
         }
+        if (configDialog != null) {
+            configDialog.dispose();
+        }
     }
 
     private void initializeUi() {
+        authorizedIdentifierField = new JTextField(18);
+        targetIdentifierField = new JTextField(18);
+        runOptionsPanel = new IdorRunOptionsPanel(DEFAULT_RUN_OPTIONS);
         add(buildTopPanel(), BorderLayout.NORTH);
         add(buildCenterPanel(), BorderLayout.CENTER);
     }
@@ -90,31 +101,33 @@ public class IdorPanel extends JPanel {
         JPanel topPanel = new JPanel(new BorderLayout());
 
         JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        startButton = new JButton("Start IDOR Analysis");
-        startButton.addActionListener(e -> startAnalysis());
         stopButton = new JButton("Stop");
         stopButton.setEnabled(false);
         stopButton.addActionListener(e -> stopAnalysis());
+        pauseButton = new JButton("Pause");
+        pauseButton.setEnabled(false);
+        pauseButton.addActionListener(e -> togglePause());
+        configureButton = new JButton("Configure Attack");
+        configureButton.addActionListener(e -> openConfigDialog());
         JButton clearButton = new JButton("Clear Results");
         clearButton.addActionListener(e -> clearResults());
         JButton playbooksButton = new JButton("Playbooks");
         playbooksButton.setToolTipText("Open the current IDOR playbook reference.");
         JButton debugButton = new JButton("Debug Info");
         debugButton.setToolTipText("Open IDOR diagnostics and choose whether to copy or save them.");
-        controlPanel.add(startButton);
         controlPanel.add(stopButton);
+        controlPanel.add(pauseButton);
+        controlPanel.add(configureButton);
         controlPanel.add(clearButton);
         controlPanel.add(playbooksButton);
         controlPanel.add(debugButton);
         playbooksButton.addActionListener(e -> showPlaybookReference());
         debugButton.addActionListener(e -> showDebugInfoDialog());
 
-        statusLabel = new JLabel("Enter identifier 1 and identifier 2 to compare the authorized control against the unauthorized baseline.");
+        statusLabel = new JLabel("Open Configure Attack to compare an authorized identifier with a target identifier.");
         warningLabel = new JLabel("");
         warningLabel.setForeground(new Color(204, 102, 0));
         warningLabel.setVisible(false);
-
-        runOptionsPanel = new IdorRunOptionsPanel(DEFAULT_RUN_OPTIONS);
 
         JPanel topContent = new JPanel();
         topContent.setLayout(new BoxLayout(topContent, BoxLayout.Y_AXIS));
@@ -124,26 +137,59 @@ public class IdorPanel extends JPanel {
         topRow.add(statusLabel, BorderLayout.CENTER);
         topContent.add(topRow);
 
-        JPanel identifierRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
-        identifierRow.add(new JLabel("Identifier 1 (authorized):"));
-        authorizedIdentifierField = new JTextField(18);
-        identifierRow.add(authorizedIdentifierField);
-        identifierRow.add(new JLabel("Identifier 2 (target):"));
-        targetIdentifierField = new JTextField(18);
-        identifierRow.add(targetIdentifierField);
-        identifierRow.add(new JLabel("Exact literal replacement across the request."));
-        topContent.add(identifierRow);
-
         JPanel warningRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         warningRow.add(warningLabel);
         topContent.add(warningRow);
 
-        JPanel optionsRow = new JPanel(new BorderLayout());
-        optionsRow.add(runOptionsPanel, BorderLayout.WEST);
-        topContent.add(optionsRow);
-
         topPanel.add(topContent, BorderLayout.CENTER);
         return topPanel;
+    }
+
+    private void openConfigDialog() {
+        if (configDialog == null) {
+            configDialog = new JDialog(api.userInterface().swingUtils().suiteFrame(), "Configure IDOR Attack", false);
+            configDialog.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+            configDialog.setContentPane(buildConfigDialogContent());
+            configDialog.pack();
+            configDialog.setMinimumSize(new Dimension(720, 360));
+        }
+        configDialog.setLocationRelativeTo(api.userInterface().swingUtils().suiteFrame());
+        configDialog.setVisible(true);
+    }
+
+    private JPanel buildConfigDialogContent() {
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 12, 12, 12));
+
+        JPanel identifierRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        identifierRow.add(new JLabel("Identifier 1 (authorized):"));
+        identifierRow.add(authorizedIdentifierField);
+        identifierRow.add(new JLabel("Identifier 2 (target):"));
+        identifierRow.add(targetIdentifierField);
+        content.add(identifierRow);
+
+        JPanel replacementNote = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        replacementNote.add(new JLabel("Identifiers are replaced as exact literals across the request."));
+        content.add(replacementNote);
+        content.add(runOptionsPanel);
+
+        configWarningLabel = new JLabel("");
+        configWarningLabel.setForeground(new Color(204, 102, 0));
+        configWarningLabel.setVisible(false);
+        JPanel warningRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        warningRow.add(configWarningLabel);
+        content.add(warningRow);
+
+        startButton = new JButton("Start IDOR Analysis");
+        startButton.addActionListener(e -> startAnalysis());
+        JButton closeButton = new JButton("Close");
+        closeButton.addActionListener(e -> configDialog.setVisible(false));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttons.add(startButton);
+        buttons.add(closeButton);
+        content.add(buttons);
+        return content;
     }
 
     private void showPlaybookReference() {
@@ -385,6 +431,25 @@ public class IdorPanel extends JPanel {
         if (!started) {
             resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start IDOR analysis");
+        } else {
+            pauseButton.setText("Pause");
+            pauseButton.setEnabled(true);
+            if (configDialog != null) {
+                configDialog.setVisible(false);
+            }
+        }
+    }
+
+    private void togglePause() {
+        if (!engine.isRunning()) return;
+        if (engine.isPaused()) {
+            engine.resume();
+            pauseButton.setText("Pause");
+            statusLabel.setText("IDOR analysis resumed...");
+        } else {
+            engine.pause();
+            pauseButton.setText("Resume");
+            statusLabel.setText("Paused after the current request.");
         }
     }
 
@@ -393,6 +458,7 @@ public class IdorPanel extends JPanel {
         engine.stop();
         startButton.setEnabled(false);
         stopButton.setEnabled(false);
+        pauseButton.setEnabled(false);
         statusLabel.setText("Stopping IDOR analysis...");
     }
 
@@ -434,9 +500,11 @@ public class IdorPanel extends JPanel {
             resultsWorkspace.addResult(result);
             int totalSent = resultsWorkspace.allResultsCount();
             int showing = resultsWorkspace.shownResultsCount();
-            statusLabel.setText(engine.isRunning()
-                ? "IDOR analysis... (" + totalSent + " requests sent, showing " + showing + ")"
-                : "Completed: " + totalSent + " requests sent, showing " + showing);
+            statusLabel.setText(engine.isPaused()
+                ? "Paused (" + totalSent + " requests sent, showing " + showing + ")"
+                : engine.isRunning()
+                    ? "IDOR analysis... (" + totalSent + " requests sent, showing " + showing + ")"
+                    : "Completed: " + totalSent + " requests sent, showing " + showing);
         });
     }
 
@@ -444,8 +512,11 @@ public class IdorPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             resultsWorkspace.setPrimaryRunActive(false);
             if (shuttingDown) {
-                startButton.setEnabled(false);
+                if (startButton != null) {
+                    startButton.setEnabled(false);
+                }
                 stopButton.setEnabled(false);
+                pauseButton.setEnabled(false);
                 return;
             }
 
@@ -457,8 +528,12 @@ public class IdorPanel extends JPanel {
 
     private void updateIdleUi(String message) {
         statusLabel.setText(message);
-        startButton.setEnabled(true);
+        if (startButton != null) {
+            startButton.setEnabled(true);
+        }
         stopButton.setEnabled(false);
+        pauseButton.setText("Pause");
+        pauseButton.setEnabled(false);
         setControlsEnabled(true);
     }
 
@@ -470,14 +545,22 @@ public class IdorPanel extends JPanel {
         authorizedIdentifierField.setEnabled(enabled);
         targetIdentifierField.setEnabled(enabled);
         runOptionsPanel.setControlsEnabled(enabled);
+        configureButton.setEnabled(enabled);
     }
 
     private void showWarning(String message) {
         warningLabel.setText(message);
         warningLabel.setVisible(true);
+        if (configWarningLabel != null) {
+            configWarningLabel.setText(message);
+            configWarningLabel.setVisible(true);
+        }
     }
 
     private void hideWarning() {
         warningLabel.setVisible(false);
+        if (configWarningLabel != null) {
+            configWarningLabel.setVisible(false);
+        }
     }
 }

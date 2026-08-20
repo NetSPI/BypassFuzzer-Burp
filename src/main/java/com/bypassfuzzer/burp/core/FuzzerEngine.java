@@ -30,6 +30,7 @@ public class FuzzerEngine {
     private RetryQueue<ThrottledRequest> retryQueue;
     private final TargetUrlResolver targetUrlResolver;
     private final AttackRegistry attackRegistry;
+    private final ExecutionPauseController pauseController = new ExecutionPauseController();
 
     public FuzzerEngine(MontoyaApi api, FuzzerConfig config) {
         this.api = api;
@@ -69,6 +70,7 @@ public class FuzzerEngine {
             }
         }
 
+        pauseController.reset();
         running = true;
 
         fuzzerThread = new Thread(() -> {
@@ -94,6 +96,7 @@ public class FuzzerEngine {
     public void stopFuzzing() {
         if (running && fuzzerThread != null) {
             running = false;
+            pauseController.resume();
             fuzzerThread.interrupt();
             safeLog("Fuzzer stopped by user");
         }
@@ -106,12 +109,25 @@ public class FuzzerEngine {
         return running;
     }
 
+    public void pause() {
+        if (running) pauseController.pause();
+    }
+
+    public void resume() {
+        pauseController.resume();
+    }
+
+    public boolean isPaused() {
+        return pauseController.isPaused();
+    }
+
     /**
      * Cleanup and stop all fuzzing threads gracefully.
      * Called during extension unload.
      */
     public void cleanup() {
         running = false;
+        pauseController.resume();
         if (fuzzerThread != null && fuzzerThread.isAlive()) {
             fuzzerThread.interrupt();
             try {
@@ -156,6 +172,7 @@ public class FuzzerEngine {
             return t;
         });
         attackExecutor.enableConcurrentSends(sendPool, maxInFlight);
+        attackExecutor.enablePauseController(pauseController);
         attackExecutor.enableRetryQueue(retryQueue);
 
         int concurrency = Math.max(1, config.getConcurrency());

@@ -54,6 +54,7 @@ public class SessionResultsWorkspace {
     private final RequestSender retrySender;
     private final JButton retryThrottledButton;
     private final JLabel retryStatusLabel;
+    private JPanel retryRow;
     private final Map<String, DeferredRetry> throttledRetries = new LinkedHashMap<>();
     private Set<Integer> throttleStatusCodes = Set.of(429, 503);
     private boolean primaryRunActive;
@@ -61,6 +62,7 @@ public class SessionResultsWorkspace {
     private long queueGeneration;
     private SwingWorker<Void, RetryOutcome> retryWorker;
     private boolean filtersCollapsed;
+    private Runnable throttleRetryQueueChangedListener = () -> { };
 
     public SessionResultsWorkspace(MontoyaApi api,
                                    Consumer<String> errorLogger,
@@ -97,6 +99,24 @@ public class SessionResultsWorkspace {
 
     public JSplitPane component() {
         return splitPane;
+    }
+
+    public void setAuthVerificationTabsVisible(boolean visible) {
+        resultsPanel.setAuthVerificationTabsVisible(visible);
+    }
+
+    public void setInlineRetryControlsVisible(boolean visible) {
+        if (retryRow != null) {
+            retryRow.setVisible(visible);
+        }
+    }
+
+    JButton retryThrottledButton() {
+        return retryThrottledButton;
+    }
+
+    JLabel retryStatusLabel() {
+        return retryStatusLabel;
     }
 
     public void applyFilters() {
@@ -150,6 +170,17 @@ public class SessionResultsWorkspace {
         synchronized (throttledRetries) {
             return throttledRetries.size();
         }
+    }
+
+    public List<AttackResult> throttledRetrySnapshot() {
+        synchronized (throttledRetries) {
+            return throttledRetries.values().stream().map(DeferredRetry::result).toList();
+        }
+    }
+
+    public void setThrottleRetryQueueChangedListener(Runnable listener) {
+        throttleRetryQueueChangedListener = listener == null ? () -> { } : listener;
+        updateRetryControls();
     }
 
     public boolean isRetryRunning() {
@@ -299,7 +330,7 @@ public class SessionResultsWorkspace {
         });
 
         JPanel resultsContainer = new JPanel(new BorderLayout());
-        JPanel retryRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+        retryRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         retryRow.add(retryThrottledButton);
         retryRow.add(retryStatusLabel);
         resultsContainer.add(retryRow, BorderLayout.NORTH);
@@ -436,6 +467,7 @@ public class SessionResultsWorkspace {
             int count = throttledRetryCount();
             retryThrottledButton.setText("Retry Throttled (" + count + ")");
             retryThrottledButton.setEnabled(count > 0 && !primaryRunActive && !retryRunning);
+            throttleRetryQueueChangedListener.run();
         };
         if (SwingUtilities.isEventDispatchThread()) {
             update.run();

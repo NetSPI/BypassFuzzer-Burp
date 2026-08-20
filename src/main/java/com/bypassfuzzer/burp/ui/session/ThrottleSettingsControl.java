@@ -7,6 +7,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -34,9 +35,13 @@ public class ThrottleSettingsControl {
     private final JCheckBox rideHardCheckbox;
     private final JButton throttleButton;
     private final String concurrencyLabel;
+    private final JComboBox<String> pauseModeComboBox;
+    private final JTextField fixedPauseSecondsField;
+    private final boolean showGlobalPause;
 
     public ThrottleSettingsControl(ThrottleDefaults defaults) {
         this.concurrencyLabel = defaults.concurrencyLabel();
+        this.showGlobalPause = defaults.showGlobalPause();
 
         concurrencyField = defaults.concurrency() >= 0
             ? new JTextField(String.valueOf(defaults.concurrency()), 5) : null;
@@ -49,11 +54,21 @@ public class ThrottleSettingsControl {
             "On: probe close to the rate limit for maximum speed; any blocked (throttled) requests are "
             + "automatically retried. Off (cautious): hold a wider margin so fewer requests are blocked, "
             + "at some cost to speed.");
+        pauseModeComboBox = new JComboBox<>(new String[]{"Adaptive only", "Fixed pause", "Smart Pause"});
+        pauseModeComboBox.setSelectedIndex(switch (defaults.pauseMode()) {
+            case FIXED -> 1;
+            case SMART -> 2;
+            default -> 0;
+        });
+        fixedPauseSecondsField = new JTextField(String.valueOf(Math.max(1L,
+            defaults.fixedPauseMillis() / 1_000L)), 5);
+        pauseModeComboBox.addActionListener(e -> updatePauseFieldState());
 
         throttleButton = new JButton("Throttle...");
         throttleButton.setToolTipText("Configure in-flight concurrency and which responses signal a rate limit. "
             + "Pacing is automatic and adaptive.");
         throttleButton.addActionListener(e -> openThrottleDialog());
+        updatePauseFieldState();
     }
 
     /** Returns the "Throttle..." button for embedding in host panel. */
@@ -83,9 +98,25 @@ public class ThrottleSettingsControl {
             ? ThrottleSettings.Posture.RIDE_HARD : ThrottleSettings.Posture.CONSERVATIVE;
     }
 
+    public ThrottleSettings.PauseMode pauseMode() {
+        if (!showGlobalPause) return ThrottleSettings.PauseMode.OFF;
+        return switch (pauseModeComboBox.getSelectedIndex()) {
+            case 1 -> ThrottleSettings.PauseMode.FIXED;
+            case 2 -> ThrottleSettings.PauseMode.SMART;
+            default -> ThrottleSettings.PauseMode.OFF;
+        };
+    }
+
+    public long fixedPauseMillis() {
+        return parsePositiveInt(fixedPauseSecondsField, 30) * 1_000L;
+    }
+
     public void setEnabled(boolean enabled) {
         throttleStatusCodesField.setEnabled(enabled);
         rideHardCheckbox.setEnabled(enabled);
+        pauseModeComboBox.setEnabled(enabled && showGlobalPause);
+        fixedPauseSecondsField.setEnabled(enabled && showGlobalPause
+            && pauseMode() == ThrottleSettings.PauseMode.FIXED);
         throttleButton.setEnabled(enabled);
         if (concurrencyField != null) concurrencyField.setEnabled(enabled);
         if (perHostConcurrencyField != null) perHostConcurrencyField.setEnabled(enabled);
@@ -140,6 +171,26 @@ public class ThrottleSettingsControl {
         postureRow.add(rideHardCheckbox);
         content.add(postureRow);
 
+        if (showGlobalPause) {
+            content.add(Box.createVerticalStrut(8));
+            JPanel pauseRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            pauseRow.add(new JLabel("Global CDN/WAF cooldown:"));
+            pauseRow.add(pauseModeComboBox);
+            pauseRow.add(new JLabel("Fixed seconds:"));
+            pauseRow.add(fixedPauseSecondsField);
+            content.add(pauseRow);
+
+            JTextArea pauseHelp = new JTextArea(
+                "Fixed pause stops all Sweep hosts after any throttle response for the chosen time. "
+                + "Smart Pause detects clustered throttle responses across hostnames and applies an "
+                + "escalating 10-120 second global cooldown. Retry-After is always honored.");
+            pauseHelp.setEditable(false);
+            pauseHelp.setLineWrap(true);
+            pauseHelp.setWrapStyleWord(true);
+            pauseHelp.setOpaque(false);
+            content.add(pauseHelp);
+        }
+
         content.add(Box.createVerticalStrut(6));
 
         JButton closeButton = new JButton("Close");
@@ -149,9 +200,14 @@ public class ThrottleSettingsControl {
         content.add(buttonRow);
 
         dialog.setContentPane(content);
-        dialog.setSize(520, 260);
+        dialog.setSize(620, showGlobalPause ? 390 : 260);
         dialog.setLocationRelativeTo(owner);
         dialog.setVisible(true);
+    }
+
+    private void updatePauseFieldState() {
+        fixedPauseSecondsField.setEnabled(showGlobalPause
+            && pauseModeComboBox.getSelectedIndex() == 1 && throttleButton.isEnabled());
     }
 
     private static String formatStatusCodes(Set<Integer> codes) {

@@ -44,7 +44,7 @@ public class CoverageSweepProbeGenerator {
         if (includeControl) {
             add(probes, seen, limit, new CoverageSweepProbe("Control: original blocked request", "Control", request));
         }
-        if (options.hostPortProbesEnabled()) {
+        if (options.hostPortProbesEnabled() && familyEnabled(options, "Host Parsing")) {
             for (HostPortBypassPayloadGenerator.HostPortPayload payload
                 : hostPortPayloadGenerator.generateLightweight(request, options.hostPortProbePorts())) {
                 add(probes, seen, limit, new CoverageSweepProbe(
@@ -58,9 +58,14 @@ public class CoverageSweepProbeGenerator {
 
         String path = safePath(request.path());
         for (CoverageSweepProbeTemplate template : templates) {
+            if (!familyEnabled(options, template.family())) {
+                continue;
+            }
             add(probes, seen, limit, buildProbe(template, request, path));
         }
-        addStandaloneNormalizationMarkerProbes(probes, seen, limit, request, path);
+        if (familyEnabled(options, "Path Normalization")) {
+            addStandaloneNormalizationMarkerProbes(probes, seen, limit, request, path);
+        }
 
         return probes;
     }
@@ -190,13 +195,17 @@ public class CoverageSweepProbeGenerator {
     }
 
     private static int hostPortProbeCount(CoverageSweepOptions options) {
-        if (!options.hostPortProbesEnabled()) {
+        if (!options.hostPortProbesEnabled() || !familyEnabled(options, "Host Parsing")) {
             return 0;
         }
         int customCount = (int) options.hostPortProbePorts().stream()
             .filter(port -> port >= 1 && port <= 65535)
             .count();
         return customCount * 3 + 2;
+    }
+
+    private static boolean familyEnabled(CoverageSweepOptions options, String family) {
+        return options.familySelection().highSignalEnabled(family);
     }
 
     private void add(List<CoverageSweepProbe> probes, Set<String> seen, int limit, CoverageSweepProbe probe) {

@@ -130,9 +130,12 @@ The `Sweep` tab is available as soon as the extension loads. It is intended for 
 4. Review the deduped candidate table
    - Use **View** to open the selected request and response side by side
 5. Uncheck candidates you do not want to probe
-6. Adjust concurrency and throttle status codes if needed
-7. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
-8. Click **Start Sweep**
+6. Adjust concurrency and throttle status codes if needed. `Throttle...` also provides a fixed
+   Sweep-wide cooldown or Smart Pause for shared CDN/WAF rate limits; Smart Pause detects clustered
+   throttle responses and escalates its cooldown automatically while honoring `Retry-After`.
+7. Use **Payload Families...** to disable any High Signal categories or full Bypass attack families you do not want to send
+8. Use **Preview Probes** to inspect the exact requests that will be sent for a selected candidate
+9. Click **Start Sweep**
 
 **What Sweep sends**
 

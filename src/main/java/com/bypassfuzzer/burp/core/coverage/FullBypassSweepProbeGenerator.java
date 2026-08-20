@@ -39,7 +39,8 @@ final class FullBypassSweepProbeGenerator {
         this.targetUrlResolver = targetUrlResolver;
     }
 
-    List<CoverageSweepProbe> buildProbes(HttpRequest request, boolean includeControl) {
+    List<CoverageSweepProbe> buildProbes(HttpRequest request, boolean includeControl,
+                                         CoverageSweepFamilySelection familySelection) {
         if (request == null) {
             return List.of();
         }
@@ -66,6 +67,9 @@ final class FullBypassSweepProbeGenerator {
         for (RegisteredAttack attack : attackRegistry.buildEnabledAttacks(config, targetUrl)) {
             if (!shouldContinue.getAsBoolean()) {
                 break;
+            }
+            if (!familySelection.bypassEnabled(attack.type())) {
+                continue;
             }
             try {
                 attack.strategy().execute(api, request, targetUrl, ignoredResults,

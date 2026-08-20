@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
@@ -22,6 +23,7 @@ public class UrlValidationEngine {
     private volatile boolean running = false;
     private Thread runnerThread;
     private HostThrottleCoordinator coordinator;
+    private final ExecutionPauseController pauseController = new ExecutionPauseController();
 
     public UrlValidationEngine(MontoyaApi api) {
         this.api = api;
@@ -32,6 +34,7 @@ public class UrlValidationEngine {
             return false;
         }
 
+        pauseController.reset();
         running = true;
         runnerThread = new Thread(() -> {
             try {
@@ -49,6 +52,7 @@ public class UrlValidationEngine {
 
     public void stop() {
         running = false;
+        pauseController.resume();
         if (runnerThread != null) {
             runnerThread.interrupt();
         }
@@ -69,6 +73,10 @@ public class UrlValidationEngine {
         return running;
     }
 
+    public void pause() { if (running) pauseController.pause(); }
+    public void resume() { pauseController.resume(); }
+    public boolean isPaused() { return pauseController.isPaused(); }
+
     private void execute(HttpRequest request, UrlValidationOptions options, Consumer<AttackResult> resultCallback) {
         String targetUrl = targetUrlResolver.resolve(request);
         coordinator = new HostThrottleCoordinator(options.throttleSettings(), api);
@@ -77,6 +85,7 @@ public class UrlValidationEngine {
         UrlValidationAttack attack = new UrlValidationAttack(options);
         AttackExecutor attackExecutor = new AttackExecutor(
             new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
+        attackExecutor.enablePauseController(pauseController);
         attack.execute(api, request, targetUrl, result -> {
             if (running) {
                 resultCallback.accept(result);

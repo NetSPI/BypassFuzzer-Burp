@@ -92,6 +92,10 @@ public class FuzzingSessionController {
         engine.stopFuzzing();
     }
 
+    public void pause() { engine.pause(); }
+    public void resume() { engine.resume(); }
+    public boolean isPaused() { return engine.isPaused(); }
+
     public void dispose() {
         if (!disposed.compareAndSet(false, true)) {
             return;
