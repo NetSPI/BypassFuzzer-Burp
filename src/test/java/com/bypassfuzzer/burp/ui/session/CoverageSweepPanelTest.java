@@ -161,6 +161,7 @@ class CoverageSweepPanelTest {
         JComboBox<?> pauseMode = field(throttle, "pauseModeComboBox", JComboBox.class);
         JTextField fixedSeconds = field(throttle, "fixedPauseSecondsField", JTextField.class);
 
+        assertEquals("No global pause (adaptive)", pauseMode.getSelectedItem());
         assertEquals(ThrottleSettings.PauseMode.OFF, currentOptions(panel).pauseMode());
 
         pauseMode.setSelectedIndex(1);

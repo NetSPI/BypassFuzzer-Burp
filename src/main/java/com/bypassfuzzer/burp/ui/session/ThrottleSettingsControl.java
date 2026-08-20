@@ -54,7 +54,9 @@ public class ThrottleSettingsControl {
             "On: probe close to the rate limit for maximum speed; any blocked (throttled) requests are "
             + "automatically retried. Off (cautious): hold a wider margin so fewer requests are blocked, "
             + "at some cost to speed.");
-        pauseModeComboBox = new JComboBox<>(new String[]{"Adaptive only", "Fixed pause", "Smart Pause"});
+        pauseModeComboBox = new JComboBox<>(new String[]{
+            "No global pause (adaptive)", "Fixed pause", "Smart Pause"
+        });
         pauseModeComboBox.setToolTipText(
             "Choose per-host adaptive pacing alone, a fixed Sweep-wide cooldown, or an automatic smart cooldown.");
         pauseModeComboBox.setSelectedIndex(switch (defaults.pauseMode()) {
@@ -183,7 +185,8 @@ public class ThrottleSettingsControl {
             content.add(pauseRow);
 
             JTextArea pauseHelp = new JTextArea(
-                "Adaptive only adjusts each host's rate independently and does not pause the entire Sweep; "
+                "No global pause (adaptive) adjusts each host's rate independently and does not pause "
+                + "the entire Sweep; "
                 + "a Retry-After response still pauses that individual host. "
                 + "Fixed pause stops all Sweep hosts after any throttle response for the chosen time. "
                 + "Smart Pause tolerates isolated throttles, pauses a saturated host after a sustained "

@@ -142,7 +142,8 @@ adaptive controller that discovers that host's rate-limit ceiling and rides just
 The `Throttle...` dialog also offers a Sweep-wide CDN/WAF cooldown layered on top of the per-host
 controllers:
 
-- `Adaptive only` keeps the original independent per-host behavior.
+- `No global pause (adaptive)` keeps the original independent per-host behavior. It does not add a
+  Sweep-wide cooldown, although a server-provided `Retry-After` still pauses the affected host.
 - `Fixed pause` stops new requests to every Sweep host after any configured throttle response for
   the chosen number of seconds.
 - `Smart Pause` tolerates isolated throttle responses. It pauses one saturated host after either
