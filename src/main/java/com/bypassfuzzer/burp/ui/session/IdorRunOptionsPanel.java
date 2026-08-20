@@ -35,10 +35,8 @@ public class IdorRunOptionsPanel extends JPanel {
 
     public IdorRunOptions collect() {
         return new IdorRunOptions(
-            throttleControl.requestsPerSecond(),
-            throttleControl.requestDelayMs(),
             throttleControl.throttleStatusCodes(),
-            throttleControl.isAutoThrottleEnabled(),
+            throttleControl.posture(),
             requestHeadersControl.headers()
         );
     }

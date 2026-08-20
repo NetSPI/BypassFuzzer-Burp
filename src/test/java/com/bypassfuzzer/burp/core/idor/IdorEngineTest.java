@@ -115,7 +115,7 @@ class IdorEngineTest {
     }
 
     private static IdorRunOptions runOptions() {
-        return new IdorRunOptions(0, Set.of());
+        return new IdorRunOptions(Set.of());
     }
 
     private static HttpRequest request(String url, String path) {

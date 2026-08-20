@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.http.RequestBodyFormat;
 import com.bypassfuzzer.burp.http.LocatedParameter;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
@@ -20,7 +20,7 @@ public class ContentTypeAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         if (!AttackExecutionSupport.logStart(api, "Starting Content-Type Attack")) {
             return;
@@ -121,7 +121,7 @@ public class ContentTypeAttack implements AttackStrategy {
     private int maybeExecute(MontoyaApi api, String skipIfContains, String payload,
                              HttpRequest requestToModify, List<LocatedParameter> params, RequestBodyFormat format, int count,
                              Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                             RateLimiter rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
+                             HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
 
         String currentContentType = requestToModify.headerValue("Content-Type");
         currentContentType = currentContentType == null ? "" : currentContentType;
@@ -159,7 +159,7 @@ public class ContentTypeAttack implements AttackStrategy {
     private int maybeExecuteHeaderOnly(MontoyaApi api, String skipIfContains, String payload,
                                        HttpRequest requestToModify, int count,
                                        Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                                       RateLimiter rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
+                                       HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor, String... additionalSkips) {
 
         String currentContentType = requestToModify.headerValue("Content-Type");
         currentContentType = currentContentType == null ? "" : currentContentType;

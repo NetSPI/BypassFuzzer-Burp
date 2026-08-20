@@ -61,7 +61,7 @@ class IdorDebugInfoBuilderTest {
 
         String debugInfo = builder.build(
             originalRequest,
-            new IdorOptions("abc123", "def456", new IdorRunOptions(2, Set.of(429, 503)))
+            new IdorOptions("abc123", "def456", new IdorRunOptions(Set.of(429, 503)))
         );
 
         assertTrue(debugInfo.contains("Identifier 1 (authorized): abc123"), debugInfo);

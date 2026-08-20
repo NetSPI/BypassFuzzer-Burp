@@ -3,7 +3,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.collaborator.CollaboratorSupport;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.attacks.AttackStrategy;
@@ -38,7 +38,7 @@ public class UrlValidationAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback,
-                        BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        BooleanSupplier shouldContinue, HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         List<UrlValidationCandidate> candidates = candidateFinder.find(baseRequest, options);
         if (candidates.isEmpty()) {

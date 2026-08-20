@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.http.LocatedParameter;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
@@ -35,7 +35,7 @@ public class EncodingAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         if (!AttackExecutionSupport.logStart(api, "Starting Encoding Attack")) {
             return;

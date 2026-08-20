@@ -41,7 +41,6 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.LOOPBACK
             ),
             Set.of(UrlValidationEncoding.INTRUDERS),
-            0,
             Set.of()
         );
 
@@ -102,7 +101,6 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.LOOPBACK
             ),
             Set.of(UrlValidationEncoding.UNICODE_ESCAPE),
-            0,
             Set.of()
         );
 
@@ -140,7 +138,6 @@ class UrlValidationPayloadGeneratorTest {
                 UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS
             ),
             Set.of(UrlValidationEncoding.INTRUDERS),
-            0,
             Set.of()
         );
 
@@ -177,7 +174,6 @@ class UrlValidationPayloadGeneratorTest {
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(UrlValidationAttackSetting.CLOUD_METADATA_ENDPOINTS),
             Set.of(UrlValidationEncoding.INTRUDERS),
-            0,
             Set.of()
         );
 
@@ -220,7 +216,6 @@ class UrlValidationPayloadGeneratorTest {
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(UrlValidationAttackSetting.FAKE_RELATIVE_URLS),
             Set.of(UrlValidationEncoding.RAW),
-            0,
             Set.of()
         );
         AtomicInteger counter = new AtomicInteger();
@@ -293,7 +288,7 @@ class UrlValidationPayloadGeneratorTest {
             Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME),
             Set.of(UrlValidationAttackSetting.NORMALIZATION_ATTACK),
             Set.of(UrlValidationEncoding.RAW),
-            0, Set.of()
+            Set.of()
         );
 
         List<UrlValidationPayload> payloads = generator.generate(candidate, options);
@@ -331,7 +326,7 @@ class UrlValidationPayloadGeneratorTest {
             Set.of(UrlValidationContext.CORS_ORIGIN),
             Set.of(UrlValidationAttackSetting.LOOPBACK),
             Set.of(UrlValidationEncoding.RAW),
-            0, Set.of()
+            Set.of()
         );
 
         List<UrlValidationPayload> payloads = generator.generate(candidate, options);

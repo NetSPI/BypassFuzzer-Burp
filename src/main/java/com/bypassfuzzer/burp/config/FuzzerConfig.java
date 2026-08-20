@@ -1,6 +1,7 @@
 package com.bypassfuzzer.burp.config;
 
 import com.bypassfuzzer.burp.core.attacks.AttackType;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import java.util.ArrayList;
@@ -29,13 +30,10 @@ public class FuzzerConfig {
     private boolean enableCookieParamAttack = true; // Debug params via Cookie header
     private boolean enableFuzzExistingCookies = true; // Fuzz existing cookies in request
 
-    // Rate limiting
-    private int requestsPerSecond = 0; // 0 = unlimited (default)
-    private int requestDelayMs = 0;
+    // Rate limiting (adaptive; pacing is automatic per host)
     private int concurrency = 1;
     private Set<Integer> throttleStatusCodes = new java.util.HashSet<>();
-    private boolean enableAutoThrottle = true;
-    private boolean smartThrottleEnabled = false;
+    private ThrottleSettings.Posture throttlePosture = ThrottleSettings.Posture.RIDE_HARD;
     private List<ConfiguredHeader> requestHeaders = List.of();
 
     // OOB payload
@@ -156,22 +154,6 @@ public class FuzzerConfig {
         this.enableFuzzExistingCookies = enableFuzzExistingCookies;
     }
 
-    public int getRequestsPerSecond() {
-        return requestsPerSecond;
-    }
-
-    public void setRequestsPerSecond(int requestsPerSecond) {
-        this.requestsPerSecond = Math.max(0, requestsPerSecond);
-    }
-
-    public int getRequestDelayMs() {
-        return requestDelayMs;
-    }
-
-    public void setRequestDelayMs(int requestDelayMs) {
-        this.requestDelayMs = Math.max(0, requestDelayMs);
-    }
-
     public int getConcurrency() {
         return concurrency;
     }
@@ -184,24 +166,25 @@ public class FuzzerConfig {
         return throttleStatusCodes;
     }
 
+    /**
+     * Adaptive throttle configuration derived from this config. Pacing is per host and automatic;
+     * the concurrency value becomes the in-flight resource cap.
+     */
+    public ThrottleSettings throttleSettings() {
+        return new ThrottleSettings(throttleStatusCodes, Math.max(50, concurrency), 50, 400.0,
+            throttlePosture);
+    }
+
     public void setThrottleStatusCodes(Set<Integer> throttleStatusCodes) {
         this.throttleStatusCodes = throttleStatusCodes;
     }
 
-    public boolean isEnableAutoThrottle() {
-        return enableAutoThrottle;
+    public ThrottleSettings.Posture getThrottlePosture() {
+        return throttlePosture;
     }
 
-    public void setEnableAutoThrottle(boolean enableAutoThrottle) {
-        this.enableAutoThrottle = enableAutoThrottle;
-    }
-
-    public boolean isSmartThrottleEnabled() {
-        return smartThrottleEnabled;
-    }
-
-    public void setSmartThrottleEnabled(boolean smartThrottleEnabled) {
-        this.smartThrottleEnabled = smartThrottleEnabled;
+    public void setThrottlePosture(ThrottleSettings.Posture throttlePosture) {
+        this.throttlePosture = throttlePosture == null ? ThrottleSettings.Posture.RIDE_HARD : throttlePosture;
     }
 
     public List<ConfiguredHeader> getRequestHeaders() {

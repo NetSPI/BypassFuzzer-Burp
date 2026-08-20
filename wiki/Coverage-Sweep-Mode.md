@@ -123,12 +123,31 @@ When multiple history items match the same dedupe key, Sweep keeps the most rece
 
 ## Execution Controls
 
-Sweep runs one candidate sequentially, but can run multiple candidates concurrently.
+Sweep runs one candidate sequentially, but can run multiple candidates concurrently across every
+host at once.
 
-- `Concurrency` controls how many endpoints can be swept at the same time; the default is `1`.
-- `Delay (ms)` spaces request starts globally across all concurrent workers.
-- `Throttle codes` defaults to `429,503`; a matching response immediately pushes the shared request gate forward.
-- Adaptive throttling honors `Retry-After`, increases on recurring throttle responses, and gradually recovers after clean-response quiet windows.
+### Adaptive rate control
+
+Pacing is fully automatic and **per host**. Each host key (`scheme://host:port`) gets its own
+adaptive controller that discovers that host's rate-limit ceiling and rides just under it:
+
+- It ramps up quickly until the first throttle reveals the ceiling, then holds the rate just below it
+  — backing off gently on each throttle and probing upward again — so throughput stays high while
+  throttles stay rare (typically well under 2% once converged).
+- `Retry-After` is honored as a hard pause.
+- A throttled probe is automatically re-queued and retried, so a brief block never drops coverage.
+- Because limits are tracked per host, all hosts in an imported target list are swept in parallel,
+  each at its own discovered speed — there is no single global speed limit holding faster hosts back.
+
+There are no manual delay / requests-per-second / smart-throttle knobs to tune: the controller finds
+the right pace on its own. `Concurrency` and `Per-host` now bound how many requests may be *in flight*
+at once (a resource cap), not the rate. `Throttle codes` defaults to `429,503` and defines which
+responses count as a rate-limit signal.
+
+### Browser User-Agent
+
+The `Browser User-Agent` preset (on by default) sends every probe with a current desktop Chrome
+`User-Agent`. If you set your own `User-Agent` in `Request Headers`, that value is used instead.
 
 ## Probe Budget
 

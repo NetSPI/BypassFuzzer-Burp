@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
 import com.bypassfuzzer.burp.http.RequestParameterSupport;
 import java.util.ArrayList;
@@ -30,7 +30,7 @@ public class VerbAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue,
-                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
         if (!AttackExecutionSupport.logStart(api, "Starting Verb Attack")) {
             return;
         }
@@ -159,7 +159,7 @@ public class VerbAttack implements AttackStrategy {
     private int testParameterVariations(MontoyaApi api, HttpRequest baseRequest,
                                         Consumer<AttackResult> resultCallback,
                                         BooleanSupplier shouldContinue,
-                                        RateLimiter rateLimiter,
+                                        HostThrottleCoordinator rateLimiter,
                                         AttackExecutor attackExecutor) {
         int count = 0;
 

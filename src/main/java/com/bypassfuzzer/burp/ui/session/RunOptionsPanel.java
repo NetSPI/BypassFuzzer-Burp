@@ -72,20 +72,12 @@ public class RunOptionsPanel extends JPanel {
         return String.valueOf(throttleControl.concurrency());
     }
 
-    public String requestDelayText() {
-        return String.valueOf(throttleControl.requestDelayMs());
-    }
-
     public String throttleStatusCodesText() {
         return throttleControl.throttleStatusCodesText();
     }
 
-    public boolean isAutoThrottleEnabled() {
-        return throttleControl.isAutoThrottleEnabled();
-    }
-
-    public boolean isSmartThrottleEnabled() {
-        return throttleControl.isSmartThrottleEnabled();
+    public com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture posture() {
+        return throttleControl.posture();
     }
 
     public java.util.List<ConfiguredHeader> requestHeaders() {

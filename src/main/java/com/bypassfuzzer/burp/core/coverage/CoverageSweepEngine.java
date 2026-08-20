@@ -7,6 +7,8 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
 import com.bypassfuzzer.burp.http.RequestHeaderUtils;
@@ -55,7 +57,7 @@ public class CoverageSweepEngine {
     private volatile boolean running = false;
     private Thread runnerThread;
     private ExecutorService executor;
-    private CoverageSweepScheduler scheduler;
+    private HostThrottleCoordinator coordinator;
     private volatile ConcurrentLinkedQueue<RetryTask> deferredRetryQueue = new ConcurrentLinkedQueue<>();
     private final Set<String> sweepHosts = ConcurrentHashMap.newKeySet();
     private final Set<String> completedSweepHosts = ConcurrentHashMap.newKeySet();
@@ -303,16 +305,13 @@ public class CoverageSweepEngine {
     private void execute(List<CoverageSweepCandidate> candidates,
                          CoverageSweepOptions options,
                          Consumer<AttackResult> resultCallback) {
-        scheduler = new CoverageSweepScheduler(api, options);
-        int concurrency;
-        if (options.smartThrottleEnabled()) {
-            // Smart throttle manages pacing; raise thread pool so calibration can fire concurrent requests
-            concurrency = Math.max(options.concurrency(), CoverageSweepScheduler.SMART_THROTTLE_MIN_PER_HOST);
-        } else {
-            concurrency = Math.max(1, options.concurrency());
-        }
-        safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); global concurrency: "
-            + concurrency + "; per-host concurrency: " + options.perHostConcurrency()
+        ThrottleSettings throttleSettings = options.throttleSettings();
+        coordinator = new HostThrottleCoordinator(throttleSettings, api);
+        // The adaptive controller paces every host; the thread pool is sized to the global in-flight
+        // cap so workers can keep all hosts saturated up to each host's discovered rate.
+        int concurrency = throttleSettings.globalConcurrency();
+        safeLog("Coverage sweep starting: " + candidates.size() + " candidate(s); adaptive rate control, "
+            + "global in-flight: " + concurrency + "; per-host in-flight: " + throttleSettings.perHostConcurrency()
             + "; payload set: "
             + options.payloadSet() + (options.payloadSet() == CoverageSweepPayloadSet.ALL_PAYLOADS
                 ? " (uncapped full Bypass catalog)" : " (bounded high-signal probes)"));
@@ -529,7 +528,8 @@ public class CoverageSweepEngine {
     }
 
     private boolean isThrottleResponse(HttpResponse response, CoverageSweepOptions options) {
-        return response != null && options.autoThrottleEnabled()
+        // Ride-hard posture: any throttle-coded response is re-queued so coverage stays complete.
+        return response != null
             && options.throttleStatusCodes().contains((int) response.statusCode());
     }
 
@@ -987,8 +987,8 @@ public class CoverageSweepEngine {
     }
 
     private HttpResponse sendScheduled(HttpRequest request, java.util.function.Supplier<HttpResponse> sender) {
-        CoverageSweepScheduler currentScheduler = scheduler;
-        return currentScheduler == null ? sender.get() : currentScheduler.send(request, sender);
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        return currentCoordinator == null ? sender.get() : currentCoordinator.send(request, sender);
     }
 
     private void safeLog(String message) {

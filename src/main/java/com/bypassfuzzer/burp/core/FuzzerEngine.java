@@ -4,6 +4,8 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.*;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.RetryQueue;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
 import com.bypassfuzzer.burp.http.TargetUrlResolver;
@@ -24,7 +26,8 @@ public class FuzzerEngine {
     private final FuzzerConfig config;
     private volatile boolean running = false;
     private Thread fuzzerThread;
-    private RateLimiter rateLimiter;
+    private HostThrottleCoordinator coordinator;
+    private RetryQueue<ThrottledRequest> retryQueue;
     private final TargetUrlResolver targetUrlResolver;
     private final AttackRegistry attackRegistry;
 
@@ -128,34 +131,15 @@ public class FuzzerEngine {
             return;
         }
 
-        // Initialize rate limiter
-        rateLimiter = new RateLimiter(
-            api,
-            config.getRequestsPerSecond(),
-            config.getRequestDelayMs(),
-            config.getThrottleStatusCodes(),
-            config.isEnableAutoThrottle()
-        );
-        if (config.isSmartThrottleEnabled()) {
-            rateLimiter.enableSmartThrottle(true);
-        }
+        // Per-host adaptive rate control finds each host's ceiling and rides just under it.
+        coordinator = new HostThrottleCoordinator(config.throttleSettings(), api);
+        retryQueue = new RetryQueue<>();
 
         safeLog("=== BypassFuzzer Started ===");
         safeLog("Target: " + targetUrl);
         safeLog("Attack types enabled: " + formatEnabledAttackTypes());
-
-        if (config.getRequestsPerSecond() > 0) {
-            safeLog("Rate limit: " + config.getRequestsPerSecond() + " requests/second");
-        } else {
-            safeLog("Rate limit: unlimited");
-        }
-        if (config.getRequestDelayMs() > 0) {
-            safeLog("Minimum delay: " + config.getRequestDelayMs() + " ms between request starts");
-        }
-
-        if (config.isEnableAutoThrottle() && !config.getThrottleStatusCodes().isEmpty()) {
-            safeLog("Auto-throttle enabled for status codes: " + config.getThrottleStatusCodes());
-        }
+        safeLog("Adaptive rate control: pacing each host just under its rate limit; throttle codes "
+            + config.getThrottleStatusCodes());
 
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(config.getRequestHeaders());
         List<RegisteredAttack> attacks = attackRegistry.buildEnabledAttacks(config, targetUrl);
@@ -163,23 +147,16 @@ public class FuzzerEngine {
             new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
         safeLog("Built " + attacks.size() + " attack strategies");
 
-        ExecutorService smartSendPool = null;
-        if (config.isSmartThrottleEnabled()) {
-            // Smart throttle: enable concurrent HTTP sends across all attack families.
-            // The RateLimiter controls admission (burst + cooldown); the send pool
-            // keeps many requests in-flight so calibration runs at full speed.
-            int maxInFlight = 50;
-            smartSendPool = Executors.newFixedThreadPool(maxInFlight, runnable -> {
-                Thread t = new Thread(runnable, "bypassfuzzer-smart-send");
-                t.setDaemon(true);
-                return t;
-            });
-            attackExecutor.enableConcurrentSends(smartSendPool, maxInFlight);
-            safeLog("Concurrency: " + maxInFlight + " concurrent sends (smart throttle manages pacing)");
-        } else {
-            safeLog("Concurrency: " + Math.max(1, config.getConcurrency()) + " attack "
-                + (config.getConcurrency() <= 1 ? "family" : "families"));
-        }
+        // Keep many requests in flight so the adaptive controller can drive each host at full speed;
+        // throttled payloads are re-queued and retried so coverage stays complete.
+        int maxInFlight = 50;
+        ExecutorService sendPool = Executors.newFixedThreadPool(maxInFlight, runnable -> {
+            Thread t = new Thread(runnable, "bypassfuzzer-send");
+            t.setDaemon(true);
+            return t;
+        });
+        attackExecutor.enableConcurrentSends(sendPool, maxInFlight);
+        attackExecutor.enableRetryQueue(retryQueue);
 
         int concurrency = Math.max(1, config.getConcurrency());
         if (concurrency > 1 && attacks.size() > 1) {
@@ -191,14 +168,12 @@ public class FuzzerEngine {
         // Wait for all in-flight concurrent sends to finish
         attackExecutor.awaitInFlight();
 
-        if (smartSendPool != null) {
-            smartSendPool.shutdown();
-        }
-
-        // Drain retry queue if smart throttle queued any throttled requests
-        if (rateLimiter.isSmartThrottleEnabled() && rateLimiter.getRetryQueueSize() > 0) {
+        // Retry any requests that were throttled, while the send pool is still alive.
+        if (!retryQueue.isEmpty()) {
             drainRetryQueue(request, resultCallback, attackExecutor);
         }
+
+        sendPool.shutdown();
 
         safeLog("\n=== BypassFuzzer Completed ===");
     }
@@ -270,7 +245,7 @@ public class FuzzerEngine {
                 if (running) {
                     handleResult(result, resultCallback);
                 }
-            }, () -> running, rateLimiter, attackExecutor);
+            }, () -> running, coordinator, attackExecutor);
         } catch (Exception e) {
             safeLogError("Error in " + attack.type().displayName() + " attack: " + e.getMessage());
         }
@@ -279,9 +254,8 @@ public class FuzzerEngine {
     private void drainRetryQueue(HttpRequest originalRequest, Consumer<AttackResult> resultCallback,
                                  AttackExecutor attackExecutor) {
         int maxPasses = 3;
-        for (int pass = 1; pass <= maxPasses && running; pass++) {
-            List<ThrottledRequest> retries = rateLimiter.drainRetryQueue(rateLimiter.getCalibratedBurstSize() > 0
-                ? rateLimiter.getCalibratedBurstSize() : Integer.MAX_VALUE);
+        for (int pass = 1; pass <= maxPasses && running && !retryQueue.isEmpty(); pass++) {
+            List<ThrottledRequest> retries = retryQueue.drain(Integer.MAX_VALUE);
             if (retries.isEmpty()) break;
 
             safeLog(String.format("Retrying %d throttled requests (pass %d)...", retries.size(), pass));
@@ -293,11 +267,13 @@ public class FuzzerEngine {
                     retry.request(),
                     result -> { if (running) handleResult(result, resultCallback); },
                     () -> running,
-                    rateLimiter
+                    coordinator
                 );
             }
+            // Let this pass complete before deciding whether another is needed.
+            attackExecutor.awaitInFlight();
         }
-        int remaining = rateLimiter.getRetryQueueSize();
+        int remaining = retryQueue.size();
         if (remaining > 0) {
             safeLog(String.format("Retry limit reached; %d throttled payloads remain.", remaining));
         }

@@ -38,7 +38,8 @@ BypassFuzzer has four main testing areas:
   - Imports OpenAPI 3 and Swagger 2 JSON/YAML specifications as method-aware sweep candidates
   - Deduplicates endpoint shapes before sending probes
   - Uses a bounded, mile-wide/inch-deep probe set with a default cap of 280 probes per endpoint
-  - Supports endpoint-level concurrency, fixed inter-request delay, and auto-throttle status-code controls
+  - Adaptive per-host rate control: automatically discovers each host's rate-limit ceiling and rides just under it (no delay/rate knobs to tune), sweeping every host in parallel at its own speed
+  - Optional one-click browser User-Agent preset on sweep probes
   - Includes a preview table and exact probe preview before sending requests
   - Uses an explicit build-time wordlist at `src/main/resources/payloads/sweep_probes.txt`
   - Shows concrete signals such as `403 -> 200` and suppresses noisy `4xx` probe signals
@@ -61,10 +62,10 @@ BypassFuzzer has four main testing areas:
   - Mark your injection points with `{INJECT}`
   - Includes a `View Payloads` preview for the exact generated list before execution
 - **Smart Filtering:** Automatically reduces noise by hiding repeated responses with pattern tracking
-- **Rate Limiting & Auto-Throttling:**
-  - Configurable requests per second (default: unlimited)
-  - Auto-throttle when rate limit errors detected (429, 503)
-  - Automatically reduces speed by 50% when throttled
+- **Adaptive Rate Control:**
+  - One controller per host discovers that host's rate-limit ceiling and rides just under it, maximizing throughput while keeping throttles rare
+  - AIMD control law with slow-start; honors `Retry-After`; throttled requests are auto-retried so coverage stays complete
+  - Configurable rate-limit status codes (default: 429, 503); no manual delay or requests-per-second tuning
 - **Collaborator Integration:** Dynamic Burp Collaborator payload generation to watch for out-of-band interactions (Burp Professional only)
 - **Smoke Testing:**
   - Local vulnerable lab under `src/test/vulnerable_lab`
@@ -171,7 +172,7 @@ If Burp receives no response, Sweep retries safe `GET`/`HEAD` probes over HTTP/1
 2) Optionally:
    - Enable Collaborator payloads (Burp Professional only)
    - Configure concurrency for parallel attack-family execution
-   - Configure auto-throttle status codes (default: 429, 503)
+   - Configure rate-limit status codes (default: 429, 503); pacing is automatic and adaptive
 
 3) Manual & Smart filter
    - manual filter lets you choose various options to find what you want
@@ -185,7 +186,7 @@ If Burp receives no response, Sweep retries safe `GET`/`HEAD` probes over HTTP/1
    - Click the **Start Fuzzing** button
    - Results appear in real-time, filtered with your criteria in real-time
    - Can stop fuzzing at any time with the `Stop` button
-   - Auto-throttle will activate if rate limit errors detected
+   - Adaptive rate control paces each host just under its rate limit automatically
    - Can right click a request to color it for identification/filtering later
 
 **Scan History:**

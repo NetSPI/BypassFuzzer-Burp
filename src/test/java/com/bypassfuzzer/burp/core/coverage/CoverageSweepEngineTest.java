@@ -47,12 +47,10 @@ class CoverageSweepEngineTest {
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         CoverageSweepOptions options = new CoverageSweepOptions(
             defaults.statuses(), defaults.inScopeOnly(), defaults.maxCandidates(),
-            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
-            defaults.requestDelayMs(), defaults.throttleStatusCodes(), defaults.mode(),
-            defaults.authSelection(), defaults.excludeStaticAssets(),
-            defaults.verifyUnauthenticatedAccess(), defaults.doublePortHostProbes(),
-            defaults.autoThrottleEnabled(), defaults.requestHeaders(),
-            CoverageSweepPayloadSet.ALL_PAYLOADS);
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.perHostConcurrency(),
+            defaults.throttleStatusCodes(), defaults.mode(), defaults.authSelection(),
+            defaults.excludeStaticAssets(), defaults.verifyUnauthenticatedAccess(), List.of(),
+            defaults.requestHeaders(), CoverageSweepPayloadSet.ALL_PAYLOADS, com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD);
         CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
             new StaticSender(response(403, "text/plain", "blocked")),
             new CoverageSweepProbeGenerator());
@@ -78,11 +76,10 @@ class CoverageSweepEngineTest {
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         CoverageSweepOptions options = new CoverageSweepOptions(
             Set.of(), defaults.inScopeOnly(), defaults.maxCandidates(),
-            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
-            defaults.requestDelayMs(), defaults.throttleStatusCodes(),
-            CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.perHostConcurrency(),
+            defaults.throttleStatusCodes(), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("session"), false),
-            true, true, false, true, List.of(), CoverageSweepPayloadSet.ALL_PAYLOADS);
+            true, true, List.of(), List.of(), CoverageSweepPayloadSet.ALL_PAYLOADS, com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD);
         CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
             new StaticSender(response(200, "text/plain", "ok")),
             new CoverageSweepProbeGenerator());
@@ -103,9 +100,9 @@ class CoverageSweepEngineTest {
         CoverageSweepCandidate candidate = candidate(original, 403);
         ModeTrackingSender sender = new ModeTrackingSender(response(403, "text/plain", "blocked"));
         CoverageSweepOptions options = new CoverageSweepOptions(
-            Set.of(403), true, 100, 1, 1, 0, 0, Set.of(),
+            Set.of(403), true, 100, 1, 1, 1, Set.of(),
             CoverageSweepMode.BLOCKED_RESPONSES, CoverageSweepAuthSelection.defaults(),
-            true, true, true
+            true, true, List.of(0)
         );
         List<AttackResult> results = new ArrayList<>();
         CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()), sender,
@@ -133,7 +130,7 @@ class CoverageSweepEngineTest {
             new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertFalse(CoverageSweepOptions.defaults().doublePortHostProbes());
+        assertTrue(CoverageSweepOptions.defaults().hostPortProbePorts().isEmpty());
         assertTrue(probes.stream().noneMatch(probe -> "Host Parsing".equals(probe.family())));
     }
 
@@ -289,11 +286,11 @@ class CoverageSweepEngineTest {
             defaults.maxCandidates(),
             defaults.maxProbesPerCandidate(),
             defaults.concurrency(),
-            defaults.requestsPerSecond(),
-            defaults.requestDelayMs(),
+            defaults.perHostConcurrency(),
             defaults.throttleStatusCodes(),
             defaults.mode(),
             defaults.authSelection(),
+            false,
             false
         );
 
@@ -339,15 +336,14 @@ class CoverageSweepEngineTest {
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
         CoverageSweepOptions options = new CoverageSweepOptions(
             defaults.statuses(), defaults.inScopeOnly(), defaults.maxCandidates(),
-            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.requestsPerSecond(),
-            defaults.requestDelayMs(), defaults.throttleStatusCodes(),
-            CoverageSweepMode.AUTHENTICATED_TRAFFIC,
+            defaults.maxProbesPerCandidate(), defaults.concurrency(), defaults.perHostConcurrency(),
+            defaults.throttleStatusCodes(), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("JSESSIONID"), false),
-            true, true, false, true, List.of(
+            true, true, List.of(), List.of(
                 new ConfiguredHeader("Authorization", "Bearer stable"),
                 new ConfiguredHeader("Cookie", "JSESSIONID=stable; theme=light"),
                 new ConfiguredHeader("X-Forwarded-For", "10.0.0.1")
-            ));
+            ), CoverageSweepPayloadSet.HIGH_SIGNAL, com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD);
         CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
             new StaticSender(response(200, "text/plain", "ok")), new CoverageSweepProbeGenerator());
 
@@ -375,7 +371,7 @@ class CoverageSweepEngineTest {
         CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest, originalResponse, "key",
             originalRequest.url(), "GET", "example.com", "/account", 200, 13,
             "application/json", ZonedDateTime.now());
-        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 2, 1, 0, 0,
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 2, 1, 0,
             Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false));
         List<AttackResult> results = new ArrayList<>();
@@ -400,7 +396,7 @@ class CoverageSweepEngineTest {
         CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest, originalResponse, "key",
             originalRequest.url(), "GET", "example.com", "/account", 200, 13,
             "application/json", ZonedDateTime.now());
-        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0,
             Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false), true, true);
         List<AttackResult> results = new ArrayList<>();
@@ -432,14 +428,14 @@ class CoverageSweepEngineTest {
             originalRequest.url(), "GET", "example.com", "/account", 200, 13,
             "application/json", ZonedDateTime.now());
         CoverageSweepOptions defaults = CoverageSweepOptions.defaults();
-        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 1,
             defaults.throttleStatusCodes(), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of("session"), false),
-            true, true, false, true, List.of(
+            true, true, List.of(), List.of(
                 new ConfiguredHeader("Authorization", "Bearer stable"),
                 new ConfiguredHeader("Cookie", "session=stable; theme=configured"),
                 new ConfiguredHeader("X-Tenant", "blue")
-            ));
+            ), CoverageSweepPayloadSet.HIGH_SIGNAL, com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD);
         List<AttackResult> results = new ArrayList<>();
         CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()),
             new StaticSender(response(403, "application/json", "blocked")),
@@ -461,7 +457,7 @@ class CoverageSweepEngineTest {
         CoverageSweepCandidate candidate = new CoverageSweepCandidate(originalRequest,
             response(200, "application/json", "authenticated"), "key", originalRequest.url(), "GET",
             "example.com", "/account", 200, 13, "application/json", ZonedDateTime.now());
-        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0, 0,
+        CoverageSweepOptions options = new CoverageSweepOptions(Set.of(), true, 100, 1, 1, 0,
             Set.of(429), CoverageSweepMode.AUTHENTICATED_TRAFFIC,
             new CoverageSweepAuthSelection(Set.of("Authorization"), Set.of(), false), true, true);
         List<AttackResult> results = new ArrayList<>();
@@ -920,8 +916,6 @@ class CoverageSweepEngineTest {
             1,
             2,
             2,
-            0,
-            0,
             CoverageSweepOptions.defaults().throttleStatusCodes()
         );
 

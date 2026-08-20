@@ -41,7 +41,7 @@ import java.util.Map;
  */
 public class IdorPanel extends JPanel {
 
-    private static final IdorRunOptions DEFAULT_RUN_OPTIONS = new IdorRunOptions(0, java.util.Set.of(429, 503));
+    private static final IdorRunOptions DEFAULT_RUN_OPTIONS = new IdorRunOptions(java.util.Set.of(429, 503));
     private static final Dimension PLAYBOOK_DIALOG_SIZE = new Dimension(820, 420);
     private static final Dimension DEBUG_DIALOG_SIZE = new Dimension(980, 720);
 
@@ -378,9 +378,7 @@ public class IdorPanel extends JPanel {
         startButton.setEnabled(false);
         stopButton.setEnabled(true);
         statusLabel.setText("IDOR analysis in progress...");
-        resultsWorkspace.configureThrottleRetries(options.runOptions().throttleStatusCodes(),
-            options.runOptions().requestsPerSecond(), options.runOptions().requestDelayMs(),
-            options.runOptions().autoThrottleEnabled());
+        resultsWorkspace.configureThrottleRetries(options.runOptions().throttleStatusCodes());
         resultsWorkspace.setPrimaryRunActive(true);
 
         boolean started = engine.start(originalRequest, options, this::addResult, this::handleCompletion);

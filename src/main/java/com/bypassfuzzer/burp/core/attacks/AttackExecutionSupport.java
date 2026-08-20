@@ -1,6 +1,5 @@
 package com.bypassfuzzer.burp.core.attacks;
 
-import com.bypassfuzzer.burp.core.RateLimiter;
 import burp.api.montoya.MontoyaApi;
 
 import java.util.function.BooleanSupplier;
@@ -11,31 +10,6 @@ import java.util.function.BooleanSupplier;
 public final class AttackExecutionSupport {
 
     private AttackExecutionSupport() {
-    }
-
-    /**
-     * Checks cancellation and waits for the rate limiter.
-     *
-     * @return the epoch from the rate limiter (>= 0 on success, 0 when no limiter),
-     *         or -1 on failure (interrupted / cancelled).
-     */
-    public static long prepareRequest(BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
-        if (!canContinue(shouldContinue)) {
-            return -1;
-        }
-
-        if (rateLimiter != null) {
-            long epoch = rateLimiter.waitBeforeRequest();
-            if (epoch < 0) {
-                return -1;
-            }
-            if (!canContinue(shouldContinue)) {
-                return -1;
-            }
-            return epoch;
-        }
-
-        return canContinue(shouldContinue) ? 0 : -1;
     }
 
     public static boolean canContinue(BooleanSupplier shouldContinue) {

@@ -5,7 +5,7 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutionResult;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackRegistry;
@@ -93,14 +93,14 @@ final class FullBypassSweepProbeGenerator {
         @Override
         public boolean execute(String attackType, String payload, HttpRequest request,
                                Consumer<AttackResult> resultCallback,
-                               BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+                               BooleanSupplier shouldContinue, HostThrottleCoordinator rateLimiter) {
             return capture(attackType, payload, request, null, shouldContinue);
         }
 
         @Override
         public boolean execute(String attackType, String payload, HttpRequest request,
                                Consumer<AttackResult> resultCallback,
-                               BooleanSupplier shouldContinue, RateLimiter rateLimiter,
+                               BooleanSupplier shouldContinue, HostThrottleCoordinator rateLimiter,
                                HttpMode httpMode) {
             return capture(attackType, payload, request, httpMode, shouldContinue);
         }
@@ -109,7 +109,7 @@ final class FullBypassSweepProbeGenerator {
         public boolean execute(String attackType, String payload, String targetLabel,
                                String payloadFamily, String payloadEncoding, HttpRequest request,
                                Consumer<AttackResult> resultCallback,
-                               BooleanSupplier shouldContinue, RateLimiter rateLimiter) {
+                               BooleanSupplier shouldContinue, HostThrottleCoordinator rateLimiter) {
             return capture(attackType, payload, request, null, shouldContinue);
         }
 
@@ -118,7 +118,7 @@ final class FullBypassSweepProbeGenerator {
                                                         HttpRequest request,
                                                         Consumer<AttackResult> resultCallback,
                                                         BooleanSupplier shouldContinue,
-                                                        RateLimiter rateLimiter, long timeout,
+                                                        HostThrottleCoordinator rateLimiter, long timeout,
                                                         TimeUnit timeUnit) {
             return capture(attackType, payload, request, null, shouldContinue)
                 ? AttackExecutionResult.timedOut()

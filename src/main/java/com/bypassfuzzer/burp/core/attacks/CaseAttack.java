@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -29,7 +29,7 @@ public class CaseAttack implements AttackStrategy {
 
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
-                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                       Consumer<AttackResult> resultCallback, BooleanSupplier isRunning, HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> urlVariations = buildUrlVariations(targetUrl);
 

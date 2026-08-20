@@ -89,7 +89,8 @@ public class CoverageSweepPanel extends JPanel {
     private JCheckBox includeUnsafeMethodsCheckBox;
     private JCheckBox excludeStaticAssetsCheckBox;
     private JCheckBox verifyUnauthenticatedAccessCheckBox;
-    private JCheckBox doublePortHostProbesCheckBox;
+    private JCheckBox browserUserAgentCheckBox;
+    private HostPortsControl hostPortsControl;
     private JCheckBox dedupeImportedEndpointsCheckBox;
     private RequestHeadersControl requestHeadersControl;
     private ThrottleSettingsControl throttleControl;
@@ -105,6 +106,8 @@ public class CoverageSweepPanel extends JPanel {
     private JLabel pullResponsesLabel;
     private JPanel configurationPanel;
     private JTable candidateTable;
+    private JScrollPane candidatesScrollPane;
+    private JSplitPane centerSplitPane;
     private SessionResultsWorkspace resultsWorkspace;
     private volatile boolean stopRequested = false;
     private List<CoverageSweepCandidate> cachedHistoryCandidates = List.of();
@@ -242,19 +245,21 @@ public class CoverageSweepPanel extends JPanel {
         verifyUnauthenticatedAccessCheckBox = new JCheckBox("Verify unauthenticated access", true);
         verifyUnauthenticatedAccessCheckBox.setToolTipText(
             "Replay each authenticated candidate without credentials and mark successful 2xx responses as LIKELY PUBLIC.");
-        doublePortHostProbesCheckBox = new JCheckBox("Double-port Host probes", false);
-        doublePortHostProbesCheckBox.setToolTipText(
-            "Add two HTTP/1.1 Host parser probes per endpoint using trailing :80 and :443 ports.");
-        doublePortHostProbesCheckBox.addActionListener(e -> updateEstimate());
+        hostPortsControl = new HostPortsControl();
+        hostPortsControl.setOnChange(this::updateEstimate);
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
+        browserUserAgentCheckBox = new JCheckBox("Browser User-Agent", true);
+        browserUserAgentCheckBox.setToolTipText(
+            "Send every probe with a current desktop Chrome User-Agent (unless you set one yourself in Request Headers).");
         executionRow.add(new JLabel("Payload set:"));
         executionRow.add(payloadSetComboBox);
         throttleButton = throttleControl.button();
         executionRow.add(throttleButton);
+        executionRow.add(browserUserAgentCheckBox);
         methodOptionsRow.add(includeUnsafeMethodsCheckBox);
-        methodOptionsRow.add(doublePortHostProbesCheckBox);
+        methodOptionsRow.add(hostPortsControl.button());
         modeOptionsRow.add(excludeStaticAssetsCheckBox);
         modeOptionsRow.add(verifyUnauthenticatedAccessCheckBox);
         modeOptionsRow.add(openApiBaseUrlLabel);
@@ -651,6 +656,13 @@ public class CoverageSweepPanel extends JPanel {
         boolean expanded = configurationPanel.isVisible();
         configurationPanel.setVisible(!expanded);
         configurationActionsRow.setVisible(!expanded);
+        candidatesScrollPane.setVisible(!expanded);
+        if (expanded) {
+            centerSplitPane.setDividerSize(0);
+        } else {
+            centerSplitPane.setDividerSize(javax.swing.UIManager.getInt("SplitPane.dividerSize"));
+            centerSplitPane.setDividerLocation(220);
+        }
         configurationToggleButton.setText(expanded ? "Show config" : "Hide config");
         revalidate();
         repaint();
@@ -684,8 +696,8 @@ public class CoverageSweepPanel extends JPanel {
                 showCandidatePopupIfNeeded(e);
             }
         });
-        JScrollPane previewScrollPane = new JScrollPane(candidateTable);
-        previewScrollPane.setBorder(BorderFactory.createTitledBorder("Candidates"));
+        candidatesScrollPane = new JScrollPane(candidateTable);
+        candidatesScrollPane.setBorder(BorderFactory.createTitledBorder("Candidates"));
 
         resultsWorkspace = new SessionResultsWorkspace(
             api,
@@ -701,10 +713,10 @@ public class CoverageSweepPanel extends JPanel {
             false
         );
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, previewScrollPane, resultsWorkspace.component());
-        splitPane.setResizeWeight(0.25);
-        SwingUtilities.invokeLater(() -> splitPane.setDividerLocation(220));
-        return splitPane;
+        centerSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, candidatesScrollPane, resultsWorkspace.component());
+        centerSplitPane.setResizeWeight(0.25);
+        SwingUtilities.invokeLater(() -> centerSplitPane.setDividerLocation(220));
+        return centerSplitPane;
     }
 
     private void loadCandidates() {
@@ -1119,8 +1131,7 @@ public class CoverageSweepPanel extends JPanel {
 
         CoverageSweepOptions options = currentOptions();
         activePayloadSet = options.payloadSet();
-        resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes(),
-            options.requestsPerSecond(), options.requestDelayMs(), options.autoThrottleEnabled());
+        resultsWorkspace.configureThrottleRetries(options.throttleStatusCodes());
         resultsWorkspace.setPrimaryRunActive(true);
         sweepPreparationWorker = new SwingWorker<>() {
             @Override
@@ -1260,8 +1271,8 @@ public class CoverageSweepPanel extends JPanel {
                 + " endpoint(s); all Bypass payload families will run per endpoint.");
             return;
         }
-        int probesPerCandidate = options.maxProbesPerCandidate()
-            + (options.doublePortHostProbes() ? 2 : 0);
+        int hostPortProbes = hostPortsControl != null ? hostPortsControl.probeCount() : 0;
+        int probesPerCandidate = options.maxProbesPerCandidate() + hostPortProbes;
         int estimate = selected * probesPerCandidate;
         estimateLabel.setText("Selected " + selected + " endpoint(s); estimated max " + estimate + " request(s).");
     }
@@ -1281,19 +1292,44 @@ public class CoverageSweepPanel extends JPanel {
             defaults.maxProbesPerCandidate(),
             throttleControl != null ? throttleControl.concurrency() : defaults.concurrency(),
             throttleControl != null ? throttleControl.perHostConcurrency() : defaults.perHostConcurrency(),
-            defaults.requestsPerSecond(),
-            throttleControl != null ? throttleControl.requestDelayMs() : defaults.requestDelayMs(),
             throttleControl != null ? throttleControl.throttleStatusCodes() : defaults.throttleStatusCodes(),
             currentMode(),
             currentAuthSelection(),
             excludeStaticAssetsCheckBox == null || excludeStaticAssetsCheckBox.isSelected(),
             verifyUnauthenticatedAccessCheckBox != null && verifyUnauthenticatedAccessCheckBox.isSelected(),
-            doublePortHostProbesCheckBox != null && doublePortHostProbesCheckBox.isSelected(),
-            throttleControl == null || throttleControl.isAutoThrottleEnabled(),
-            throttleControl != null && throttleControl.isSmartThrottleEnabled(),
-            requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers(),
-            currentPayloadSet()
+            hostPortsControl != null ? hostPortsControl.ports() : java.util.List.of(),
+            effectiveRequestHeaders(),
+            currentPayloadSet(),
+            throttleControl != null ? throttleControl.posture()
+                : com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD
         );
+    }
+
+    /** Chrome desktop UA applied when the Browser User-Agent preset is enabled. */
+    private static final String BROWSER_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+            + "Chrome/126.0.0.0 Safari/537.36";
+
+    /**
+     * The configured request headers, with a browser {@code User-Agent} prepended when the preset is
+     * enabled and the user has not already supplied one of their own.
+     */
+    private java.util.List<com.bypassfuzzer.burp.http.ConfiguredHeader> effectiveRequestHeaders() {
+        java.util.List<com.bypassfuzzer.burp.http.ConfiguredHeader> headers =
+            requestHeadersControl == null ? java.util.List.of() : requestHeadersControl.headers();
+        if (browserUserAgentCheckBox == null || !browserUserAgentCheckBox.isSelected()) {
+            return headers;
+        }
+        boolean userSetUserAgent = headers.stream()
+            .anyMatch(header -> header.name().equalsIgnoreCase("User-Agent"));
+        if (userSetUserAgent) {
+            return headers;
+        }
+        java.util.List<com.bypassfuzzer.burp.http.ConfiguredHeader> withUa =
+            new java.util.ArrayList<>(headers.size() + 1);
+        withUa.add(new com.bypassfuzzer.burp.http.ConfiguredHeader("User-Agent", BROWSER_USER_AGENT));
+        withUa.addAll(headers);
+        return withUa;
     }
 
     private CoverageSweepPayloadSet currentPayloadSet() {
@@ -1334,7 +1370,7 @@ public class CoverageSweepPanel extends JPanel {
         payloadSetComboBox.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
-        doublePortHostProbesCheckBox.setEnabled(enabled);
+        hostPortsControl.setEnabled(enabled);
         updateModeControls();
     }
 
@@ -1402,7 +1438,7 @@ public class CoverageSweepPanel extends JPanel {
         requestHeadersControl.button().setVisible(true);
         authIdentifiersButton.setVisible(authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
-        doublePortHostProbesCheckBox.setEnabled(idle);
+        hostPortsControl.setEnabled(idle);
         openApiBaseUrlLabel.setVisible(imported);
         openApiBaseUrlField.setVisible(imported);
         openApiBaseUrlField.setEnabled(idle && imported);

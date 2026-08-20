@@ -3,8 +3,9 @@ package com.bypassfuzzer.burp.core.attacks;
 import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
-import com.bypassfuzzer.burp.core.RateLimiter;
 import com.bypassfuzzer.burp.core.ThrottledRequest;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.RetryQueue;
 import com.bypassfuzzer.burp.http.RequestSender;
 
 import java.util.concurrent.ExecutorService;
@@ -12,14 +13,16 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
  * Executes a prepared request using shared attack-loop semantics.
- * <p>When a concurrent send pool is configured via {@link #enableConcurrentSends},
- * the HTTP send is submitted to the pool instead of running synchronously.
- * This allows many payloads to be in-flight simultaneously while the
- * {@link RateLimiter} controls admission.</p>
+ * <p>Pacing and per-host adaptive throttling are delegated to a {@link HostThrottleCoordinator}: the
+ * actual HTTP round-trip is wrapped in {@link HostThrottleCoordinator#send} so admission, sending,
+ * and response reporting happen as one unit. When a concurrent send pool is configured via
+ * {@link #enableConcurrentSends}, that unit is submitted to the pool so many requests are in flight
+ * at once while the coordinator controls each host's rate.</p>
  */
 public class AttackExecutor {
 
@@ -28,6 +31,7 @@ public class AttackExecutor {
     private volatile ExecutorService sendPool;
     private volatile Semaphore inFlightPermits;
     private volatile int maxInFlight;
+    private volatile RetryQueue<ThrottledRequest> retryQueue;
 
     public AttackExecutor(RequestSender requestSender) {
         this(requestSender, UnaryOperator.identity());
@@ -39,9 +43,8 @@ public class AttackExecutor {
     }
 
     /**
-     * Enable concurrent HTTP sends. When set, {@code execute()} submits the
-     * actual HTTP round-trip to the provided pool instead of blocking the
-     * caller. A semaphore bounds the number of in-flight requests.
+     * Enable concurrent HTTP sends. When set, {@code execute()} submits the paced round-trip to the
+     * provided pool instead of blocking the caller. A semaphore bounds the number in flight.
      */
     public void enableConcurrentSends(ExecutorService pool, int maxInFlight) {
         this.sendPool = pool;
@@ -50,14 +53,22 @@ public class AttackExecutor {
     }
 
     /**
-     * Wait for all in-flight concurrent sends to complete.
-     * Call after all strategies have finished to ensure every response is processed.
+     * Enable automatic re-queuing of throttled responses. When set, a response whose status is a
+     * throttle code is added to the queue and its result callback is suppressed (the payload did not
+     * land), for the caller to drain and retry later. When {@code null}, throttled responses are
+     * delivered as ordinary results.
      */
+    public void enableRetryQueue(RetryQueue<ThrottledRequest> retryQueue) {
+        this.retryQueue = retryQueue;
+    }
+
+    /** Wait for all in-flight concurrent sends to complete. */
     public void awaitInFlight() {
         Semaphore permits = this.inFlightPermits;
-        if (permits == null) return;
+        if (permits == null) {
+            return;
+        }
         try {
-            // Acquire all permits -- blocks until every in-flight send releases its permit
             permits.acquire(maxInFlight);
             permits.release(maxInFlight);
         } catch (InterruptedException e) {
@@ -68,74 +79,41 @@ public class AttackExecutor {
     public boolean execute(String attackType, String payload, HttpRequest request,
                            Consumer<AttackResult> resultCallback,
                            BooleanSupplier shouldContinue,
-                           RateLimiter rateLimiter) {
-        return execute(attackType, payload, null, null, null, request, resultCallback, shouldContinue, rateLimiter);
+                           HostThrottleCoordinator coordinator) {
+        return execute(attackType, payload, null, null, null, request, resultCallback, shouldContinue,
+            coordinator, null);
     }
 
     public boolean execute(String attackType, String payload, HttpRequest request,
                            Consumer<AttackResult> resultCallback,
                            BooleanSupplier shouldContinue,
-                           RateLimiter rateLimiter,
+                           HostThrottleCoordinator coordinator,
                            HttpMode httpMode) {
-        long epoch = AttackExecutionSupport.prepareRequest(shouldContinue, rateLimiter);
-        if (epoch < 0) {
-            return false;
-        }
-
-        HttpRequest sentRequest = requestTransformer.apply(request);
-
-        // Concurrent mode: submit HTTP send to pool, return immediately
-        if (sendPool != null && inFlightPermits != null) {
-            try {
-                inFlightPermits.acquire();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-            sendPool.submit(() -> {
-                try {
-                    HttpResponse response = requestSender.send(sentRequest, httpMode);
-                    if (rateLimiter != null) {
-                        rateLimiter.reportResponse(response, epoch);
-                        if (handleSmartThrottleRetry(rateLimiter, response, sentRequest,
-                                attackType, payload, null, null, null)) {
-                            return;
-                        }
-                    }
-                    resultCallback.accept(new AttackResult(attackType, payload, sentRequest, response));
-                } finally {
-                    inFlightPermits.release();
-                }
-            });
-            return true;
-        }
-
-        // Sequential mode: send synchronously
-        HttpResponse response = requestSender.send(sentRequest, httpMode);
-        if (rateLimiter != null) {
-            rateLimiter.reportResponse(response, epoch);
-            if (handleSmartThrottleRetry(rateLimiter, response, sentRequest,
-                    attackType, payload, null, null, null)) {
-                return true;
-            }
-        }
-        resultCallback.accept(new AttackResult(attackType, payload, sentRequest, response));
-        return true;
+        return execute(attackType, payload, null, null, null, request, resultCallback, shouldContinue,
+            coordinator, httpMode);
     }
 
-    public boolean execute(String attackType, String payload, String targetLabel, String payloadFamily, String payloadEncoding,
-                           HttpRequest request,
+    public boolean execute(String attackType, String payload, String targetLabel, String payloadFamily,
+                           String payloadEncoding, HttpRequest request,
                            Consumer<AttackResult> resultCallback,
                            BooleanSupplier shouldContinue,
-                           RateLimiter rateLimiter) {
-        long epoch = AttackExecutionSupport.prepareRequest(shouldContinue, rateLimiter);
-        if (epoch < 0) {
+                           HostThrottleCoordinator coordinator) {
+        return execute(attackType, payload, targetLabel, payloadFamily, payloadEncoding, request,
+            resultCallback, shouldContinue, coordinator, null);
+    }
+
+    private boolean execute(String attackType, String payload, String targetLabel, String payloadFamily,
+                            String payloadEncoding, HttpRequest request,
+                            Consumer<AttackResult> resultCallback,
+                            BooleanSupplier shouldContinue,
+                            HostThrottleCoordinator coordinator,
+                            HttpMode httpMode) {
+        if (!AttackExecutionSupport.canContinue(shouldContinue)) {
             return false;
         }
 
         HttpRequest sentRequest = requestTransformer.apply(request);
 
-        // Concurrent mode: submit HTTP send to pool, return immediately
         if (sendPool != null && inFlightPermits != null) {
             try {
                 inFlightPermits.acquire();
@@ -145,15 +123,12 @@ public class AttackExecutor {
             }
             sendPool.submit(() -> {
                 try {
-                    HttpResponse response = requestSender.send(sentRequest);
-                    if (rateLimiter != null) {
-                        rateLimiter.reportResponse(response, epoch);
-                        if (handleSmartThrottleRetry(rateLimiter, response, sentRequest,
-                                attackType, payload, targetLabel, payloadFamily, payloadEncoding)) {
-                            return;
-                        }
+                    HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
+                    if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload,
+                            targetLabel, payloadFamily, payloadEncoding)) {
+                        return;
                     }
-                    resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily,
+                    resultCallback.accept(buildResult(attackType, payload, targetLabel, payloadFamily,
                         payloadEncoding, sentRequest, response));
                 } finally {
                     inFlightPermits.release();
@@ -162,16 +137,12 @@ public class AttackExecutor {
             return true;
         }
 
-        // Sequential mode: send synchronously
-        HttpResponse response = requestSender.send(sentRequest);
-        if (rateLimiter != null) {
-            rateLimiter.reportResponse(response, epoch);
-            if (handleSmartThrottleRetry(rateLimiter, response, sentRequest,
-                    attackType, payload, targetLabel, payloadFamily, payloadEncoding)) {
-                return true;
-            }
+        HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
+        if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload, targetLabel,
+                payloadFamily, payloadEncoding)) {
+            return true;
         }
-        resultCallback.accept(new AttackResult(attackType, payload, targetLabel, payloadFamily,
+        resultCallback.accept(buildResult(attackType, payload, targetLabel, payloadFamily,
             payloadEncoding, sentRequest, response));
         return true;
     }
@@ -179,58 +150,66 @@ public class AttackExecutor {
     public AttackExecutionResult executeWithTimeout(String attackType, String payload, HttpRequest request,
                                                     Consumer<AttackResult> resultCallback,
                                                     BooleanSupplier shouldContinue,
-                                                    RateLimiter rateLimiter,
+                                                    HostThrottleCoordinator coordinator,
                                                     long timeout,
                                                     TimeUnit timeUnit) {
-        long epoch = AttackExecutionSupport.prepareRequest(shouldContinue, rateLimiter);
-        if (epoch < 0) {
+        if (!AttackExecutionSupport.canContinue(shouldContinue)) {
             return AttackExecutionResult.stopped();
         }
 
         HttpRequest sentRequest = requestTransformer.apply(request);
-        HttpResponse response = requestSender.send(sentRequest, timeout, timeUnit);
+        Supplier<HttpResponse> sender = () -> requestSender.send(sentRequest, timeout, timeUnit);
+        HttpResponse response = coordinator == null ? sender.get() : coordinator.send(sentRequest, sender);
         if (response == null) {
             return shouldContinue.getAsBoolean() && !Thread.currentThread().isInterrupted()
                 ? AttackExecutionResult.timedOut()
                 : AttackExecutionResult.stopped();
         }
 
-        if (rateLimiter != null) {
-            rateLimiter.reportResponse(response, epoch);
-            if (handleSmartThrottleRetry(rateLimiter, response, sentRequest,
-                    attackType, payload, null, null, null)) {
-                return AttackExecutionResult.executed(response);
-            }
+        if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload, null, null, null)) {
+            return AttackExecutionResult.executed(response);
         }
-
         resultCallback.accept(new AttackResult(attackType, payload, sentRequest, response));
         return AttackExecutionResult.executed(response);
     }
 
+    private HttpResponse sendPaced(HostThrottleCoordinator coordinator, HttpRequest request, HttpMode httpMode) {
+        Supplier<HttpResponse> sender = httpMode == null
+            ? () -> requestSender.send(request)
+            : () -> requestSender.send(request, httpMode);
+        return coordinator == null ? sender.get() : coordinator.send(request, sender);
+    }
+
     /**
-     * If smart throttle is enabled and the response is a throttle code, enqueue for retry
-     * and suppress the result callback (the payload didn't land).
+     * If a retry queue is configured and the response is a throttle code, enqueue the request for
+     * retry and suppress the result callback (the payload did not land).
      *
-     * @return true if the request was throttled and queued for retry (caller should NOT deliver result)
+     * @return true when the request was throttled and queued (caller should NOT deliver a result)
      */
-    private boolean handleSmartThrottleRetry(RateLimiter rateLimiter, HttpResponse response,
-                                              HttpRequest sentRequest, String attackType,
-                                              String payload, String targetLabel,
-                                              String payloadFamily, String payloadEncoding) {
-        if (!rateLimiter.isSmartThrottleEnabled() || response == null) {
+    private boolean enqueueIfThrottled(HostThrottleCoordinator coordinator, HttpResponse response,
+                                       HttpRequest sentRequest, String attackType, String payload,
+                                       String targetLabel, String payloadFamily, String payloadEncoding) {
+        if (retryQueue == null || coordinator == null || response == null) {
             return false;
         }
-        if (rateLimiter.isThrottleStatusCode(response.statusCode())) {
-            ThrottledRequest throttled = new ThrottledRequest(
-                sentRequest, attackType, payload,
+        if (coordinator.isThrottleStatusCode(response.statusCode())) {
+            retryQueue.enqueue(new ThrottledRequest(sentRequest, attackType, payload,
                 targetLabel == null ? "" : targetLabel,
                 payloadFamily == null ? "" : payloadFamily,
                 payloadEncoding == null ? "" : payloadEncoding,
-                0
-            );
-            rateLimiter.enqueueForRetry(throttled);
+                0));
             return true;
         }
         return false;
+    }
+
+    private static AttackResult buildResult(String attackType, String payload, String targetLabel,
+                                            String payloadFamily, String payloadEncoding,
+                                            HttpRequest request, HttpResponse response) {
+        if (targetLabel == null && payloadFamily == null && payloadEncoding == null) {
+            return new AttackResult(attackType, payload, request, response);
+        }
+        return new AttackResult(attackType, payload, targetLabel, payloadFamily, payloadEncoding,
+            request, response);
     }
 }

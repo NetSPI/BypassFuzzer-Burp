@@ -5,7 +5,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.logging.Logging;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackRegistry;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
@@ -297,7 +297,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), Set.of()),
             "url-allowlist-bypass"
         );
     }
@@ -313,7 +313,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), Set.of()),
             "hostname-allowlist-bypass"
         );
     }
@@ -330,7 +330,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.CORS_ORIGIN), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.CORS_ORIGIN), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), Set.of()),
             "cors-origin-bypass"
         );
     }
@@ -346,7 +346,7 @@ class AttackPlaybookSmokeTest {
                     \r
                     """.formatted(HOST, port)
             ),
-            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), 0, Set.of()),
+            new UrlValidationOptions("{INJECT}", "trusted.example", "127.0.0.1", false, "http", Set.of(UrlValidationContext.ABSOLUTE_URL, UrlValidationContext.HOSTNAME), Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS, UrlValidationAttackSetting.FAKE_RELATIVE_URLS, UrlValidationAttackSetting.LOOPBACK), Set.of(UrlValidationEncoding.RAW), Set.of()),
             "url-allowlist-bypass"
         );
     }
@@ -358,7 +358,7 @@ class AttackPlaybookSmokeTest {
 
     private void assertAttackSucceeds(Scenario scenario) {
         MontoyaApi api = montoyaApi();
-        RateLimiter rateLimiter = new RateLimiter(api, 0, Set.of(), false);
+        HostThrottleCoordinator coordinator = null; // no pacing needed against the local lab
         AtomicBoolean running = new AtomicBoolean(true);
         List<AttackResult> results = new ArrayList<>();
         AttackStrategy strategy = attackStrategy(scenario.type(), scenario.targetUrl());
@@ -379,7 +379,7 @@ class AttackPlaybookSmokeTest {
                 }
             },
             running::get,
-            rateLimiter,
+            coordinator,
             executor
         );
 
@@ -406,7 +406,7 @@ class AttackPlaybookSmokeTest {
 
     private void assertUrlValidationSucceeds(HttpRequest request, UrlValidationOptions options, String expectedMarker) {
         MontoyaApi api = montoyaApi();
-        RateLimiter rateLimiter = new RateLimiter(api, 0, Set.of(), false);
+        HostThrottleCoordinator coordinator = null; // no pacing needed against the local lab
         AtomicBoolean running = new AtomicBoolean(true);
         List<AttackResult> results = new ArrayList<>();
         UrlValidationAttack attack = new UrlValidationAttack(
@@ -431,7 +431,7 @@ class AttackPlaybookSmokeTest {
                 }
             },
             running::get,
-            rateLimiter,
+            coordinator,
             executor
         );
 

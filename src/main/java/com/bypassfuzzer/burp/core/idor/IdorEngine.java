@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.idor;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybook;
@@ -29,7 +29,7 @@ public class IdorEngine {
 
     private volatile boolean running = false;
     private Thread runnerThread;
-    private RateLimiter rateLimiter;
+    private HostThrottleCoordinator coordinator;
 
     public IdorEngine(MontoyaApi api) {
         this(api, new IdorRequestContextAnalyzer(), new IdorPlaybookRegistry(), new MontoyaRequestSender(api));
@@ -105,10 +105,7 @@ public class IdorEngine {
             return;
         }
 
-        Set<Integer> throttleCodes = safeThrottleCodes(options.runOptions().throttleStatusCodes());
-        rateLimiter = new RateLimiter(api, options.runOptions().requestsPerSecond(),
-            options.runOptions().requestDelayMs(), throttleCodes,
-            options.runOptions().autoThrottleEnabled());
+        coordinator = new HostThrottleCoordinator(options.runOptions().throttleSettings(), api);
 
         AttackExecutor attackExecutor = new AttackExecutor(
             requestSender, mutated -> headerPolicy.reconcileMutation(request, mutated));
@@ -128,7 +125,7 @@ public class IdorEngine {
             request,
             publishingCallback,
             () -> running,
-            rateLimiter
+            coordinator
         )) {
             return;
         }
@@ -142,7 +139,7 @@ public class IdorEngine {
             targetRequest,
             publishingCallback,
             () -> running,
-            rateLimiter
+            coordinator
         )) {
             return;
         }
@@ -179,15 +176,11 @@ public class IdorEngine {
                     variant.request(),
                     publishingCallback,
                     () -> running,
-                    rateLimiter
+                    coordinator
                 )) {
                     return;
                 }
             }
         }
-    }
-
-    private Set<Integer> safeThrottleCodes(Set<Integer> throttleStatusCodes) {
-        return throttleStatusCodes == null ? Set.of() : throttleStatusCodes;
     }
 }

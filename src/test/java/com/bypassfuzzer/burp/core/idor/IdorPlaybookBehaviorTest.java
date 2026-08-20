@@ -724,7 +724,7 @@ class IdorPlaybookBehaviorTest {
     private IdorRequestContext context(String path, String query, String method, String contentType, String body, String authorized, String target) {
         return contextAnalyzer.analyze(
             HttpRequestTestFactory.request(path, query, method, contentType, body),
-            new IdorOptions(authorized, target, new IdorRunOptions(0, Set.of()))
+            new IdorOptions(authorized, target, new IdorRunOptions(Set.of()))
         );
     }
 }

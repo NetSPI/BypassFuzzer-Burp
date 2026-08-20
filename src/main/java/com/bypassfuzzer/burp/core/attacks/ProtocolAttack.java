@@ -4,7 +4,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.core.ByteArray;
 import burp.api.montoya.http.HttpService;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 
 import java.util.Arrays;
 import java.util.List;
@@ -26,7 +26,7 @@ public class ProtocolAttack implements AttackStrategy {
     }
 
     @Override
-    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+    public void execute(MontoyaApi api, HttpRequest baseRequest, String targetUrl, Consumer<AttackResult> resultCallback, BooleanSupplier shouldContinue, HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
         if (!AttackExecutionSupport.logStart(api, "Starting Protocol Attack")) {
             return;
         }

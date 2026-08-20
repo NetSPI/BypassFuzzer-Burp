@@ -1,5 +1,6 @@
 package com.bypassfuzzer.burp.core.urlvalidation;
 
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.ConfiguredHeader;
 
 import java.util.List;
@@ -14,51 +15,32 @@ public record UrlValidationOptions(
     Set<UrlValidationContext> payloadFamilies,
     Set<UrlValidationAttackSetting> attackSettings,
     Set<UrlValidationEncoding> encodings,
-    int requestsPerSecond,
-    int requestDelayMs,
     Set<Integer> throttleStatusCodes,
-    boolean autoThrottleEnabled,
+    ThrottleSettings.Posture posture,
     List<ConfiguredHeader> requestHeaders
 ) {
 
     public UrlValidationOptions {
+        posture = posture == null ? ThrottleSettings.Posture.RIDE_HARD : posture;
         requestHeaders = requestHeaders == null ? List.of() : List.copyOf(requestHeaders);
     }
 
-    public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
-                                boolean collaboratorPayloads, String attackerScheme,
-                                Set<UrlValidationContext> payloadFamilies,
-                                Set<UrlValidationAttackSetting> attackSettings,
-                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
-                                int requestDelayMs, Set<Integer> throttleStatusCodes,
-                                boolean autoThrottleEnabled) {
-        this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
-            payloadFamilies, attackSettings, encodings, requestsPerSecond, requestDelayMs,
-            throttleStatusCodes, autoThrottleEnabled, List.of());
+    /** Adaptive per-host throttle configuration; URL validation runs its single attack serially. */
+    public ThrottleSettings throttleSettings() {
+        return new ThrottleSettings(throttleStatusCodes, 1, 1, 400.0, posture);
     }
 
     public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
                                 boolean collaboratorPayloads, String attackerScheme,
                                 Set<UrlValidationContext> payloadFamilies,
                                 Set<UrlValidationAttackSetting> attackSettings,
-                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
-                                int requestDelayMs, Set<Integer> throttleStatusCodes) {
-        this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
-            payloadFamilies, attackSettings, encodings, requestsPerSecond, requestDelayMs,
-            throttleStatusCodes, throttleStatusCodes != null && !throttleStatusCodes.isEmpty(),
-            List.of());
-    }
-
-    public UrlValidationOptions(String markerText, String allowedHost, String attackerHost,
-                                boolean collaboratorPayloads, String attackerScheme,
-                                Set<UrlValidationContext> payloadFamilies,
-                                Set<UrlValidationAttackSetting> attackSettings,
-                                Set<UrlValidationEncoding> encodings, int requestsPerSecond,
+                                Set<UrlValidationEncoding> encodings,
                                 Set<Integer> throttleStatusCodes) {
         this(markerText, allowedHost, attackerHost, collaboratorPayloads, attackerScheme,
-            payloadFamilies, attackSettings, encodings, requestsPerSecond, 0, throttleStatusCodes,
-            throttleStatusCodes != null && !throttleStatusCodes.isEmpty(), List.of());
+            payloadFamilies, attackSettings, encodings, throttleStatusCodes,
+            ThrottleSettings.Posture.RIDE_HARD, List.of());
     }
+
 
     private static final Set<UrlValidationContext> DEFAULT_PAYLOAD_FAMILIES = Set.of(
         UrlValidationContext.ABSOLUTE_URL,

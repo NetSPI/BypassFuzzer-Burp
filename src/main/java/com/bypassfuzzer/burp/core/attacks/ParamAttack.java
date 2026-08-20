@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.payloads.PayloadRepository;
 import com.bypassfuzzer.burp.http.QueryStringUtils;
 import com.bypassfuzzer.burp.http.RequestPathUtils;
@@ -41,7 +41,7 @@ public class ParamAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         String basePath = RequestPathUtils.extractPathAndQuery(targetUrl);
         if (!fuzzExistingUrlParams(api, originalRequest, basePath, resultCallback, isRunning, rateLimiter, attackExecutor)) {
@@ -62,7 +62,7 @@ public class ParamAttack implements AttackStrategy {
 
     private boolean fuzzExistingUrlParams(MontoyaApi api, HttpRequest originalRequest, String basePath,
                                           Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                          RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                                          HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         List<String> existingParamNames = QueryStringUtils.parseDecodedParameters(RequestPathUtils.queryFromPath(basePath)).stream()
             .map(QueryStringUtils.QueryParameter::name)
@@ -109,7 +109,7 @@ public class ParamAttack implements AttackStrategy {
 
     private void executeUrlParamAttacks(MontoyaApi api, HttpRequest originalRequest, String basePath,
                                         List<String> paramPayloads, Consumer<AttackResult> resultCallback,
-                                        BooleanSupplier isRunning, RateLimiter rateLimiter,
+                                        BooleanSupplier isRunning, HostThrottleCoordinator rateLimiter,
                                         AttackExecutor attackExecutor) {
 
         for (String param : paramPayloads) {

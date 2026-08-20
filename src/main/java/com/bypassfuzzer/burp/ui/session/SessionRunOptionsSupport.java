@@ -17,12 +17,6 @@ public final class SessionRunOptionsSupport {
         } catch (NumberFormatException e) {
             concurrency = 1;
         }
-        int requestDelayMs;
-        try {
-            requestDelayMs = Math.max(0, Integer.parseInt(runOptionsPanel.requestDelayText().trim()));
-        } catch (NumberFormatException e) {
-            requestDelayMs = 0;
-        }
 
         return new SessionRunOptions(
             attackSelectionPanel.isHeaderAttackEnabled(),
@@ -39,12 +33,9 @@ public final class SessionRunOptionsSupport {
             runOptionsPanel.isCollaboratorEnabled(),
             attackSelectionPanel.isCookieParamAttackEnabled(),
             runOptionsPanel.isFuzzExistingCookiesEnabled(),
-            0,
-            requestDelayMs,
             concurrency,
             SessionInputParsers.parseStatusCodes(runOptionsPanel.throttleStatusCodesText()),
-            runOptionsPanel.isAutoThrottleEnabled(),
-            runOptionsPanel.isSmartThrottleEnabled(),
+            runOptionsPanel.posture(),
             runOptionsPanel.requestHeaders()
         );
     }

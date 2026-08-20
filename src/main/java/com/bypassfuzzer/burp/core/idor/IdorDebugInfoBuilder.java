@@ -85,9 +85,8 @@ public class IdorDebugInfoBuilder {
         debug.append("Identifiers equal: ").append(authorized.equals(target)).append("\n");
         debug.append("Identifier 1 occurrences in original request: ").append(occurrences).append("\n");
         if (options.runOptions() != null) {
-            debug.append("Requests/second: ").append(options.runOptions().requestsPerSecond()).append("\n");
             debug.append("Throttle status codes: ").append(options.runOptions().throttleStatusCodes()).append("\n");
-            debug.append("Auto throttle: ").append(options.runOptions().autoThrottleEnabled()).append("\n");
+            debug.append("Rate control: adaptive per-host\n");
         } else {
             debug.append("Run options: <null>\n");
         }

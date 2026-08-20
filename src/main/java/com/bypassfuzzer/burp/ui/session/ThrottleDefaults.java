@@ -3,29 +3,26 @@ package com.bypassfuzzer.burp.ui.session;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
 import com.bypassfuzzer.burp.core.idor.IdorRunOptions;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 
 import java.util.Set;
 
 /**
- * Default values and feature visibility for the shared throttle settings dialog.
+ * Default values and feature visibility for the shared throttle settings dialog. Request pacing is
+ * automatic and adaptive, so only the in-flight concurrency caps, rate-limit status codes, and the
+ * ride-hard vs. cautious posture remain.
  *
  * @param concurrency          initial concurrency value; -1 = don't show the field
  * @param perHostConcurrency   initial per-host concurrency; -1 = don't show the field
- * @param requestsPerSecond    initial RPS value; -1 = don't show the field
- * @param requestDelayMs       initial delay between requests
- * @param throttleStatusCodes  initial throttle status codes
- * @param autoThrottle         initial auto-throttle checkbox state
- * @param smartThrottle        initial smart-throttle checkbox state
+ * @param throttleStatusCodes  initial rate-limit status codes
+ * @param posture              initial pacing posture (ride hard vs. cautious)
  * @param concurrencyLabel     label for the concurrency field ("Concurrency" vs "Global concurrency")
  */
 public record ThrottleDefaults(
     int concurrency,
     int perHostConcurrency,
-    int requestsPerSecond,
-    int requestDelayMs,
     Set<Integer> throttleStatusCodes,
-    boolean autoThrottle,
-    boolean smartThrottle,
+    ThrottleSettings.Posture posture,
     String concurrencyLabel
 ) {
 
@@ -33,11 +30,8 @@ public record ThrottleDefaults(
         return new ThrottleDefaults(
             config.getConcurrency(),
             -1,
-            -1,
-            config.getRequestDelayMs(),
             config.getThrottleStatusCodes(),
-            config.isEnableAutoThrottle(),
-            config.isSmartThrottleEnabled(),
+            config.getThrottlePosture(),
             "Concurrency"
         );
     }
@@ -46,11 +40,8 @@ public record ThrottleDefaults(
         return new ThrottleDefaults(
             defaults.concurrency(),
             defaults.perHostConcurrency(),
-            -1,
-            defaults.requestDelayMs(),
             defaults.throttleStatusCodes(),
-            defaults.autoThrottleEnabled(),
-            defaults.smartThrottleEnabled(),
+            defaults.throttlePosture(),
             "Global concurrency"
         );
     }
@@ -59,11 +50,8 @@ public record ThrottleDefaults(
         return new ThrottleDefaults(
             -1,
             -1,
-            defaults.requestsPerSecond(),
-            defaults.requestDelayMs(),
             defaults.throttleStatusCodes(),
-            defaults.autoThrottleEnabled(),
-            false,
+            defaults.throttlePosture(),
             "Concurrency"
         );
     }
@@ -72,11 +60,8 @@ public record ThrottleDefaults(
         return new ThrottleDefaults(
             -1,
             -1,
-            0,
-            0,
             Set.of(429, 503),
-            true,
-            false,
+            ThrottleSettings.Posture.RIDE_HARD,
             "Concurrency"
         );
     }

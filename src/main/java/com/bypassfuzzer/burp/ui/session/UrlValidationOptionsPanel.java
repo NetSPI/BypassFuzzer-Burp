@@ -176,28 +176,16 @@ public class UrlValidationOptionsPanel extends JPanel {
         return java.util.Set.copyOf(settings);
     }
 
-    public String requestsPerSecondText() {
-        return String.valueOf(throttleControl.requestsPerSecond());
-    }
-
     public String throttleStatusCodesText() {
         return throttleControl.throttleStatusCodesText();
     }
 
-    public boolean isAutoThrottleEnabled() {
-        return throttleControl.isAutoThrottleEnabled();
-    }
-
-    public boolean isSmartThrottleEnabled() {
-        return throttleControl.isSmartThrottleEnabled();
+    public com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture posture() {
+        return throttleControl.posture();
     }
 
     public java.util.List<ConfiguredHeader> requestHeaders() {
         return requestHeadersControl.headers();
-    }
-
-    public int requestDelayMs() {
-        return throttleControl.requestDelayMs();
     }
 
     public void setControlsEnabled(boolean enabled) {
@@ -255,7 +243,7 @@ public class UrlValidationOptionsPanel extends JPanel {
 
     private JPanel createExecutionSection() {
         JPanel panel = createSectionPanel("Execution");
-        panel.add(formRow("Throttle", throttleControl.button(), "concurrency, delay, and smart throttle"));
+        panel.add(formRow("Throttle", throttleControl.button(), "in-flight concurrency and rate-limit codes (pacing is automatic)"));
         panel.add(formRow("Request headers", requestHeadersControl.button(), "sent with every request"));
         return finalizeSection(panel);
     }

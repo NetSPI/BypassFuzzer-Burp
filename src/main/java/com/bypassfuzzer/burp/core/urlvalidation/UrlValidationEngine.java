@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
@@ -21,7 +21,7 @@ public class UrlValidationEngine {
     private final TargetUrlResolver targetUrlResolver = new TargetUrlResolver();
     private volatile boolean running = false;
     private Thread runnerThread;
-    private RateLimiter rateLimiter;
+    private HostThrottleCoordinator coordinator;
 
     public UrlValidationEngine(MontoyaApi api) {
         this.api = api;
@@ -71,14 +71,7 @@ public class UrlValidationEngine {
 
     private void execute(HttpRequest request, UrlValidationOptions options, Consumer<AttackResult> resultCallback) {
         String targetUrl = targetUrlResolver.resolve(request);
-        Set<Integer> throttleCodes = safeThrottleCodes(options.throttleStatusCodes());
-        rateLimiter = new RateLimiter(
-            api,
-            options.requestsPerSecond(),
-            options.requestDelayMs(),
-            throttleCodes,
-            options.autoThrottleEnabled()
-        );
+        coordinator = new HostThrottleCoordinator(options.throttleSettings(), api);
 
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.requestHeaders());
         UrlValidationAttack attack = new UrlValidationAttack(options);
@@ -88,10 +81,6 @@ public class UrlValidationEngine {
             if (running) {
                 resultCallback.accept(result);
             }
-        }, () -> running, rateLimiter, attackExecutor);
-    }
-
-    private Set<Integer> safeThrottleCodes(Set<Integer> throttleStatusCodes) {
-        return throttleStatusCodes == null ? Set.of() : throttleStatusCodes;
+        }, () -> running, coordinator, attackExecutor);
     }
 }

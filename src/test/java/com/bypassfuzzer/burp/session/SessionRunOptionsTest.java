@@ -17,7 +17,7 @@ class SessionRunOptionsTest {
     void exposesEnabledAttackTypesAndAppliesThemToConfig() {
         SessionRunOptions options = new SessionRunOptions(
             true, false, true, false, false, true, false, true, false, true, false,
-            true, false, true, 0, 4, Set.of(429, 503)
+            true, false, true, 4, Set.of(429, 503)
         );
 
         assertEquals(Set.of(
@@ -39,22 +39,7 @@ class SessionRunOptionsTest {
         assertTrue(config.isEnableProtocolAttack());
         assertTrue(config.isEnableCollaboratorPayloads());
         assertTrue(config.isEnableFuzzExistingCookies());
-        assertEquals(0, config.getRequestsPerSecond());
         assertEquals(4, config.getConcurrency());
-        assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
-    }
-
-    @Test
-    void appliesExplicitAutoThrottleSelectionIndependentlyOfStatusCodes() {
-        SessionRunOptions options = new SessionRunOptions(
-            true, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, 0, 0, 1, Set.of(429, 503), false
-        );
-        FuzzerConfig config = new FuzzerConfig();
-
-        options.applyTo(config);
-
-        assertFalse(config.isEnableAutoThrottle());
         assertEquals(Set.of(429, 503), config.getThrottleStatusCodes());
     }
 
@@ -62,7 +47,8 @@ class SessionRunOptionsTest {
     void appliesPerRunRequestHeadersToFuzzerConfig() {
         SessionRunOptions options = new SessionRunOptions(
             true, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, 0, 0, 1, Set.of(429), true,
+            false, false, false, 1, Set.of(429),
+            com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD,
             java.util.List.of(new ConfiguredHeader("Authorization", "Bearer stable"))
         );
         FuzzerConfig config = new FuzzerConfig();

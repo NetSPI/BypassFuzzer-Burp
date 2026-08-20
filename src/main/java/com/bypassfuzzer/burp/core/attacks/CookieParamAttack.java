@@ -2,7 +2,7 @@ package com.bypassfuzzer.burp.core.attacks;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.burp.core.payloads.PayloadRepository;
 import com.bypassfuzzer.burp.http.CookieHeaderUtils;
 
@@ -43,7 +43,7 @@ public class CookieParamAttack implements AttackStrategy {
     @Override
     public void execute(MontoyaApi api, HttpRequest originalRequest, String targetUrl,
                         Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         if (fuzzExistingCookies) {
             if (!fuzzExistingCookies(api, originalRequest, resultCallback, isRunning, rateLimiter, attackExecutor)) {
@@ -64,7 +64,7 @@ public class CookieParamAttack implements AttackStrategy {
 
     private boolean fuzzExistingCookies(MontoyaApi api, HttpRequest originalRequest,
                                         Consumer<AttackResult> resultCallback, BooleanSupplier isRunning,
-                                        RateLimiter rateLimiter, AttackExecutor attackExecutor) {
+                                        HostThrottleCoordinator rateLimiter, AttackExecutor attackExecutor) {
 
         String existingCookie = originalRequest.headerValue("Cookie");
         if (existingCookie == null || existingCookie.isEmpty()) {
@@ -115,7 +115,7 @@ public class CookieParamAttack implements AttackStrategy {
 
     private void executeNewCookieAttacks(MontoyaApi api, HttpRequest originalRequest,
                                          List<String> paramPayloads, Consumer<AttackResult> resultCallback,
-                                         BooleanSupplier isRunning, RateLimiter rateLimiter,
+                                         BooleanSupplier isRunning, HostThrottleCoordinator rateLimiter,
                                          AttackExecutor attackExecutor) {
 
         String existingCookie = originalRequest.headerValue("Cookie");

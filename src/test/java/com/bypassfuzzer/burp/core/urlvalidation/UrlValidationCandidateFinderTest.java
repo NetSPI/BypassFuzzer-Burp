@@ -54,7 +54,6 @@ class UrlValidationCandidateFinderTest {
                 UrlValidationAttackSetting.LOOPBACK
             ),
             Set.of(UrlValidationEncoding.RAW),
-            0,
             Set.of()
         );
 
@@ -108,7 +107,6 @@ class UrlValidationCandidateFinderTest {
                 UrlValidationAttackSetting.LOOPBACK
             ),
             Set.of(UrlValidationEncoding.RAW),
-            0,
             Set.of()
         );
 
@@ -160,7 +158,6 @@ class UrlValidationCandidateFinderTest {
             Set.of(UrlValidationContext.ABSOLUTE_URL),
             Set.of(UrlValidationAttackSetting.DOMAIN_ALLOW_LIST_BYPASS),
             Set.of(UrlValidationEncoding.RAW),
-            0,
             Set.of()
         );
 

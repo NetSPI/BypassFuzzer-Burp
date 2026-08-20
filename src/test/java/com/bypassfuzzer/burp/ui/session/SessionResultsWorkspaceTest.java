@@ -32,7 +32,7 @@ class SessionResultsWorkspaceTest {
     void successfulRetryLeavesAuditRowAndRemovesRequestFromQueue() throws Exception {
         SequenceSender sender = new SequenceSender(response(200));
         SessionResultsWorkspace workspace = workspace(sender);
-        workspace.configureThrottleRetries(Set.of(429), 0, 0);
+        workspace.configureThrottleRetries(Set.of(429));
         AttackResult throttled = new AttackResult("Header", "payload", request("/admin", "", "GET", null, ""),
             response(429));
 
@@ -55,7 +55,7 @@ class SessionResultsWorkspaceTest {
     void requestThatRemainsThrottledStaysQueuedForAnotherPass() throws Exception {
         SequenceSender sender = new SequenceSender(response(429));
         SessionResultsWorkspace workspace = workspace(sender);
-        workspace.configureThrottleRetries(Set.of(429), 0, 0);
+        workspace.configureThrottleRetries(Set.of(429));
         workspace.addResult(new AttackResult("Path", "variant",
             request("/admin", "", "GET", null, ""), response(429)));
 
@@ -72,7 +72,7 @@ class SessionResultsWorkspaceTest {
     void unsafeMethodsRemainQueuedUnlessExplicitlyIncluded() throws Exception {
         SequenceSender sender = new SequenceSender(response(200));
         SessionResultsWorkspace workspace = workspace(sender);
-        workspace.configureThrottleRetries(Set.of(429), 0, 0);
+        workspace.configureThrottleRetries(Set.of(429));
         workspace.addResult(new AttackResult("Header", "payload",
             request("/update", "", "POST", null, ""), response(429)));
 
@@ -93,7 +93,7 @@ class SessionResultsWorkspaceTest {
     void primaryRunDisablesDeferredRetryUntilCompletion() throws Exception {
         SequenceSender sender = new SequenceSender(response(200));
         SessionResultsWorkspace workspace = workspace(sender);
-        workspace.configureThrottleRetries(Set.of(429), 0, 0);
+        workspace.configureThrottleRetries(Set.of(429));
         workspace.addResult(new AttackResult("Header", "payload",
             request("/admin", "", "GET", null, ""), response(429)));
         workspace.setPrimaryRunActive(true);

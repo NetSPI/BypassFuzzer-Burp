@@ -25,15 +25,6 @@ class RunOptionsPanelTest {
     }
 
     @Test
-    void autoThrottleIsEnabledByDefaultAndReflectsConfig() {
-        FuzzerConfig defaults = new FuzzerConfig();
-        assertTrue(new RunOptionsPanel(defaults, true).isAutoThrottleEnabled());
-
-        defaults.setEnableAutoThrottle(false);
-        assertFalse(new RunOptionsPanel(defaults, true).isAutoThrottleEnabled());
-    }
-
-    @Test
     void requestHeadersAreScopedToThisOptionsPanel() {
         FuzzerConfig configured = new FuzzerConfig();
         configured.setRequestHeaders(java.util.List.of(new ConfiguredHeader("Authorization", "Bearer stable")));

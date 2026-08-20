@@ -67,40 +67,72 @@ class CoverageSweepPanelTest {
     @Test
     void doublePortHostSweepProbesAreOptIn() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
-        JCheckBox doublePort = checkbox(panel, "doublePortHostProbesCheckBox");
+        HostPortsControl hostPorts = field(panel, "hostPortsControl", HostPortsControl.class);
+        JCheckBox enableCheckbox = field(hostPorts, "enableCheckbox", JCheckBox.class);
 
-        assertFalse(doublePort.isSelected());
-        assertFalse(currentOptions(panel).doublePortHostProbes());
+        assertFalse(enableCheckbox.isSelected());
+        assertTrue(currentOptions(panel).hostPortProbePorts().isEmpty());
 
-        doublePort.doClick();
+        enableCheckbox.doClick();
 
-        assertTrue(currentOptions(panel).doublePortHostProbes());
-    }
-
-    @Test
-    void autoThrottleIsEnabledByDefaultAndCanBeDisabled() throws Exception {
-        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
-        ThrottleSettingsControl throttle = field(panel, "throttleControl", ThrottleSettingsControl.class);
-        Field checkboxField = ThrottleSettingsControl.class.getDeclaredField("autoThrottleCheckbox");
-        checkboxField.setAccessible(true);
-        JCheckBox autoThrottle = (JCheckBox) checkboxField.get(throttle);
-
-        assertTrue(autoThrottle.isSelected());
-        assertTrue(currentOptions(panel).autoThrottleEnabled());
-
-        autoThrottle.doClick();
-
-        assertFalse(currentOptions(panel).autoThrottleEnabled());
+        assertTrue(currentOptions(panel).hostPortProbesEnabled());
     }
 
     @Test
     void sweepCollectsItsOwnRequestHeaders() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        field(panel, "browserUserAgentCheckBox", JCheckBox.class).setSelected(false);
         RequestHeadersControl control = field(panel, "requestHeadersControl", RequestHeadersControl.class);
         control.setHeaders(List.of(new ConfiguredHeader("X-Tenant", "blue")));
 
         assertEquals(List.of(new ConfiguredHeader("X-Tenant", "blue")),
             currentOptions(panel).requestHeaders());
+    }
+
+    @Test
+    void browserUserAgentPresetIsOnByDefaultAndInjectsAUserAgent() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+
+        assertTrue(field(panel, "browserUserAgentCheckBox", JCheckBox.class).isSelected());
+        List<ConfiguredHeader> headers = currentOptions(panel).requestHeaders();
+        assertEquals(1, headers.size());
+        assertTrue(headers.get(0).name().equalsIgnoreCase("User-Agent"));
+        assertTrue(headers.get(0).value().contains("Chrome/"),
+            "expected a browser UA, got " + headers.get(0).value());
+    }
+
+    @Test
+    void browserUserAgentPresetDoesNotOverrideAUserSuppliedUserAgent() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        RequestHeadersControl control = field(panel, "requestHeadersControl", RequestHeadersControl.class);
+        control.setHeaders(List.of(new ConfiguredHeader("User-Agent", "my-scanner/1.0")));
+
+        List<ConfiguredHeader> headers = currentOptions(panel).requestHeaders();
+        assertEquals(List.of(new ConfiguredHeader("User-Agent", "my-scanner/1.0")), headers);
+    }
+
+    @Test
+    void throttlePostureDefaultsToRideHardAndTogglesToCautious() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        ThrottleSettingsControl throttle = field(panel, "throttleControl", ThrottleSettingsControl.class);
+        JCheckBox rideHard = field(throttle, "rideHardCheckbox", JCheckBox.class);
+
+        assertTrue(rideHard.isSelected());
+        assertEquals(com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.RIDE_HARD,
+            currentOptions(panel).throttlePosture());
+
+        rideHard.setSelected(false);
+
+        assertEquals(com.bypassfuzzer.burp.core.throttle.ThrottleSettings.Posture.CONSERVATIVE,
+            currentOptions(panel).throttlePosture());
+    }
+
+    @Test
+    void browserUserAgentPresetCanBeDisabled() throws Exception {
+        CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
+        field(panel, "browserUserAgentCheckBox", JCheckBox.class).setSelected(false);
+
+        assertTrue(currentOptions(panel).requestHeaders().isEmpty());
     }
 
     @Test

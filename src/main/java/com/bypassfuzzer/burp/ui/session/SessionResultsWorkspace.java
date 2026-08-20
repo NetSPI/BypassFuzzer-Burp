@@ -5,7 +5,8 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
-import com.bypassfuzzer.burp.core.RateLimiter;
+import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.filter.ResultFilterController;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
@@ -55,9 +56,6 @@ public class SessionResultsWorkspace {
     private final JLabel retryStatusLabel;
     private final Map<String, DeferredRetry> throttledRetries = new LinkedHashMap<>();
     private Set<Integer> throttleStatusCodes = Set.of(429, 503);
-    private int retryRequestsPerSecond;
-    private int retryDelayMs;
-    private boolean retryAutoThrottleEnabled = true;
     private boolean primaryRunActive;
     private boolean retryRunning;
     private long queueGeneration;
@@ -137,17 +135,9 @@ public class SessionResultsWorkspace {
         cancelRetryWorker();
     }
 
-    public void configureThrottleRetries(Set<Integer> statusCodes, int requestsPerSecond, int requestDelayMs) {
-        configureThrottleRetries(statusCodes, requestsPerSecond, requestDelayMs,
-            statusCodes != null && !statusCodes.isEmpty());
-    }
-
-    public void configureThrottleRetries(Set<Integer> statusCodes, int requestsPerSecond,
-                                         int requestDelayMs, boolean autoThrottleEnabled) {
+    /** Sets which response codes mark a result as throttled (and thus eligible for manual retry). */
+    public void configureThrottleRetries(Set<Integer> statusCodes) {
         throttleStatusCodes = statusCodes == null ? Set.of() : Set.copyOf(statusCodes);
-        retryRequestsPerSecond = Math.max(0, requestsPerSecond);
-        retryDelayMs = Math.max(0, requestDelayMs);
-        retryAutoThrottleEnabled = autoThrottleEnabled;
         updateRetryControls();
     }
 
@@ -188,8 +178,12 @@ public class SessionResultsWorkspace {
 
         retryStatusLabel.setText("Retrying " + selected.size() + " throttled request(s) serially...");
         updateRetryControls();
-        RateLimiter rateLimiter = new RateLimiter(null, retryRequestsPerSecond, retryDelayMs,
-            throttleStatusCodes, retryAutoThrottleEnabled);
+        // Manual retries are paced per host by the adaptive controller (conservative posture, one
+        // request in flight). The controller learns from each new response -- it does not replay the
+        // original 429, which previously compounded backoff on every item.
+        HostThrottleCoordinator coordinator = new HostThrottleCoordinator(
+            new ThrottleSettings(throttleStatusCodes, 1, 1, 400.0, ThrottleSettings.Posture.CONSERVATIVE),
+            (burp.api.montoya.MontoyaApi) null);
         retryWorker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() {
@@ -198,12 +192,8 @@ public class SessionResultsWorkspace {
                         break;
                     }
                     DeferredRetry retry = queued.getValue();
-                    rateLimiter.reportResponse(retry.result().getResponse());
-                    if (rateLimiter.waitBeforeRequest() < 0) {
-                        break;
-                    }
-                    HttpResponse response = sendRetry(retry.result().getRequest());
-                    rateLimiter.reportResponse(response);
+                    HttpRequest retryRequest = retry.result().getRequest();
+                    HttpResponse response = coordinator.send(retryRequest, () -> sendRetry(retryRequest));
                     publish(new RetryOutcome(queued.getKey(), retry, response, generation));
                 }
                 return null;
