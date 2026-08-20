@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -41,6 +43,7 @@ public final class HostThrottleCoordinator {
     private final LongSupplier currentTimeMillis;
     private final AdaptiveRateController.Tuning tuningOverride;
     private final Semaphore globalPermits;
+    private final AtomicInteger inFlightRequests = new AtomicInteger();
     private final Map<String, HostState> hosts = new ConcurrentHashMap<>();
     private final Object globalPauseLock = new Object();
     private long globalPauseUntilMillis;
@@ -68,6 +71,15 @@ public final class HostThrottleCoordinator {
      * @return the response, or {@code null} if the send failed or the thread was interrupted.
      */
     public HttpResponse send(HttpRequest request, Supplier<HttpResponse> sender) {
+        return send(request, sender, () -> true);
+    }
+
+    /**
+     * Sends after all throttle gates and a final caller-owned admission check. The latter lets scan
+     * pause controls stop workers that were already queued inside this coordinator.
+     */
+    public HttpResponse send(HttpRequest request, Supplier<HttpResponse> sender,
+                             BooleanSupplier finalAdmission) {
         HostState host = hosts.computeIfAbsent(hostKey(request), HostState::new);
         boolean globalAcquired = false;
         boolean hostAcquired = false;
@@ -97,7 +109,16 @@ public final class HostThrottleCoordinator {
             if (generation < 0) {
                 return null;
             }
-            HttpResponse response = sender.get();
+            if (finalAdmission != null && !finalAdmission.getAsBoolean()) {
+                return null;
+            }
+            HttpResponse response;
+            inFlightRequests.incrementAndGet();
+            try {
+                response = sender.get();
+            } finally {
+                inFlightRequests.decrementAndGet();
+            }
             if (response != null) {
                 host.controller.report(response.statusCode(), retryAfter(response), generation);
                 reportPauseOutcome(host, response, hostAdmission, globalAdmission);
@@ -355,6 +376,11 @@ public final class HostThrottleCoordinator {
     AdaptiveRateController controllerForHost(String hostKey) {
         HostState host = hosts.get(hostKey);
         return host == null ? null : host.controller;
+    }
+
+    /** Requests that have crossed all admission gates and are currently waiting for a response. */
+    public int inFlightRequestCount() {
+        return inFlightRequests.get();
     }
 
     /** Remaining Sweep-wide CDN/WAF cooldown, exposed for tests and telemetry. */

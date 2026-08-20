@@ -284,6 +284,11 @@ public class CoverageSweepEngine {
     public void resume() { pauseController.resume(); }
     public boolean isPaused() { return pauseController.isPaused(); }
 
+    public int inFlightRequestCount() {
+        HostThrottleCoordinator currentCoordinator = coordinator;
+        return currentCoordinator == null ? 0 : currentCoordinator.inFlightRequestCount();
+    }
+
     public int completedHostCount() {
         return completedSweepHosts.size();
     }
@@ -999,7 +1004,10 @@ public class CoverageSweepEngine {
             return null;
         }
         HostThrottleCoordinator currentCoordinator = coordinator;
-        return currentCoordinator == null ? sender.get() : currentCoordinator.send(request, sender);
+        return currentCoordinator == null
+            ? (pauseController.awaitIfPaused(this::canContinue) ? sender.get() : null)
+            : currentCoordinator.send(request, sender,
+                () -> pauseController.awaitIfPaused(this::canContinue));
     }
 
     private void safeLog(String message) {

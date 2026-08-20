@@ -1275,7 +1275,10 @@ public class CoverageSweepPanel extends JPanel {
         } else {
             engine.pause();
             pauseButton.setText("Resume");
-            statusLabel.setText("Paused after the current request.");
+            int inFlight = engine.inFlightRequestCount();
+            statusLabel.setText(inFlight > 0
+                ? "Paused. Waiting for " + inFlight + " already-sent request(s) to finish."
+                : "Paused. No new requests will be sent.");
         }
     }
 

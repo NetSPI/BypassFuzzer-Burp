@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.core.throttle;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -169,6 +170,49 @@ class HostThrottleCoordinatorTest {
         coordinator.send(requestTo("https://a.example.com/x"), () -> response(429, "30"));
 
         assertTrue(coordinator.globalPauseRemainingMillis() >= 29_000L);
+    }
+
+    @Test
+    void finalPauseGateStopsAWorkerThatWasAlreadyQueuedForAPermit() throws Exception {
+        ThrottleSettings settings = new ThrottleSettings(Set.of(429), 1, 1, 100,
+            ThrottleSettings.Posture.RIDE_HARD);
+        HostThrottleCoordinator coordinator = coordinator(settings);
+        ExecutionPauseController pause = new ExecutionPauseController();
+        CountDownLatch firstSent = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondSent = new CountDownLatch(1);
+
+        Thread first = new Thread(() -> coordinator.send(requestTo("https://a.example.com/first"), () -> {
+            firstSent.countDown();
+            try {
+                releaseFirst.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return response(200, null);
+        }));
+        first.start();
+        assertTrue(firstSent.await(2, TimeUnit.SECONDS));
+        assertEquals(1, coordinator.inFlightRequestCount());
+
+        Thread second = new Thread(() -> coordinator.send(requestTo("https://a.example.com/second"), () -> {
+            secondSent.countDown();
+            return response(200, null);
+        }, () -> pause.awaitIfPaused(() -> true)));
+        second.start();
+        TimeUnit.MILLISECONDS.sleep(100);
+        pause.pause();
+        releaseFirst.countDown();
+        first.join(2_000L);
+
+        assertFalse(secondSent.await(200, TimeUnit.MILLISECONDS));
+        assertEquals(0, coordinator.inFlightRequestCount(),
+            "a pause-blocked admission has not been sent and must not count as in flight");
+
+        pause.resume();
+        assertTrue(secondSent.await(2, TimeUnit.SECONDS));
+        second.join(2_000L);
+        assertFalse(second.isAlive());
     }
 
     @Test

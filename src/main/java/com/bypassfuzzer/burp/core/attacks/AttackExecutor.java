@@ -132,7 +132,7 @@ public class AttackExecutor {
                     if (!awaitResume(shouldContinue)) {
                         return;
                     }
-                    HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
+                    HttpResponse response = sendPaced(coordinator, sentRequest, httpMode, shouldContinue);
                     if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload,
                             targetLabel, payloadFamily, payloadEncoding)) {
                         return;
@@ -149,7 +149,7 @@ public class AttackExecutor {
         if (!awaitResume(shouldContinue)) {
             return false;
         }
-        HttpResponse response = sendPaced(coordinator, sentRequest, httpMode);
+        HttpResponse response = sendPaced(coordinator, sentRequest, httpMode, shouldContinue);
         if (enqueueIfThrottled(coordinator, response, sentRequest, attackType, payload, targetLabel,
                 payloadFamily, payloadEncoding)) {
             return true;
@@ -174,7 +174,9 @@ public class AttackExecutor {
             return AttackExecutionResult.stopped();
         }
         Supplier<HttpResponse> sender = () -> requestSender.send(sentRequest, timeout, timeUnit);
-        HttpResponse response = coordinator == null ? sender.get() : coordinator.send(sentRequest, sender);
+        HttpResponse response = coordinator == null
+            ? (awaitResume(shouldContinue) ? sender.get() : null)
+            : coordinator.send(sentRequest, sender, () -> awaitResume(shouldContinue));
         if (response == null) {
             return shouldContinue.getAsBoolean() && !Thread.currentThread().isInterrupted()
                 ? AttackExecutionResult.timedOut()
@@ -188,11 +190,16 @@ public class AttackExecutor {
         return AttackExecutionResult.executed(response);
     }
 
-    private HttpResponse sendPaced(HostThrottleCoordinator coordinator, HttpRequest request, HttpMode httpMode) {
-        Supplier<HttpResponse> sender = httpMode == null
+    private HttpResponse sendPaced(HostThrottleCoordinator coordinator, HttpRequest request, HttpMode httpMode,
+                                   BooleanSupplier shouldContinue) {
+        Supplier<HttpResponse> networkSend = httpMode == null
             ? () -> requestSender.send(request)
             : () -> requestSender.send(request, httpMode);
-        return coordinator == null ? sender.get() : coordinator.send(request, sender);
+        // Recheck at the actual network boundary. A worker may have passed the first pause gate and
+        // then waited in the throttle coordinator for pacing, a cooldown, or an in-flight permit.
+        return coordinator == null
+            ? (awaitResume(shouldContinue) ? networkSend.get() : null)
+            : coordinator.send(request, networkSend, () -> awaitResume(shouldContinue));
     }
 
     private boolean awaitResume(BooleanSupplier shouldContinue) {

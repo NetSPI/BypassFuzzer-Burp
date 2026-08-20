@@ -287,7 +287,7 @@ public class FuzzingSessionTab extends JPanel {
         } else {
             sessionController.pause();
             pauseButton.setText("Resume");
-            statusLabel.setText("Paused after the current request.");
+            statusLabel.setText("Paused. Already-sent requests may still finish; no new requests will be sent.");
         }
     }
 
