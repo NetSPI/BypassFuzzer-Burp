@@ -38,15 +38,15 @@ public class CoverageSweepProbeGenerator {
         }
 
         int limit = Math.max(1, options.maxProbesPerCandidate())
-            + (options.doublePortHostProbes() ? 2 : 0);
+            + hostPortProbeCount(options);
         List<CoverageSweepProbe> probes = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         if (includeControl) {
             add(probes, seen, limit, new CoverageSweepProbe("Control: original blocked request", "Control", request));
         }
-        if (options.doublePortHostProbes()) {
+        if (options.hostPortProbesEnabled()) {
             for (HostPortBypassPayloadGenerator.HostPortPayload payload
-                : hostPortPayloadGenerator.generateLightweight(request)) {
+                : hostPortPayloadGenerator.generateLightweight(request, options.hostPortProbePorts())) {
                 add(probes, seen, limit, new CoverageSweepProbe(
                     "Host: " + payload.value() + " (double-port)",
                     "Host Parsing",
@@ -187,6 +187,16 @@ public class CoverageSweepProbeGenerator {
         String originalPath = safePath(request.path());
         HttpRequest targetRequest = requestPath == null ? request : request.withPath(renderTemplate(requestPath, originalPath));
         return new CoverageSweepProbe(template.label(), template.family(), RequestHeaderUtils.upsertHeader(targetRequest, name, renderTemplate(value, originalPath)));
+    }
+
+    private static int hostPortProbeCount(CoverageSweepOptions options) {
+        if (!options.hostPortProbesEnabled()) {
+            return 0;
+        }
+        int customCount = (int) options.hostPortProbePorts().stream()
+            .filter(port -> port >= 1 && port <= 65535)
+            .count();
+        return customCount * 3 + 2;
     }
 
     private void add(List<CoverageSweepProbe> probes, Set<String> seen, int limit, CoverageSweepProbe probe) {

@@ -75,6 +75,18 @@ public final class HostPortBypassPayloadGenerator {
      * the full port and malformed-value matrix to every candidate.
      */
     public List<HostPortPayload> generateLightweight(HttpRequest request) {
+        return generateLightweight(request, List.of());
+    }
+
+    /**
+     * Builds lightweight probes. When {@code customPorts} contains real port
+     * numbers (1-65535), each custom port generates three additional probes:
+     * {@code host:customPort}, {@code host:customPort:80}, and
+     * {@code host:customPort:443}. The standard two trailing-port probes are
+     * always included. Entries with port 0 are treated as a no-op sentinel
+     * (enabled but no custom ports).
+     */
+    public List<HostPortPayload> generateLightweight(HttpRequest request, List<Integer> customPorts) {
         if (request == null) {
             return List.of();
         }
@@ -101,9 +113,35 @@ public final class HostPortBypassPayloadGenerator {
             return List.of();
         }
 
-        return TRAILING_PORTS.stream()
-            .map(port -> new HostPortPayload(baseAuthority + ":" + port, "lightweight sweep"))
-            .toList();
+        String formattedHost = null;
+        if (originalAuthority != null) {
+            formattedHost = formatHost(originalAuthority.host());
+        } else if (serviceAuthority != null) {
+            formattedHost = formatHost(serviceAuthority.host());
+        }
+
+        List<HostPortPayload> result = new ArrayList<>();
+
+        // Custom port probes: host:customPort, host:customPort:80, host:customPort:443
+        if (customPorts != null && formattedHost != null) {
+            for (int customPort : customPorts) {
+                if (customPort < 1 || customPort > 65535) {
+                    continue;
+                }
+                result.add(new HostPortPayload(formattedHost + ":" + customPort, "custom port"));
+                for (String trailingPort : TRAILING_PORTS) {
+                    result.add(new HostPortPayload(
+                        formattedHost + ":" + customPort + ":" + trailingPort, "custom port"));
+                }
+            }
+        }
+
+        // Standard lightweight probes: baseAuthority:80, baseAuthority:443
+        for (String port : TRAILING_PORTS) {
+            result.add(new HostPortPayload(baseAuthority + ":" + port, "lightweight sweep"));
+        }
+
+        return result;
     }
 
     private void add(Map<String, HostPortPayload> payloads, String value, String family) {
