@@ -68,17 +68,28 @@ class CoverageSweepPanelTest {
     Path tempDir;
 
     @Test
-    void doublePortHostSweepProbesAreOptIn() throws Exception {
+    void doublePortHostSweepProbesAreEnabledByDefault() throws Exception {
         CoverageSweepPanel panel = new CoverageSweepPanel(api(List.of()));
         HostPortsControl hostPorts = field(panel, "hostPortsControl", HostPortsControl.class);
+        CoverageSweepFamilyControl families = field(
+            panel, "payloadFamilyControl", CoverageSweepFamilyControl.class);
         JCheckBox enableCheckbox = field(hostPorts, "enableCheckbox", JCheckBox.class);
+        Method buildDialog = CoverageSweepFamilyControl.class.getDeclaredMethod("buildDialogContent");
+        buildDialog.setAccessible(true);
+        JPanel payloadFamiliesDialog = (JPanel) buildDialog.invoke(families);
 
-        assertFalse(enableCheckbox.isSelected());
-        assertTrue(currentOptions(panel).hostPortProbePorts().isEmpty());
+        assertTrue(enableCheckbox.isSelected());
+        assertEquals(List.of(0), currentOptions(panel).hostPortProbePorts());
+        assertTrue(currentOptions(panel).hostPortProbesEnabled());
+        assertTrue(SwingUtilities.isDescendingFrom(enableCheckbox, payloadFamiliesDialog));
+        families.setHighSignalFamilyEnabled("Host Parsing", false);
+        assertFalse(enableCheckbox.isEnabled());
+        families.setHighSignalFamilyEnabled("Host Parsing", true);
+        assertTrue(enableCheckbox.isEnabled());
 
         enableCheckbox.doClick();
 
-        assertTrue(currentOptions(panel).hostPortProbesEnabled());
+        assertFalse(currentOptions(panel).hostPortProbesEnabled());
     }
 
     @Test
@@ -760,7 +771,7 @@ class CoverageSweepPanelTest {
 
         String preview = panel.renderProbePreview(candidate, probes);
 
-        assertTrue(preview.contains("Probe count: 162"));
+        assertTrue(preview.contains("Probe count: 164"));
         assertTrue(preview.contains("Matrix / Extension - Path suffix ;.json"));
         assertTrue(preview.contains("GET /admin/users;.json HTTP/1.1"));
         assertTrue(preview.contains("GET /admin/users?format=json HTTP/1.1"));

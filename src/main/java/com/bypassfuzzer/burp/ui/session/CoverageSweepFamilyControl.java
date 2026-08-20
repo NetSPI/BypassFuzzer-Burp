@@ -35,24 +35,30 @@ final class CoverageSweepFamilyControl {
     private final Component owner;
     private final Supplier<CoverageSweepPayloadSet> payloadSetSupplier;
     private final Runnable onChange;
+    private final HostPortsControl hostPortsControl;
     private final JButton button = new JButton("Payload Families...");
     private final Map<String, JCheckBox> highSignalBoxes = new LinkedHashMap<>();
     private final Map<AttackType, JCheckBox> bypassBoxes = new EnumMap<>(AttackType.class);
     private JDialog dialog;
     private JTabbedPane tabs;
+    private boolean enabled = true;
 
     CoverageSweepFamilyControl(Component owner,
                                Supplier<CoverageSweepPayloadSet> payloadSetSupplier,
-                               Runnable onChange) {
+                               Runnable onChange,
+                               HostPortsControl hostPortsControl) {
         this.owner = owner;
         this.payloadSetSupplier = payloadSetSupplier;
         this.onChange = onChange == null ? () -> { } : onChange;
+        this.hostPortsControl = hostPortsControl;
 
         CoverageSweepFamilySelection.HIGH_SIGNAL_FAMILIES.forEach(family ->
             highSignalBoxes.put(family, createCheckBox(family)));
         for (AttackType attackType : AttackType.values()) {
             bypassBoxes.put(attackType, createCheckBox(attackType.displayName()));
         }
+        JCheckBox hostParsing = highSignalBoxes.get("Host Parsing");
+        if (hostParsing != null) hostParsing.addActionListener(event -> updateHostPortsEnabled());
 
         button.setToolTipText("Choose which High Signal categories and full Bypass attack families Sweep may send.");
         button.addActionListener(event -> openDialog());
@@ -63,9 +69,11 @@ final class CoverageSweepFamilyControl {
     }
 
     void setEnabled(boolean enabled) {
+        this.enabled = enabled;
         button.setEnabled(enabled);
         highSignalBoxes.values().forEach(box -> box.setEnabled(enabled));
         bypassBoxes.values().forEach(box -> box.setEnabled(enabled));
+        updateHostPortsEnabled();
     }
 
     CoverageSweepFamilySelection selection() {
@@ -89,6 +97,7 @@ final class CoverageSweepFamilyControl {
         JCheckBox box = highSignalBoxes.get(family);
         if (box != null) {
             box.setSelected(enabled);
+            updateHostPortsEnabled();
             onChange.run();
         }
     }
@@ -130,8 +139,9 @@ final class CoverageSweepFamilyControl {
         content.add(description, BorderLayout.NORTH);
 
         tabs = new JTabbedPane();
-        tabs.addTab("High Signal", familyTab(highSignalBoxes));
-        tabs.addTab("All Bypass Families", familyTab(bypassBoxes));
+        tabs.addTab("High Signal", familyTab(highSignalBoxes,
+            hostPortsControl == null ? null : hostPortsControl.configurationPanel()));
+        tabs.addTab("All Bypass Families", familyTab(bypassBoxes, null));
         content.add(tabs, BorderLayout.CENTER);
 
         JButton close = new JButton("Close");
@@ -142,7 +152,7 @@ final class CoverageSweepFamilyControl {
         return content;
     }
 
-    private JPanel familyTab(Map<?, JCheckBox> boxes) {
+    private JPanel familyTab(Map<?, JCheckBox> boxes, Component familyOptions) {
         JPanel wrapper = new JPanel(new BorderLayout(4, 4));
         JPanel choices = new JPanel(new GridLayout(0, 2, 8, 4));
         boxes.values().forEach(choices::add);
@@ -158,6 +168,7 @@ final class CoverageSweepFamilyControl {
         JPanel vertical = new JPanel();
         vertical.setLayout(new BoxLayout(vertical, BoxLayout.Y_AXIS));
         vertical.add(choices);
+        if (familyOptions != null) vertical.add(familyOptions);
         vertical.add(actions);
         JScrollPane scrollPane = new JScrollPane(vertical);
         scrollPane.setBorder(null);
@@ -167,6 +178,13 @@ final class CoverageSweepFamilyControl {
 
     private void setAll(Map<?, JCheckBox> boxes, boolean selected) {
         boxes.values().forEach(box -> box.setSelected(selected));
+        updateHostPortsEnabled();
         onChange.run();
+    }
+
+    private void updateHostPortsEnabled() {
+        if (hostPortsControl == null) return;
+        JCheckBox hostParsing = highSignalBoxes.get("Host Parsing");
+        hostPortsControl.setEnabled(enabled && hostParsing != null && hostParsing.isSelected());
     }
 }

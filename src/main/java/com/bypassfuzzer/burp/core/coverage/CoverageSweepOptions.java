@@ -146,7 +146,7 @@ public record CoverageSweepOptions(
             CoverageSweepAuthSelection.defaults(),
             true,
             true,
-            List.of(),
+            List.of(0),
             List.of(),
             CoverageSweepPayloadSet.HIGH_SIGNAL,
             ThrottleSettings.Posture.RIDE_HARD,

@@ -180,6 +180,11 @@ selections for the two payload inventories:
 - `All Bypass Families` lists the complete Bypass attack families such as Header, Path, Verb,
   Debug Cookies, Protocol, and Case Variation.
 
+The High Signal `Host Parsing` family includes double-port Host probes by default
+(`host:port:80` and `host:port:443`). Its enable switch and optional custom-port field are located
+inside `Payload Families...`; custom ports add `host:custom`, `host:custom:80`, and
+`host:custom:443` variants.
+
 All families are enabled by default. Clear an individual family, such as `Header`, or use
 `Uncheck All` and select only the families needed for the current assessment. Switching the payload
 set does not discard either tab's selections. Disabled families are removed before the probe budget

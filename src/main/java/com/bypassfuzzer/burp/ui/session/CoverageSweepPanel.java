@@ -215,7 +215,10 @@ public class CoverageSweepPanel extends JPanel {
         payloadSetComboBox.setToolTipText(
             "High signal uses the curated Sweep set; All payloads runs every Bypass attack family.");
         payloadSetComboBox.addActionListener(e -> updateEstimate());
-        payloadFamilyControl = new CoverageSweepFamilyControl(this, this::currentPayloadSet, this::updateEstimate);
+        hostPortsControl = new HostPortsControl();
+        hostPortsControl.setOnChange(this::updateEstimate);
+        payloadFamilyControl = new CoverageSweepFamilyControl(
+            this, this::currentPayloadSet, this::updateEstimate, hostPortsControl);
         throttleControl = new ThrottleSettingsControl(ThrottleDefaults.forCoverageSweep(defaults));
         requestHeadersControl = new RequestHeadersControl(this);
         dedupeImportedEndpointsCheckBox = new JCheckBox("Dedupe endpoints", false);
@@ -253,8 +256,6 @@ public class CoverageSweepPanel extends JPanel {
         verifyUnauthenticatedAccessCheckBox = new JCheckBox("Verify unauthenticated access", true);
         verifyUnauthenticatedAccessCheckBox.setToolTipText(
             "Replay each authenticated candidate without credentials and mark successful 2xx responses as LIKELY PUBLIC.");
-        hostPortsControl = new HostPortsControl();
-        hostPortsControl.setOnChange(this::updateEstimate);
         authIdentifiersButton = new JButton("Auth Identifiers...");
         authIdentifiersButton.addActionListener(e -> openAuthIdentifiersDialog());
 
@@ -268,7 +269,6 @@ public class CoverageSweepPanel extends JPanel {
         executionRow.add(throttleButton);
         methodOptionsRow.add(includeUnsafeMethodsCheckBox);
         methodOptionsRow.add(browserUserAgentCheckBox);
-        methodOptionsRow.add(hostPortsControl.button());
         modeOptionsRow.add(excludeStaticAssetsCheckBox);
         modeOptionsRow.add(verifyUnauthenticatedAccessCheckBox);
         modeOptionsRow.add(openApiBaseUrlLabel);
@@ -1486,7 +1486,6 @@ public class CoverageSweepPanel extends JPanel {
         payloadFamilyControl.setEnabled(enabled);
         requestHeadersControl.setEnabled(enabled);
         modeComboBox.setEnabled(enabled);
-        hostPortsControl.setEnabled(enabled);
         updateModeControls();
     }
 
@@ -1559,7 +1558,6 @@ public class CoverageSweepPanel extends JPanel {
         requestHeadersControl.button().setVisible(true);
         authIdentifiersButton.setVisible(authenticated);
         authIdentifiersButton.setEnabled(idle && authenticated);
-        hostPortsControl.setEnabled(idle);
         openApiBaseUrlLabel.setVisible(imported);
         openApiBaseUrlField.setVisible(imported);
         openApiBaseUrlField.setEnabled(idle && imported);

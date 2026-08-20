@@ -121,7 +121,7 @@ class CoverageSweepEngineTest {
     }
 
     @Test
-    void doublePortHostProbesAreDisabledByDefault() {
+    void doublePortHostProbesAreEnabledByDefault() {
         HttpRequest original = requestWithHeaders("/blocked", "", "GET",
             Map.of("Host", "example.com:8443"), "");
         CoverageSweepCandidate candidate = candidate(original, 403);
@@ -130,8 +130,8 @@ class CoverageSweepEngineTest {
             new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertTrue(CoverageSweepOptions.defaults().hostPortProbePorts().isEmpty());
-        assertTrue(probes.stream().noneMatch(probe -> "Host Parsing".equals(probe.family())));
+        assertEquals(List.of(0), CoverageSweepOptions.defaults().hostPortProbePorts());
+        assertEquals(2, probes.stream().filter(probe -> "Host Parsing".equals(probe.family())).count());
     }
 
     @Test
@@ -719,7 +719,7 @@ class CoverageSweepEngineTest {
         List<CoverageSweepProbe> probes = new CoverageSweepEngine(api(List.of()), new StaticSender(response(403, "text/plain", "blocked")), new CoverageSweepProbeGenerator())
             .buildProbes(candidate, CoverageSweepOptions.defaults());
 
-        assertEquals(162, probes.size());
+        assertEquals(164, probes.size());
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.json")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.html")));
         assertTrue(probes.stream().anyMatch(probe -> probe.request().path().equals("/admin/users;.xml")));
