@@ -17,12 +17,12 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-final class MontoyaStubs {
+public final class MontoyaStubs {
 
     private MontoyaStubs() {
     }
 
-    static HttpService httpService(String host, int port, boolean secure) {
+    public static HttpService httpService(String host, int port, boolean secure) {
         return (HttpService) Proxy.newProxyInstance(
             HttpService.class.getClassLoader(),
             new Class<?>[]{HttpService.class},
@@ -39,11 +39,11 @@ final class MontoyaStubs {
         );
     }
 
-    static HttpRequest request(HttpService service, String rawRequest) {
+    public static HttpRequest request(HttpService service, String rawRequest) {
         return request(parseRequest(service, rawRequest));
     }
 
-    static HttpResponse response(byte[] rawResponseBytes) {
+    public static HttpResponse response(byte[] rawResponseBytes) {
         return response(parseResponse(rawResponseBytes));
     }
 
