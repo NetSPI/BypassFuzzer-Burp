@@ -116,5 +116,17 @@ tasks.register('smokeTestPlaybooks', Test) {
     include '**/AttackPlaybookSmokeTest.class'
 }
 
+tasks.register('runSweepHarness', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    group = 'verification'
+    description = 'Runs the authorised-target live Coverage Sweep harness.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.bypassfuzzer.burp.core.coverage.SweepHarness'
+    jvmArgs '-Djdk.httpclient.allowRestrictedHeaders=host,connection,content-length'
+    if (project.hasProperty('harnessArgs')) {
+        args project.property('harnessArgs').toString().split(' ')
+    }
+}
+
 // Make shadowJar the default build artifact
 build.dependsOn shadowJar

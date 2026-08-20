@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -68,7 +69,7 @@ public final class SweepHarness {
     public static void main(String[] args) throws Exception {
         Config config = parse(args);
         List<String> allUrls = loadUrls(config.listFile());
-        List<String> urls = pickPerHost(allUrls, config.perHostCandidates());
+        List<String> urls = limitHosts(pickPerHost(allUrls, config.perHostCandidates()), config.maxHosts());
         System.out.printf("Imported %d of %d URLs (%d per host) across %d hosts. payloads=%s, maxProbes=%d, "
                 + "global=%d, per-host=%d%n",
             urls.size(), allUrls.size(), config.perHostCandidates(), distinctHosts(urls),
@@ -96,21 +97,41 @@ public final class SweepHarness {
         Map<Integer, AtomicInteger> codes = new ConcurrentHashMap<>();
         Map<String, AtomicInteger> fingerprints = new ConcurrentHashMap<>();
         AtomicInteger total = new AtomicInteger();
+        AtomicInteger consecutiveThrottles = new AtomicInteger();
+        AtomicBoolean resumed = new AtomicBoolean();
+        Map<Integer, AtomicInteger> postResumeCodes = new ConcurrentHashMap<>();
         long start = System.nanoTime();
 
         CountDownLatch done = new CountDownLatch(1);
-        boolean started = engine.start(candidates, options, result ->
-            record(result, stats, codes, fingerprints, total), done::countDown);
+        boolean started = engine.start(candidates, options, result -> {
+            record(result, stats, codes, fingerprints, total);
+            HttpResponse response = result.getResponse();
+            int status = response == null ? -1 : response.statusCode();
+            if (status == 429 || status == 503) {
+                consecutiveThrottles.incrementAndGet();
+            } else {
+                consecutiveThrottles.set(0);
+            }
+            if (resumed.get()) {
+                postResumeCodes.computeIfAbsent(status, ignored -> new AtomicInteger()).incrementAndGet();
+            }
+        }, done::countDown);
         if (!started) {
             System.out.println("Engine did not start (no candidates?).");
             return;
         }
 
         Thread monitor = monitor(total, stats, start);
+        Thread pauseExperiment = pauseExperiment(engine, config, consecutiveThrottles, total, resumed);
         done.await(config.maxSeconds(), TimeUnit.SECONDS);
         engine.stop();
         monitor.interrupt();
+        if (pauseExperiment != null) pauseExperiment.interrupt();
         printSummary(stats, codes, fingerprints, sender, start, System.nanoTime());
+        if (config.pauseAfterConsecutive() > 0) {
+            System.out.println("\nPost-resume response codes: " + new java.util.TreeMap<>(
+                toIntMap(postResumeCodes)));
+        }
     }
 
     // -- result recording ----------------------------------------------------
@@ -171,6 +192,38 @@ public final class SweepHarness {
         t.setDaemon(true);
         t.start();
         return t;
+    }
+
+    private static Thread pauseExperiment(CoverageSweepEngine engine, Config config,
+                                          AtomicInteger consecutiveThrottles, AtomicInteger total,
+                                          AtomicBoolean resumed) {
+        if (config.pauseAfterConsecutive() <= 0 || config.pauseSeconds() <= 0) return null;
+        Thread thread = new Thread(() -> {
+            try {
+                while (engine.isRunning()
+                    && consecutiveThrottles.get() < config.pauseAfterConsecutive()) {
+                    TimeUnit.MILLISECONDS.sleep(100);
+                }
+                if (!engine.isRunning()) return;
+                int beforePause = total.get();
+                System.out.printf("%nPAUSE EXPERIMENT: detected %d consecutive throttles at result %d; "
+                        + "pausing for %d seconds.%n",
+                    consecutiveThrottles.get(), beforePause, config.pauseSeconds());
+                engine.pause();
+                TimeUnit.SECONDS.sleep(config.pauseSeconds());
+                int arrivedDuringPause = total.get() - beforePause;
+                System.out.printf("PAUSE EXPERIMENT: %d already-sent response(s) arrived while paused; resuming.%n%n",
+                    arrivedDuringPause);
+                consecutiveThrottles.set(0);
+                resumed.set(true);
+                engine.resume();
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }, "sweep-harness-pause-experiment");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
     }
 
     private static void printSummary(Map<String, HostStats> stats, Map<Integer, AtomicInteger> codes,
@@ -376,26 +429,33 @@ public final class SweepHarness {
         return v.length() <= max ? v : v.substring(0, max - 1) + "…";
     }
 
-    private record Config(Path listFile, int perHostCandidates, int maxProbes, int globalConcurrency,
-                          int perHostConcurrency, int maxSeconds, CoverageSweepPayloadSet payloadSet,
-                          boolean insecure) {}
+    private record Config(Path listFile, int perHostCandidates, int maxHosts, int maxProbes,
+                          int globalConcurrency, int perHostConcurrency, int maxSeconds,
+                          int pauseAfterConsecutive, int pauseSeconds,
+                          CoverageSweepPayloadSet payloadSet, boolean insecure) {}
 
     private static Config parse(String[] args) {
         Path listFile = Path.of("C:/Users/jonat/Downloads/bf_me.txt");
         int perHostCandidates = 1;
+        int maxHosts = Integer.MAX_VALUE;
         int maxProbes = 80;
         int globalConcurrency = 200;
         int perHostConcurrency = 50;
         int maxSeconds = 120;
+        int pauseAfterConsecutive = 0;
+        int pauseSeconds = 0;
         CoverageSweepPayloadSet payloadSet = CoverageSweepPayloadSet.HIGH_SIGNAL;
         boolean insecure = false;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--per-host-candidates" -> perHostCandidates = Integer.parseInt(args[++i]);
+                case "--max-hosts" -> maxHosts = Integer.parseInt(args[++i]);
                 case "--max-probes" -> maxProbes = Integer.parseInt(args[++i]);
                 case "--global" -> globalConcurrency = Integer.parseInt(args[++i]);
                 case "--per-host" -> perHostConcurrency = Integer.parseInt(args[++i]);
                 case "--max-seconds" -> maxSeconds = Integer.parseInt(args[++i]);
+                case "--pause-after-consecutive" -> pauseAfterConsecutive = Integer.parseInt(args[++i]);
+                case "--pause-seconds" -> pauseSeconds = Integer.parseInt(args[++i]);
                 case "--payloads" -> payloadSet = args[++i].startsWith("all")
                     ? CoverageSweepPayloadSet.ALL_PAYLOADS : CoverageSweepPayloadSet.HIGH_SIGNAL;
                 case "--insecure" -> insecure = true;
@@ -406,8 +466,21 @@ public final class SweepHarness {
                 }
             }
         }
-        return new Config(listFile, perHostCandidates, maxProbes, globalConcurrency, perHostConcurrency,
-            maxSeconds, payloadSet, insecure);
+        return new Config(listFile, perHostCandidates, maxHosts, maxProbes, globalConcurrency,
+            perHostConcurrency, maxSeconds, pauseAfterConsecutive, pauseSeconds, payloadSet, insecure);
+    }
+
+    private static List<String> limitHosts(List<String> urls, int maxHosts) {
+        if (maxHosts <= 0 || maxHosts == Integer.MAX_VALUE) return urls;
+        Set<String> selected = new java.util.LinkedHashSet<>();
+        List<String> result = new ArrayList<>();
+        for (String url : urls) {
+            String host = hostKey(url);
+            if (!selected.contains(host) && selected.size() >= maxHosts) continue;
+            selected.add(host);
+            result.add(url);
+        }
+        return result;
     }
 
     private SweepHarness() {}
