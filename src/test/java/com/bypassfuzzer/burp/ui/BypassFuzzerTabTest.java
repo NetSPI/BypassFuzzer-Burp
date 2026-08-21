@@ -7,16 +7,17 @@ import com.bypassfuzzer.burp.update.VersionCheckResult;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -24,24 +25,45 @@ import static org.mockito.Mockito.when;
 class BypassFuzzerTabTest {
 
     @Test
-    void startsWithWelcomeAndSweepTabs() {
+    void startsWithDashboardSweepAndTargetedModeTabs() {
         BypassFuzzerTab tab = new BypassFuzzerTab(api());
         JTabbedPane tabs = findTabbedPane(tab);
 
-        assertEquals("Welcome", tabs.getTitleAt(0));
+        assertEquals(5, tabs.getTabCount());
+        assertEquals("Dashboard", tabs.getTitleAt(0));
         assertEquals("Sweep", tabs.getTitleAt(1));
+        assertEquals("Bypass", tabs.getTitleAt(2));
+        assertEquals("IDOR", tabs.getTitleAt(3));
+        assertEquals("URL Validation", tabs.getTitleAt(4));
     }
 
     @Test
-    void welcomeTabUsesFullSizeScrollableLayout() {
+    void requestSessionIsNestedUnderSelectedMode() {
         BypassFuzzerTab tab = new BypassFuzzerTab(api());
-        JTabbedPane tabs = findTabbedPane(tab);
-        Component welcome = tabs.getComponentAt(0);
+        JTabbedPane topLevelTabs = findTabbedPane(tab);
 
-        JScrollPane scrollPane = findScrollPane(welcome);
+        tab.loadRequest(request("/users/123", "", "GET", null, ""), TargetedMode.IDOR);
 
-        assertTrue(scrollPane.getViewport().getView() instanceof JPanel);
-        assertFalse(scrollPane.getMaximumSize().width == 800 && scrollPane.getMaximumSize().height == 450);
+        JTabbedPane idorSessions = (JTabbedPane) topLevelTabs.getComponentAt(3);
+        assertEquals("IDOR", topLevelTabs.getTitleAt(topLevelTabs.getSelectedIndex()));
+        assertEquals(1, idorSessions.getTabCount());
+        assertEquals("GET /users/123", idorSessions.getTitleAt(0));
+        assertTrue(idorSessions.getComponentAt(0) instanceof FuzzingSessionTab);
+
+        assertEquals(0, ((JTabbedPane) topLevelTabs.getComponentAt(2)).getTabCount());
+        assertEquals(0, ((JTabbedPane) topLevelTabs.getComponentAt(4)).getTabCount());
+    }
+
+    @Test
+    void dashboardStartsWithPerLaunchLimitsDisabled() {
+        BypassFuzzerTab tab = new BypassFuzzerTab(api());
+        JCheckBox enabled = findNamedComponent(tab, "globalLimitsEnabled", JCheckBox.class);
+        JButton pauseAll = findNamedComponent(tab, "dashboardPauseAll", JButton.class);
+        JButton resumeAll = findNamedComponent(tab, "dashboardResumeAll", JButton.class);
+
+        assertFalse(enabled.isSelected());
+        assertTrue(pauseAll.isEnabled());
+        assertTrue(resumeAll.isEnabled());
     }
 
     @Test
@@ -86,22 +108,6 @@ class BypassFuzzerTabTest {
             }
         }
         throw new AssertionError("No top-level tabbed pane found");
-    }
-
-    private JScrollPane findScrollPane(Component root) {
-        if (root instanceof JScrollPane scrollPane) {
-            return scrollPane;
-        }
-        if (root instanceof Container container) {
-            for (Component component : container.getComponents()) {
-                try {
-                    return findScrollPane(component);
-                } catch (AssertionError ignored) {
-                    // Keep walking the component tree.
-                }
-            }
-        }
-        throw new AssertionError("No welcome scroll pane found");
     }
 
     private <T extends Component> T findNamedComponent(Component root, String name, Class<T> type) {

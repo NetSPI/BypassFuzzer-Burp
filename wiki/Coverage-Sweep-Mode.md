@@ -26,15 +26,18 @@ Sweep is available immediately when the extension loads.
 
 The top-level extension tabs are:
 
-- `Welcome`
+- `Dashboard`
 - `Sweep`
-- one tab per targeted request sent to BypassFuzzer
-
-Targeted request tabs contain:
-
 - `Bypass`
 - `IDOR`
 - `URL Validation`
+
+Requests sent to a targeted mode appear as closeable tabs beneath that mode.
+
+The Dashboard lists Sweep and every open targeted request session. It provides global and per-row
+Pause/Resume/Stop controls plus optional extension-wide limits. Hard limits start disabled on each
+Burp launch; the initial values are 10 requests/second per host and 10 total in-flight requests.
+They apply to primary scans and automatic/manual retry traffic across every mode.
 
 ## Candidate Collection
 
@@ -136,8 +139,9 @@ adaptive controller that discovers that host's rate-limit ceiling and rides just
   throttles stay rare (typically well under 2% once converged).
 - `Retry-After` is honored as a hard pause.
 - A throttled probe is automatically re-queued and retried, so a brief block never drops coverage.
-- Because limits are tracked per host, all hosts in an imported target list are swept in parallel,
-  each at its own discovered speed — there is no single global speed limit holding faster hosts back.
+- Because adaptive limits are tracked per host, imported hosts can be swept in parallel. When the
+  Dashboard hard limiter is enabled, all sessions targeting the same host also share its configured
+  smooth requests/second ceiling, while every host shares the Dashboard total in-flight cap.
 
 The `Throttle...` dialog also offers a Sweep-wide CDN/WAF cooldown layered on top of the per-host
 controllers:

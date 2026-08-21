@@ -10,6 +10,9 @@ import com.bypassfuzzer.burp.core.idor.IdorRequestMutator;
 import com.bypassfuzzer.burp.core.idor.IdorRunOptions;
 import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybook;
 import com.bypassfuzzer.burp.core.idor.playbooks.IdorPlaybookRegistry;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
+import com.bypassfuzzer.burp.ui.dashboard.ActivitySnapshot;
+import com.bypassfuzzer.burp.ui.dashboard.ActivityState;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -52,6 +55,7 @@ public class IdorPanel extends JPanel {
     private final IdorPlaybookRegistry playbookRegistry = new IdorPlaybookRegistry();
     private final IdorRequestMutator requestMutator = new IdorRequestMutator();
     private final IdorDebugInfoBuilder debugInfoBuilder = new IdorDebugInfoBuilder();
+    private final GlobalTrafficGovernor globalGovernor;
 
     private JButton startButton;
     private JButton stopButton;
@@ -68,12 +72,18 @@ public class IdorPanel extends JPanel {
 
     private volatile boolean shuttingDown = false;
     private volatile boolean stopRequested = false;
+    private volatile boolean hasStarted = false;
 
     public IdorPanel(MontoyaApi api, HttpRequest request) {
+        this(api, request, new GlobalTrafficGovernor());
+    }
+
+    public IdorPanel(MontoyaApi api, HttpRequest request, GlobalTrafficGovernor globalGovernor) {
         super(new BorderLayout());
         this.api = api;
         this.originalRequest = request;
-        this.engine = new IdorEngine(api);
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
+        this.engine = new IdorEngine(api, this.globalGovernor);
         initializeUi();
         applyFilters();
     }
@@ -87,6 +97,40 @@ public class IdorPanel extends JPanel {
         if (configDialog != null) {
             configDialog.dispose();
         }
+    }
+
+    public ActivitySnapshot activitySnapshot(String id, String mode, String target) {
+        ActivityState state;
+        if (shuttingDown) state = ActivityState.DISPOSED;
+        else if (resultsWorkspace.isRetryRunning()) {
+            state = resultsWorkspace.isRetryPaused() ? ActivityState.PAUSED : ActivityState.RETRYING;
+        } else if (engine.isRunning()) state = engine.isPaused() ? ActivityState.PAUSED : ActivityState.RUNNING;
+        else if (stopRequested) state = ActivityState.STOPPED;
+        else state = hasStarted ? ActivityState.COMPLETED : ActivityState.IDLE;
+        int sent = resultsWorkspace.allResultsCount();
+        return new ActivitySnapshot(id, mode, target, state,
+            sent + " result" + (sent == 1 ? "" : "s"), sent);
+    }
+
+    public void pauseActivity() {
+        if (resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.pauseThrottleRetry();
+            pauseButton.setText("Resume");
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+        } else if (engine.isRunning() && !engine.isPaused()) togglePause();
+    }
+
+    public void resumeActivity() {
+        if (resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.resumeThrottleRetry();
+            pauseButton.setText("Pause");
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+        } else if (engine.isRunning() && engine.isPaused()) togglePause();
+    }
+
+    public void stopActivity() {
+        if (resultsWorkspace.isRetryRunning()) resultsWorkspace.stopThrottleRetry();
+        else if (engine.isRunning()) stopAnalysis();
     }
 
     private void initializeUi() {
@@ -398,7 +442,8 @@ public class IdorPanel extends JPanel {
             ),
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
             SessionResultsPanel.TableLayout.IDOR,
-            false
+            false,
+            globalGovernor
         );
         return resultsWorkspace.component();
     }
@@ -432,6 +477,7 @@ public class IdorPanel extends JPanel {
             resultsWorkspace.setPrimaryRunActive(false);
             updateIdleUi("Unable to start IDOR analysis");
         } else {
+            hasStarted = true;
             pauseButton.setText("Pause");
             pauseButton.setEnabled(true);
             if (configDialog != null) {

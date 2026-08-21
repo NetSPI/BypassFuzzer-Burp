@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.idor;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
@@ -35,6 +36,11 @@ public class IdorEngine {
 
     public IdorEngine(MontoyaApi api) {
         this(api, new IdorRequestContextAnalyzer(), new IdorPlaybookRegistry(), new MontoyaRequestSender(api));
+    }
+
+    public IdorEngine(MontoyaApi api, GlobalTrafficGovernor globalGovernor) {
+        this(api, new IdorRequestContextAnalyzer(), new IdorPlaybookRegistry(),
+            new MontoyaRequestSender(api, globalGovernor));
     }
 
     IdorEngine(MontoyaApi api,

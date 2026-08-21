@@ -3,6 +3,7 @@ package com.bypassfuzzer.burp.core.urlvalidation;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackExecutor;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
@@ -24,9 +25,15 @@ public class UrlValidationEngine {
     private Thread runnerThread;
     private volatile HostThrottleCoordinator coordinator;
     private final ExecutionPauseController pauseController = new ExecutionPauseController();
+    private final GlobalTrafficGovernor globalGovernor;
 
     public UrlValidationEngine(MontoyaApi api) {
+        this(api, new GlobalTrafficGovernor());
+    }
+
+    public UrlValidationEngine(MontoyaApi api, GlobalTrafficGovernor globalGovernor) {
         this.api = api;
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
     }
 
     public boolean start(HttpRequest request, UrlValidationOptions options, Consumer<AttackResult> resultCallback, Runnable completionCallback) {
@@ -96,7 +103,8 @@ public class UrlValidationEngine {
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(options.requestHeaders());
         UrlValidationAttack attack = new UrlValidationAttack(options);
         AttackExecutor attackExecutor = new AttackExecutor(
-            new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
+            new MontoyaRequestSender(api, globalGovernor),
+            mutated -> headerPolicy.reconcileMutation(request, mutated));
         attackExecutor.enablePauseController(pauseController);
         attack.execute(api, request, targetUrl, result -> {
             if (running) {

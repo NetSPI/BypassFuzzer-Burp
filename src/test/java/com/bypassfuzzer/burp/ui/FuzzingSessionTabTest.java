@@ -7,12 +7,10 @@ import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
 import java.awt.Component;
 import java.awt.Container;
 
 import static com.bypassfuzzer.burp.testsupport.HttpRequestTestFactory.request;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -21,21 +19,20 @@ import static org.mockito.Mockito.when;
 class FuzzingSessionTabTest {
 
     @Test
-    void targetedSessionTabsExcludeGlobalSweepWorkspace() {
-        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
-        JTabbedPane sessionTabs = findTabbedPane(tab);
+    void targetedSessionContainsOnlyItsSelectedMode() {
+        FuzzingSessionTab tab = session(TargetedMode.IDOR);
+        String uiText = visibleText(tab);
 
-        assertEquals("Bypass", sessionTabs.getTitleAt(0));
-        assertEquals("IDOR", sessionTabs.getTitleAt(1));
-        assertEquals("URL Validation", sessionTabs.getTitleAt(2));
+        assertTrue(uiText.contains("Configure Attack"));
+        assertTrue(uiText.contains("Debug Info"));
+        assertFalse(uiText.contains("Options..."));
+        assertFalse(uiText.contains("URL validation payloads"));
     }
 
     @Test
     void bypassKeepsAttackTypesInlineAndMovesRunOptionsBehindButton() {
-        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
-        JTabbedPane sessionTabs = findTabbedPane(tab);
-
-        String uiText = visibleText(sessionTabs.getComponentAt(0));
+        FuzzingSessionTab tab = session(TargetedMode.BYPASS);
+        String uiText = visibleText(tab);
 
         assertTrue(uiText.contains("Options..."));
         assertTrue(uiText.contains("Header"));
@@ -46,10 +43,8 @@ class FuzzingSessionTabTest {
 
     @Test
     void idorMovesIdentifiersAndRunOptionsBehindConfigureAttack() {
-        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/users/alice", "", "GET", null, "")));
-        JTabbedPane sessionTabs = findTabbedPane(tab);
-
-        String uiText = visibleText(sessionTabs.getComponentAt(1));
+        FuzzingSessionTab tab = session(TargetedMode.IDOR);
+        String uiText = visibleText(tab);
 
         assertTrue(uiText.contains("Configure Attack"));
         assertFalse(uiText.contains("Identifier 1 (authorized):"));
@@ -58,13 +53,17 @@ class FuzzingSessionTabTest {
 
     @Test
     void everyTargetedModeExposesPauseControl() {
-        FuzzingSessionTab tab = new FuzzingSessionTab(api(), new FuzzingSessionController(api(), request("/blocked", "", "GET", null, "")));
-        JTabbedPane sessionTabs = findTabbedPane(tab);
-
-        for (int index = 0; index < sessionTabs.getTabCount(); index++) {
-            assertTrue(visibleText(sessionTabs.getComponentAt(index)).contains("Pause"),
-                sessionTabs.getTitleAt(index) + " should expose Pause");
+        for (TargetedMode mode : TargetedMode.values()) {
+            assertTrue(visibleText(session(mode)).contains("Pause"), mode.title() + " should expose Pause");
         }
+    }
+
+    private FuzzingSessionTab session(TargetedMode mode) {
+        return new FuzzingSessionTab(
+            api(),
+            new FuzzingSessionController(api(), request("/users/alice", "", "GET", null, "")),
+            mode
+        );
     }
 
     private MontoyaApi api() {
@@ -76,15 +75,6 @@ class FuzzingSessionTabTest {
         when(requestEditor.uiComponent()).thenReturn(new JPanel());
         when(responseEditor.uiComponent()).thenReturn(new JPanel());
         return api;
-    }
-
-    private JTabbedPane findTabbedPane(JPanel root) {
-        for (Component component : root.getComponents()) {
-            if (component instanceof JTabbedPane tabs) {
-                return tabs;
-            }
-        }
-        throw new AssertionError("No session tabbed pane found");
     }
 
     private String visibleText(Component root) {

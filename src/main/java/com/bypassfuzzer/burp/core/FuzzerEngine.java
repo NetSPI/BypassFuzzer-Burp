@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.attacks.*;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.core.throttle.RetryQueue;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.ConfiguredHeaderPolicy;
@@ -31,10 +32,16 @@ public class FuzzerEngine {
     private final TargetUrlResolver targetUrlResolver;
     private final AttackRegistry attackRegistry;
     private final ExecutionPauseController pauseController = new ExecutionPauseController();
+    private final GlobalTrafficGovernor globalGovernor;
 
     public FuzzerEngine(MontoyaApi api, FuzzerConfig config) {
+        this(api, config, new GlobalTrafficGovernor());
+    }
+
+    public FuzzerEngine(MontoyaApi api, FuzzerConfig config, GlobalTrafficGovernor globalGovernor) {
         this.api = api;
         this.config = config;
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
         this.targetUrlResolver = new TargetUrlResolver();
         this.attackRegistry = new AttackRegistry();
     }
@@ -167,7 +174,8 @@ public class FuzzerEngine {
         ConfiguredHeaderPolicy headerPolicy = new ConfiguredHeaderPolicy(config.getRequestHeaders());
         List<RegisteredAttack> attacks = attackRegistry.buildEnabledAttacks(config, targetUrl);
         AttackExecutor attackExecutor = new AttackExecutor(
-            new MontoyaRequestSender(api), mutated -> headerPolicy.reconcileMutation(request, mutated));
+            new MontoyaRequestSender(api, globalGovernor),
+            mutated -> headerPolicy.reconcileMutation(request, mutated));
         safeLog("Built " + attacks.size() + " attack strategies");
 
         // Keep many requests in flight so the adaptive controller can drive each host at full speed;

@@ -5,6 +5,7 @@ import burp.api.montoya.http.HttpMode;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ExecutorService;
@@ -12,6 +13,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
@@ -51,9 +53,11 @@ class MontoyaRequestSenderTest {
         when(api.http().sendRequest(request)).thenReturn(automaticExchange);
         when(automaticExchange.response()).thenReturn(null, response);
 
-        HttpResponse sent = new MontoyaRequestSender(api, true).send(request);
+        GlobalTrafficGovernor governor = new GlobalTrafficGovernor();
+        HttpResponse sent = new MontoyaRequestSender(api, governor, true).send(request);
 
         assertSame(response, sent);
+        assertEquals(2, governor.snapshot().admittedRequests());
         verify(api.http(), org.mockito.Mockito.times(2)).sendRequest(request);
     }
 

@@ -12,6 +12,9 @@ import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationPayload;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationPayloadGenerator;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationCandidate;
 import com.bypassfuzzer.burp.core.urlvalidation.UrlValidationEncoding;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
+import com.bypassfuzzer.burp.ui.dashboard.ActivitySnapshot;
+import com.bypassfuzzer.burp.ui.dashboard.ActivityState;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -44,6 +47,7 @@ public class UrlValidationPanel extends JPanel {
     private final UrlValidationEngine engine;
     private final UrlValidationCandidateFinder candidateFinder = new UrlValidationCandidateFinder();
     private final UrlValidationPayloadGenerator payloadGenerator = new UrlValidationPayloadGenerator();
+    private final GlobalTrafficGovernor globalGovernor;
 
     private JButton startButton;
     private JButton stopButton;
@@ -60,12 +64,19 @@ public class UrlValidationPanel extends JPanel {
     private JDialog configDialog;
     private volatile boolean shuttingDown = false;
     private volatile boolean stopRequested = false;
+    private volatile boolean hasStarted = false;
 
     public UrlValidationPanel(MontoyaApi api, HttpRequest request) {
+        this(api, request, new GlobalTrafficGovernor());
+    }
+
+    public UrlValidationPanel(MontoyaApi api, HttpRequest request,
+                              GlobalTrafficGovernor globalGovernor) {
         super(new BorderLayout(0, 8));
         this.api = api;
         this.originalRequest = request;
-        this.engine = new UrlValidationEngine(api);
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
+        this.engine = new UrlValidationEngine(api, this.globalGovernor);
         initializeUi();
         applyFilters();
     }
@@ -79,6 +90,40 @@ public class UrlValidationPanel extends JPanel {
         if (configDialog != null) {
             configDialog.dispose();
         }
+    }
+
+    public ActivitySnapshot activitySnapshot(String id, String mode, String target) {
+        ActivityState state;
+        if (shuttingDown) state = ActivityState.DISPOSED;
+        else if (resultsWorkspace.isRetryRunning()) {
+            state = resultsWorkspace.isRetryPaused() ? ActivityState.PAUSED : ActivityState.RETRYING;
+        } else if (engine.isRunning()) state = engine.isPaused() ? ActivityState.PAUSED : ActivityState.RUNNING;
+        else if (stopRequested) state = ActivityState.STOPPED;
+        else state = hasStarted ? ActivityState.COMPLETED : ActivityState.IDLE;
+        int sent = resultsWorkspace.allResultsCount();
+        return new ActivitySnapshot(id, mode, target, state,
+            sent + " result" + (sent == 1 ? "" : "s"), sent);
+    }
+
+    public void pauseActivity() {
+        if (resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.pauseThrottleRetry();
+            pauseButton.setText("Resume");
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+        } else if (engine.isRunning() && !engine.isPaused()) togglePause();
+    }
+
+    public void resumeActivity() {
+        if (resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.resumeThrottleRetry();
+            pauseButton.setText("Pause");
+            statusLabel.setText(resultsWorkspace.retryStatusText());
+        } else if (engine.isRunning() && engine.isPaused()) togglePause();
+    }
+
+    public void stopActivity() {
+        if (resultsWorkspace.isRetryRunning()) resultsWorkspace.stopThrottleRetry();
+        else if (engine.isRunning()) stopValidation();
     }
 
     private void initializeUi() {
@@ -133,7 +178,8 @@ public class UrlValidationPanel extends JPanel {
             workspace -> { },
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
             SessionResultsPanel.TableLayout.URL_VALIDATION,
-            true
+            true,
+            globalGovernor
         );
         return resultsWorkspace.component();
     }
@@ -269,6 +315,7 @@ public class UrlValidationPanel extends JPanel {
             updateIdleUi("Unable to start URL validation fuzzing");
             return;
         }
+        hasStarted = true;
         pauseButton.setText("Pause");
         pauseButton.setEnabled(true);
 

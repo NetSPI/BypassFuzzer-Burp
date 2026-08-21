@@ -173,7 +173,8 @@ public class AttackExecutor {
         if (!awaitResume(shouldContinue)) {
             return AttackExecutionResult.stopped();
         }
-        Supplier<HttpResponse> sender = () -> requestSender.send(sentRequest, timeout, timeUnit);
+        Supplier<HttpResponse> sender = () -> requestSender.send(
+            sentRequest, timeout, timeUnit, () -> awaitResume(shouldContinue));
         HttpResponse response = coordinator == null
             ? (awaitResume(shouldContinue) ? sender.get() : null)
             : coordinator.send(sentRequest, sender, () -> awaitResume(shouldContinue));
@@ -193,8 +194,8 @@ public class AttackExecutor {
     private HttpResponse sendPaced(HostThrottleCoordinator coordinator, HttpRequest request, HttpMode httpMode,
                                    BooleanSupplier shouldContinue) {
         Supplier<HttpResponse> networkSend = httpMode == null
-            ? () -> requestSender.send(request)
-            : () -> requestSender.send(request, httpMode);
+            ? () -> requestSender.send(request, () -> awaitResume(shouldContinue))
+            : () -> requestSender.send(request, httpMode, () -> awaitResume(shouldContinue));
         // Recheck at the actual network boundary. A worker may have passed the first pause gate and
         // then waited in the throttle coordinator for pacing, a cooldown, or an in-flight permit.
         return coordinator == null

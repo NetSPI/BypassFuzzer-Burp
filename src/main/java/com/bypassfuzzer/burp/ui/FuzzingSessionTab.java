@@ -17,6 +17,9 @@ import com.bypassfuzzer.burp.ui.session.SessionResultsPanel;
 import com.bypassfuzzer.burp.ui.session.SessionResultsWorkspace;
 import com.bypassfuzzer.burp.ui.session.SessionRunOptionsSupport;
 import com.bypassfuzzer.burp.ui.session.UrlValidationPanel;
+import com.bypassfuzzer.burp.ui.dashboard.ActivitySnapshot;
+import com.bypassfuzzer.burp.ui.dashboard.ActivityState;
+import com.bypassfuzzer.burp.ui.dashboard.ManagedActivity;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -26,7 +29,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
@@ -37,13 +39,14 @@ import java.util.List;
 /**
  * Individual fuzzing session tab.
  */
-public class FuzzingSessionTab extends JPanel {
+public class FuzzingSessionTab extends JPanel implements ManagedActivity {
 
     private final MontoyaApi api;
     private final FuzzingSessionController sessionController;
     private final FuzzerConfig config;
     private final HttpRequest request;
     private final String tabTitle;
+    private final TargetedMode mode;
     private final SessionPreflightAnalyzer preflightAnalyzer = new SessionPreflightAnalyzer();
 
     private JButton startButton;
@@ -62,17 +65,26 @@ public class FuzzingSessionTab extends JPanel {
     private volatile boolean shuttingDown = false;
 
     public FuzzingSessionTab(MontoyaApi api, FuzzingSessionController sessionController) {
+        this(api, sessionController, TargetedMode.BYPASS);
+    }
+
+    public FuzzingSessionTab(MontoyaApi api, FuzzingSessionController sessionController, TargetedMode mode) {
         this.api = api;
         this.sessionController = sessionController;
         this.request = sessionController.request();
         this.config = sessionController.config();
+        this.mode = mode;
         this.tabTitle = request.method() + " " + truncate(RequestPathUtils.extractPath(request.url()), 30);
 
-        sessionController.addResultListener(this::addResult);
-        sessionController.addStateListener(this::handleSessionStateChange);
+        if (mode == TargetedMode.BYPASS) {
+            sessionController.addResultListener(this::addResult);
+            sessionController.addStateListener(this::handleSessionStateChange);
+        }
 
         initializeUi();
-        applyFilters();
+        if (mode == TargetedMode.BYPASS) {
+            applyFilters();
+        }
     }
 
     public String getTabTitle() {
@@ -81,6 +93,70 @@ public class FuzzingSessionTab extends JPanel {
 
     public String getSessionId() {
         return sessionController.sessionId();
+    }
+
+    @Override
+    public String activityId() {
+        return getSessionId();
+    }
+
+    @Override
+    public ActivitySnapshot activitySnapshot() {
+        if (mode == TargetedMode.IDOR) return idorPanel.activitySnapshot(activityId(), mode.title(), targetLabel());
+        if (mode == TargetedMode.URL_VALIDATION) {
+            return urlValidationPanel.activitySnapshot(activityId(), mode.title(), targetLabel());
+        }
+
+        ActivityState activityState;
+        if (shuttingDown || sessionController.state() == SessionState.DISPOSED) {
+            activityState = ActivityState.DISPOSED;
+        } else if (resultsWorkspace != null && resultsWorkspace.isRetryRunning()) {
+            activityState = resultsWorkspace.isRetryPaused() ? ActivityState.PAUSED : ActivityState.RETRYING;
+        } else if (sessionController.state() == SessionState.RUNNING && !sessionController.isRunning()) {
+            activityState = ActivityState.STOPPING;
+        } else if (sessionController.state() == SessionState.RUNNING) {
+            activityState = sessionController.isPaused() ? ActivityState.PAUSED : ActivityState.RUNNING;
+        } else {
+            activityState = switch (sessionController.state()) {
+                case STOPPED -> ActivityState.STOPPED;
+                case COMPLETED -> ActivityState.COMPLETED;
+                case DISPOSED -> ActivityState.DISPOSED;
+                default -> ActivityState.IDLE;
+            };
+        }
+        int sent = resultsWorkspace == null ? 0 : resultsWorkspace.allResultsCount();
+        return new ActivitySnapshot(activityId(), mode.title(), targetLabel(), activityState,
+            sent + " result" + (sent == 1 ? "" : "s"), sent);
+    }
+
+    @Override
+    public void pauseActivity() {
+        if (mode == TargetedMode.IDOR) idorPanel.pauseActivity();
+        else if (mode == TargetedMode.URL_VALIDATION) urlValidationPanel.pauseActivity();
+        else if (resultsWorkspace != null && resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.pauseThrottleRetry();
+        } else if (sessionController.isRunning() && !sessionController.isPaused()) togglePause();
+    }
+
+    @Override
+    public void resumeActivity() {
+        if (mode == TargetedMode.IDOR) idorPanel.resumeActivity();
+        else if (mode == TargetedMode.URL_VALIDATION) urlValidationPanel.resumeActivity();
+        else if (resultsWorkspace != null && resultsWorkspace.isRetryRunning()) {
+            resultsWorkspace.resumeThrottleRetry();
+        } else if (sessionController.isRunning() && sessionController.isPaused()) togglePause();
+    }
+
+    @Override
+    public void stopActivity() {
+        if (mode == TargetedMode.IDOR) idorPanel.stopActivity();
+        else if (mode == TargetedMode.URL_VALIDATION) urlValidationPanel.stopActivity();
+        else if (resultsWorkspace != null && resultsWorkspace.isRetryRunning()) resultsWorkspace.stopThrottleRetry();
+        else if (sessionController.state() == SessionState.RUNNING) stopFuzzing();
+    }
+
+    private String targetLabel() {
+        return request.method() + " " + request.url();
     }
 
     public void stopFuzzing() {
@@ -110,21 +186,25 @@ public class FuzzingSessionTab extends JPanel {
 
     private void initializeUi() {
         setLayout(new BorderLayout());
-        add(buildSessionTabs(), BorderLayout.CENTER);
+        add(buildModePanel(), BorderLayout.CENTER);
 
         JPanel infoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         infoPanel.add(new JLabel(String.format("Target: %s %s", request.method(), request.url())));
         add(infoPanel, BorderLayout.SOUTH);
     }
 
-    private JTabbedPane buildSessionTabs() {
-        JTabbedPane sessionTabs = new JTabbedPane();
-        sessionTabs.addTab("Bypass", buildBypassTab());
-        idorPanel = new IdorPanel(api, request);
-        sessionTabs.addTab("IDOR", idorPanel);
-        urlValidationPanel = new UrlValidationPanel(api, request);
-        sessionTabs.addTab("URL Validation", urlValidationPanel);
-        return sessionTabs;
+    private JPanel buildModePanel() {
+        return switch (mode) {
+            case BYPASS -> buildBypassTab();
+            case IDOR -> {
+                idorPanel = new IdorPanel(api, request, sessionController.globalGovernor());
+                yield idorPanel;
+            }
+            case URL_VALIDATION -> {
+                urlValidationPanel = new UrlValidationPanel(api, request, sessionController.globalGovernor());
+                yield urlValidationPanel;
+            }
+        };
     }
 
     private JPanel buildBypassTab() {
@@ -217,7 +297,8 @@ public class FuzzingSessionTab extends JPanel {
             ),
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
             SessionResultsPanel.TableLayout.DEFAULT,
-            false
+            false,
+            sessionController.globalGovernor()
         );
         return resultsWorkspace.component();
     }

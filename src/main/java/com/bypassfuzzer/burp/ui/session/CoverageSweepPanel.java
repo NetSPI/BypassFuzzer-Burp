@@ -15,6 +15,10 @@ import com.bypassfuzzer.burp.core.coverage.CoverageSweepOptions;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPayloadSet;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepProbe;
 import com.bypassfuzzer.burp.core.coverage.CoverageSweepPreview;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
+import com.bypassfuzzer.burp.ui.dashboard.ActivitySnapshot;
+import com.bypassfuzzer.burp.ui.dashboard.ActivityState;
+import com.bypassfuzzer.burp.ui.dashboard.ManagedActivity;
 import com.google.gson.Gson;
 
 import javax.swing.BorderFactory;
@@ -59,12 +63,13 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
-public class CoverageSweepPanel extends JPanel {
+public class CoverageSweepPanel extends JPanel implements ManagedActivity {
 
     private final MontoyaApi api;
     private final CoverageSweepEngine engine;
     private final OpenApiUrlFetcher openApiUrlFetcher;
     private final CandidateTableModel candidateTableModel = new CandidateTableModel();
+    private final GlobalTrafficGovernor globalGovernor;
 
     private JButton loadButton;
     private JButton importButton;
@@ -129,24 +134,37 @@ public class CoverageSweepPanel extends JPanel {
     private ImportedOpenApiDocument importedOpenApiDocument;
     private boolean authDefaultsInitialized;
     private CoverageSweepPayloadSet activePayloadSet = CoverageSweepPayloadSet.HIGH_SIGNAL;
+    private volatile boolean shuttingDown;
+    private volatile boolean hasStarted;
 
     public CoverageSweepPanel(MontoyaApi api) {
-        this(api, new CoverageSweepEngine(api), OpenApiUrlFetcher.burp(api));
+        this(api, new GlobalTrafficGovernor());
+    }
+
+    public CoverageSweepPanel(MontoyaApi api, GlobalTrafficGovernor globalGovernor) {
+        this(api, new CoverageSweepEngine(api, globalGovernor), OpenApiUrlFetcher.burp(api), globalGovernor);
     }
 
     CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine) {
-        this(api, engine, OpenApiUrlFetcher.burp(api));
+        this(api, engine, OpenApiUrlFetcher.burp(api), new GlobalTrafficGovernor());
     }
 
     CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine, OpenApiUrlFetcher openApiUrlFetcher) {
+        this(api, engine, openApiUrlFetcher, new GlobalTrafficGovernor());
+    }
+
+    CoverageSweepPanel(MontoyaApi api, CoverageSweepEngine engine, OpenApiUrlFetcher openApiUrlFetcher,
+                       GlobalTrafficGovernor globalGovernor) {
         super(new BorderLayout());
         this.api = api;
         this.engine = engine;
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
         this.openApiUrlFetcher = openApiUrlFetcher == null ? OpenApiUrlFetcher.burp(api) : openApiUrlFetcher;
         initializeUi();
     }
 
     public void cleanup() {
+        shuttingDown = true;
         SwingWorker<CoverageSweepPreview, Void> worker = candidateLoadWorker;
         candidateLoadWorker = null;
         if (worker != null) {
@@ -174,6 +192,49 @@ public class CoverageSweepPanel extends JPanel {
         if (retryQueueDialog != null) {
             retryQueueDialog.dispose();
         }
+    }
+
+    @Override
+    public String activityId() {
+        return "coverage-sweep";
+    }
+
+    @Override
+    public ActivitySnapshot activitySnapshot() {
+        ActivityState state;
+        if (shuttingDown) state = ActivityState.DISPOSED;
+        else if (resultsWorkspace.isRetryRunning()) {
+            state = resultsWorkspace.isRetryPaused() ? ActivityState.PAUSED : ActivityState.RETRYING;
+        } else if (sweepPreparationWorker != null) state = ActivityState.PREPARING;
+        else if (engine.isRunning()) state = engine.isPaused() ? ActivityState.PAUSED : ActivityState.RUNNING;
+        else if (stopRequested || engine.phase() == CoverageSweepEngine.SweepPhase.STOPPED) {
+            state = ActivityState.STOPPED;
+        } else if (hasStarted || engine.phase() == CoverageSweepEngine.SweepPhase.COMPLETE) {
+            state = ActivityState.COMPLETED;
+        } else state = ActivityState.IDLE;
+
+        int completed = engine.completedMainRequestCount();
+        int planned = engine.plannedMainRequestCount();
+        String progress = planned > 0 ? completed + " / " + planned + " main requests"
+            : resultsWorkspace.allResultsCount() + " results";
+        return new ActivitySnapshot(activityId(), "Sweep", "Coverage Sweep", state,
+            progress, engine.sentRequestCount());
+    }
+
+    @Override
+    public void pauseActivity() {
+        ActivitySnapshot snapshot = activitySnapshot();
+        if (snapshot.active() && !snapshot.paused()) togglePause();
+    }
+
+    @Override
+    public void resumeActivity() {
+        if (activitySnapshot().paused()) togglePause();
+    }
+
+    @Override
+    public void stopActivity() {
+        if (activitySnapshot().active()) stopSweep();
     }
 
     private void initializeUi() {
@@ -784,7 +845,8 @@ public class CoverageSweepPanel extends JPanel {
             },
             SessionResultsPanel.ViewerLayout.BELOW_TABLE,
             SessionResultsPanel.TableLayout.COVERAGE_SWEEP,
-            false
+            false,
+            globalGovernor
         );
         resultsWorkspace.setInlineRetryControlsVisible(false);
         resultsWorkspace.setAuthVerificationTabsVisible(false);
@@ -1261,6 +1323,7 @@ public class CoverageSweepPanel extends JPanel {
                         resultsWorkspace.setPrimaryRunActive(false);
                         updateIdleUi("Unable to start coverage sweep.");
                     } else {
+                        hasStarted = true;
                         pauseButton.setText("Pause");
                         pauseButton.setEnabled(true);
                     }
@@ -1283,6 +1346,15 @@ public class CoverageSweepPanel extends JPanel {
     }
 
     private void stopSweep() {
+        SwingWorker<List<CoverageSweepCandidate>, Void> preparationWorker = sweepPreparationWorker;
+        if (preparationWorker != null) {
+            stopRequested = true;
+            sweepPreparationWorker = null;
+            preparationWorker.cancel(true);
+            resultsWorkspace.setPrimaryRunActive(false);
+            updateIdleUi("Coverage sweep preparation stopped.");
+            return;
+        }
         if (resultsWorkspace.isRetryRunning()) {
             resultsWorkspace.stopThrottleRetry();
             stopButton.setEnabled(false);

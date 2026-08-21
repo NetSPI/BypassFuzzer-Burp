@@ -9,6 +9,7 @@ import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.filter.ResultFilterController;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
 import com.bypassfuzzer.burp.http.RequestSender;
@@ -78,6 +79,17 @@ public class SessionResultsWorkspace {
                                    boolean borderlessSidebar) {
         this(api, errorLogger, filterAppliedListener, viewerLayout, tableLayout, borderlessSidebar,
             new MontoyaRequestSender(api));
+    }
+
+    public SessionResultsWorkspace(MontoyaApi api,
+                                   Consumer<String> errorLogger,
+                                   Consumer<SessionResultsWorkspace> filterAppliedListener,
+                                   SessionResultsPanel.ViewerLayout viewerLayout,
+                                   SessionResultsPanel.TableLayout tableLayout,
+                                   boolean borderlessSidebar,
+                                   GlobalTrafficGovernor globalGovernor) {
+        this(api, errorLogger, filterAppliedListener, viewerLayout, tableLayout, borderlessSidebar,
+            new MontoyaRequestSender(api, globalGovernor));
     }
 
     SessionResultsWorkspace(MontoyaApi api,
@@ -568,19 +580,20 @@ public class SessionResultsWorkspace {
         return "GET".equals(method) || "HEAD".equals(method) || "OPTIONS".equals(method);
     }
 
-    private HttpResponse sendRetry(HttpRequest request) {
+    private HttpResponse sendRetry(HttpRequest request,
+                                   java.util.function.BooleanSupplier shouldContinue) {
         HttpMode mode = requestMode(request);
         return mode == null
-            ? retrySender.send(request, 30, TimeUnit.SECONDS)
-            : retrySender.send(request, mode, 30, TimeUnit.SECONDS);
+            ? retrySender.send(request, 30, TimeUnit.SECONDS, shouldContinue)
+            : retrySender.send(request, mode, 30, TimeUnit.SECONDS, shouldContinue);
     }
 
     private HttpResponse sendCoordinatedRetry(HostThrottleCoordinator coordinator,
                                               HttpRequest request,
                                               SwingWorker<?, ?> worker) {
-        return coordinator.send(request, () -> sendRetry(request),
-            () -> retryPauseController.awaitIfPaused(
-                () -> !retryStopRequested && worker != null && !worker.isCancelled()));
+        java.util.function.BooleanSupplier shouldContinue = () -> retryPauseController.awaitIfPaused(
+            () -> !retryStopRequested && worker != null && !worker.isCancelled());
+        return coordinator.send(request, () -> sendRetry(request, shouldContinue), shouldContinue);
     }
 
     private boolean isThrottleResponse(HttpResponse response) {

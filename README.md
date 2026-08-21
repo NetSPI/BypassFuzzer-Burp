@@ -95,7 +95,7 @@ sh build.sh clean shadowJar
 
 On Windows PowerShell, run `.\build.ps1 clean shadowJar`. On systems where the shell does not preserve executable bits, run `sh build.sh clean shadowJar`. These helpers use an existing Java 17+ installation when available. Otherwise they download Temurin 17 into `.gradle/jdks` and reuse it on later builds. You can still invoke `./gradlew` or `gradlew.bat` directly when Java is already configured.
 
-Builds embed the public S3 version manifest URL by default so BypassFuzzer can notify users when a newer release is available. Override it for custom release channels with `-PupdateManifestUrl=...`. To preview the update banner locally without changing S3, build with `-PdevLatestVersion=1.4`.
+Builds embed the public S3 version manifest URL by default so BypassFuzzer can notify users when a newer release is available. Override it for custom release channels with `-PupdateManifestUrl=...`. To preview the update banner locally without changing S3, build with `-PdevLatestVersion=1.4.1`.
 
 # Usage
 
@@ -104,14 +104,28 @@ Builds embed the public S3 version manifest URL by default so BypassFuzzer can n
 1. **Send Request to BypassFuzzer:**
    - In Proxy, Sitemap, or Repeater, find any 403/401, any suspiciously blocked request
    - Right-click request 
-   - Select "Send to BypassFuzzer"
+   - Select `Send to BypassFuzzer`, then choose `Bypass`, `IDOR`, or `URL Validation`
 ![](images/image1.png)
-2. **Choose Attack Mode:**
+2. **Open the Request Session:**
    - `Sweep` for broad coverage of blocked endpoints found in Proxy history
-   - `Bypass` for the core AuthZ bypass playbooks
-   - `IDOR` for object identifier and BOLA-style mutations
-   - `URL Validation` for marker-driven URL validation testing
+   - The request opens as a closeable tab beneath the mode you selected
+   - `Bypass` runs the core AuthZ bypass playbooks
+   - `IDOR` runs object identifier and BOLA-style mutations
+   - `URL Validation` runs marker-driven URL validation testing
 ![](images/image2.png)
+
+### Dashboard
+
+The `Dashboard` is the master control plane for every open Sweep, Bypass, IDOR, and URL Validation
+activity. It shows current state and progress, opens the corresponding request tab, and provides
+per-row Pause/Resume and Stop actions. `Pause All` blocks new BypassFuzzer requests without changing
+which sessions were already paused locally; `Resume All` therefore leaves those sessions paused.
+`Stop All` stops active scans and retry passes after confirmation without closing tabs or results.
+
+Optional extension-wide safety limits apply across all tabs and retry passes. Enable them on the
+Dashboard and set a smooth maximum requests/second for each host plus a maximum total number of
+in-flight requests. They start disabled with suggested values of 10 req/s per host and 10 in-flight,
+apply immediately, and reset whenever Burp restarts.
 
 ### Sweep Tab
 
@@ -195,7 +209,8 @@ If Burp receives no response, Sweep retries safe `GET`/`HEAD` probes over HTTP/1
    - Click the **Start Fuzzing** button
    - Results appear in real-time, filtered with your criteria in real-time
    - Can stop fuzzing at any time with the `Stop` button
-   - Adaptive rate control paces each host just under its rate limit automatically
+   - Adaptive rate control paces each session automatically; use Dashboard hard limits when several
+     sessions share the same API quota
    - Can right click a request to color it for identification/filtering later
 
 **Scan History:**

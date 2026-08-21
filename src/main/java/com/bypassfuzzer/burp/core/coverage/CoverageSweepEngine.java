@@ -8,6 +8,7 @@ import burp.api.montoya.http.message.responses.HttpResponse;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.core.ExecutionPauseController;
 import com.bypassfuzzer.burp.core.throttle.ThrottleSettings;
 import com.bypassfuzzer.burp.http.MontoyaRequestSender;
@@ -83,6 +84,10 @@ public class CoverageSweepEngine {
 
     public CoverageSweepEngine(MontoyaApi api) {
         this(api, new MontoyaRequestSender(api, true), new CoverageSweepProbeGenerator());
+    }
+
+    public CoverageSweepEngine(MontoyaApi api, GlobalTrafficGovernor globalGovernor) {
+        this(api, new MontoyaRequestSender(api, globalGovernor, true), new CoverageSweepProbeGenerator());
     }
 
     CoverageSweepEngine(MontoyaApi api, RequestSender requestSender, CoverageSweepProbeGenerator probeGenerator) {
@@ -484,7 +489,7 @@ public class CoverageSweepEngine {
             verificationRequest = anonymousPolicy.reconcileMutation(anonymousBase, anonymousBase);
             HttpRequest scheduledVerificationRequest = verificationRequest;
             anonymousControlResponse = sendScheduled(scheduledVerificationRequest,
-                () -> requestSender.send(scheduledVerificationRequest));
+                () -> requestSender.send(scheduledVerificationRequest, this::awaitSendAdmission));
             completedMainRequests.incrementAndGet();
             if (resultCallback != null) {
                 String signal = anonymousControlResponse == null
@@ -511,8 +516,8 @@ public class CoverageSweepEngine {
                 return;
             }
             HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
-                ? requestSender.send(probe.request())
-                : requestSender.send(probe.request(), probe.httpMode()));
+                ? requestSender.send(probe.request(), this::awaitSendAdmission)
+                : requestSender.send(probe.request(), probe.httpMode(), this::awaitSendAdmission));
             completedMainRequests.incrementAndGet();
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
@@ -605,7 +610,7 @@ public class CoverageSweepEngine {
                 }
                 HttpRequest scheduledControl = controlRequest;
                 HttpResponse controlResponse = sendScheduled(scheduledControl,
-                    () -> requestSender.send(scheduledControl));
+                    () -> requestSender.send(scheduledControl, this::awaitSendAdmission));
                 if (!canContinue() || controlResponse == null || isThrottleResponse(controlResponse, options)) {
                     retryQueue.addAll(retries);
                     hostWideThrottles.add(group.authority());
@@ -662,8 +667,8 @@ public class CoverageSweepEngine {
                                          ConcurrentLinkedQueue<RetryTask> retryQueue) {
         CoverageSweepProbe probe = retry.probe();
         HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
-            ? requestSender.send(probe.request())
-            : requestSender.send(probe.request(), probe.httpMode()));
+            ? requestSender.send(probe.request(), this::awaitSendAdmission)
+            : requestSender.send(probe.request(), probe.httpMode(), this::awaitSendAdmission));
         AttackResult retryResult = AttackResult.throttleRetryOf(retry.result(), response, attempt);
         if (resultCallback != null) {
             resultCallback.accept(retryResult);
@@ -1139,6 +1144,10 @@ public class CoverageSweepEngine {
 
     private boolean canContinue() {
         return running && !Thread.currentThread().isInterrupted();
+    }
+
+    private boolean awaitSendAdmission() {
+        return pauseController.awaitIfPaused(this::canContinue);
     }
 
     private HttpResponse sendScheduled(HttpRequest request, java.util.function.Supplier<HttpResponse> sender) {

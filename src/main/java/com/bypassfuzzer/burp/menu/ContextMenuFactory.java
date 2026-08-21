@@ -5,6 +5,7 @@ import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import com.bypassfuzzer.burp.ui.BypassFuzzerTab;
+import com.bypassfuzzer.burp.ui.TargetedMode;
 
 import javax.swing.*;
 import java.awt.*;
@@ -35,18 +36,23 @@ public class ContextMenuFactory implements ContextMenuItemsProvider {
                     .requestResponse();
 
             if (requestResponse != null && requestResponse.request() != null) {
-                JMenuItem menuItem = new JMenuItem("Send to BypassFuzzer");
-                menuItem.addActionListener(e -> sendToFuzzer(requestResponse));
-                menuItems.add(menuItem);
+                JMenu sendMenu = new JMenu("Send to BypassFuzzer");
+                for (TargetedMode mode : TargetedMode.values()) {
+                    JMenuItem modeItem = new JMenuItem(mode.title());
+                    modeItem.addActionListener(e -> sendToFuzzer(requestResponse, mode));
+                    sendMenu.add(modeItem);
+                }
+                menuItems.add(sendMenu);
             }
         }
 
         return menuItems;
     }
 
-    private void sendToFuzzer(HttpRequestResponse requestResponse) {
-        // Load request into main tab
-        mainTab.loadRequest(requestResponse.request());
-        api.logging().logToOutput("Request sent to BypassFuzzer: " + requestResponse.request().url());
+    private void sendToFuzzer(HttpRequestResponse requestResponse, TargetedMode mode) {
+        mainTab.loadRequest(requestResponse.request(), mode);
+        api.logging().logToOutput(
+            "Request sent to BypassFuzzer " + mode.title() + ": " + requestResponse.request().url()
+        );
     }
 }

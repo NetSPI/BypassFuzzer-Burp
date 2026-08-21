@@ -4,11 +4,16 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.session.FuzzingSessionController;
 import com.bypassfuzzer.burp.session.SessionRegistry;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 import com.bypassfuzzer.burp.ui.session.CoverageSweepPanel;
+import com.bypassfuzzer.burp.ui.dashboard.ActivityRegistry;
+import com.bypassfuzzer.burp.ui.dashboard.DashboardPanel;
 import com.bypassfuzzer.burp.update.VersionCheckResult;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * Main UI tab for the BypassFuzzer extension.
@@ -20,24 +25,37 @@ public class BypassFuzzerTab extends JPanel {
     private final JTabbedPane tabbedPane;
     private final SessionRegistry sessionRegistry;
     private final JPanel updateBannerHost;
+    private final Map<TargetedMode, JTabbedPane> modeSessionTabs;
+    private final GlobalTrafficGovernor globalGovernor;
+    private final ActivityRegistry activityRegistry;
+    private DashboardPanel dashboardPanel;
     private CoverageSweepPanel sweepPanel;
 
     public BypassFuzzerTab(MontoyaApi api) {
         this.api = api;
         this.tabbedPane = new JTabbedPane();
-        this.sessionRegistry = new SessionRegistry(api);
+        this.globalGovernor = new GlobalTrafficGovernor();
+        this.activityRegistry = new ActivityRegistry();
+        this.sessionRegistry = new SessionRegistry(api, globalGovernor);
         this.updateBannerHost = new JPanel(new BorderLayout());
+        this.modeSessionTabs = new EnumMap<>(TargetedMode.class);
         initializeUI();
     }
 
     private void initializeUI() {
         setLayout(new BorderLayout());
 
-        // Welcome tab
-        JPanel welcomePanel = createWelcomePanel();
-        tabbedPane.addTab("Welcome", welcomePanel);
-        sweepPanel = new CoverageSweepPanel(api);
+        dashboardPanel = new DashboardPanel(api, globalGovernor, activityRegistry);
+        tabbedPane.addTab("Dashboard", dashboardPanel);
+        sweepPanel = new CoverageSweepPanel(api, globalGovernor);
         tabbedPane.addTab("Sweep", sweepPanel);
+        activityRegistry.register(sweepPanel, () -> tabbedPane.setSelectedComponent(sweepPanel));
+        dashboardPanel.refresh();
+        for (TargetedMode mode : TargetedMode.values()) {
+            JTabbedPane sessionTabs = new JTabbedPane();
+            modeSessionTabs.put(mode, sessionTabs);
+            tabbedPane.addTab(mode.title(), sessionTabs);
+        }
 
         updateBannerHost.setVisible(false);
         add(updateBannerHost, BorderLayout.NORTH);
@@ -95,102 +113,42 @@ public class BypassFuzzerTab extends JPanel {
             + ". Download the latest bypassfuzzer.jar from GitHub releases.";
     }
 
-    private JPanel createWelcomePanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setBorder(BorderFactory.createEmptyBorder(36, 48, 36, 48));
-
-        JPanel centerPanel = new JPanel(new BorderLayout(0, 24));
-        centerPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-
-        JLabel titleLabel = new JLabel("BypassFuzzer for Burp Suite");
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
-        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-        JLabel subtitleLabel = new JLabel("Access Control Bypass Testing Tool");
-        subtitleLabel.setFont(new Font("Arial", Font.PLAIN, 16));
-        subtitleLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-        JPanel headerPanel = new JPanel();
-        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
-        headerPanel.add(titleLabel);
-        headerPanel.add(Box.createVerticalStrut(8));
-        headerPanel.add(subtitleLabel);
-
-        JPanel sectionGrid = new JPanel(new GridLayout(0, 2, 24, 18));
-        sectionGrid.add(welcomeSection("Targeted testing",
-            "1. Right-click a request in Burp\n"
-                + "2. Select \"Send to BypassFuzzer\"\n"
-                + "3. Select attack types and options\n"
-                + "4. Click \"Start Fuzzing\"\n"
-                + "5. Review results with filters and highlights"));
-        sectionGrid.add(welcomeSection("Sweep",
-            "1. Open the Sweep tab\n"
-                + "2. Load in-scope Proxy history responses\n"
-                + "3. Review and uncheck candidates\n"
-                + "4. Preview exact probes\n"
-                + "5. Start the bounded broad coverage check"));
-        sectionGrid.add(welcomeSection("Targeted playbooks",
-            "Header, Path, Verb, Debug Params, Trailing Dot,\n"
-                + "Trailing Slash, Extension, Content-Type,\n"
-                + "Encoding, Protocol, and Case Variation."));
-        sectionGrid.add(welcomeSection("Workflow notes",
-            "Sweep is mile-wide and inch-deep.\n"
-                + "Targeted request tabs run deeper playbooks.\n"
-                + "Use rate limits and auto-throttle for fragile targets.\n"
-                + "Send interesting results to Burp tools for follow-up."));
-
-        centerPanel.add(headerPanel, BorderLayout.NORTH);
-        centerPanel.add(sectionGrid, BorderLayout.CENTER);
-        contentPanel.add(centerPanel, BorderLayout.NORTH);
-
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder());
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-
-        panel.add(scrollPane, BorderLayout.CENTER);
-
-        return panel;
-    }
-
-    private JPanel welcomeSection(String title, String body) {
-        JPanel section = new JPanel(new BorderLayout(0, 8));
-        section.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder(title),
-            BorderFactory.createEmptyBorder(8, 10, 10, 10)
-        ));
-
-        JTextArea text = new JTextArea(body);
-        text.setEditable(false);
-        text.setFocusable(false);
-        text.setOpaque(false);
-        text.setFont(new Font("Arial", Font.PLAIN, 13));
-        text.setLineWrap(true);
-        text.setWrapStyleWord(true);
-        section.add(text, BorderLayout.CENTER);
-        return section;
-    }
-
     /**
-     * Load a request into a new fuzzing session tab.
-     * Creates a new tab in the tabbed interface for this request.
+     * Load a request into a new Bypass session tab.
      *
      * @param request The HTTP request to fuzz
      */
     public void loadRequest(HttpRequest request) {
+        loadRequest(request, TargetedMode.BYPASS);
+    }
+
+    /**
+     * Load a request into a new session tab under the selected targeted mode.
+     *
+     * @param request The HTTP request to fuzz
+     * @param mode The destination mode
+     */
+    public void loadRequest(HttpRequest request, TargetedMode mode) {
         FuzzingSessionController sessionController = sessionRegistry.createSession(request);
-        FuzzingSessionTab sessionTab = new FuzzingSessionTab(api, sessionController);
+        FuzzingSessionTab sessionTab = new FuzzingSessionTab(api, sessionController, mode);
+        JTabbedPane sessionTabs = modeSessionTabs.get(mode);
 
-        // Add tab with close button
-        int tabIndex = tabbedPane.getTabCount();
-        tabbedPane.addTab(sessionTab.getTabTitle(), sessionTab);
-        tabbedPane.setTabComponentAt(tabIndex, createTabComponent(sessionTab.getTabTitle(), tabIndex));
+        int tabIndex = sessionTabs.getTabCount();
+        sessionTabs.addTab(sessionTab.getTabTitle(), sessionTab);
+        sessionTabs.setTabComponentAt(
+            tabIndex,
+            createSessionTabComponent(sessionTab.getTabTitle(), sessionTabs, sessionTab)
+        );
 
-        // Switch to new tab
-        tabbedPane.setSelectedIndex(tabIndex);
+        sessionTabs.setSelectedIndex(tabIndex);
+        tabbedPane.setSelectedComponent(sessionTabs);
+        activityRegistry.register(sessionTab, () -> {
+            tabbedPane.setSelectedComponent(sessionTabs);
+            sessionTabs.setSelectedComponent(sessionTab);
+        });
+        dashboardPanel.refresh();
 
-        api.logging().logToOutput("New fuzzing session created: " + request.url());
+        api.logging().logToOutput("New " + mode.title() + " session created: " + request.url());
     }
 
     /**
@@ -204,14 +162,19 @@ public class BypassFuzzerTab extends JPanel {
             // API may be unavailable during unload
         }
 
-        for (int index = 0; index < tabbedPane.getTabCount(); index++) {
-            Component component = tabbedPane.getComponentAt(index);
-            if (component instanceof FuzzingSessionTab sessionTab) {
-                sessionTab.cleanup();
+        for (JTabbedPane sessionTabs : modeSessionTabs.values()) {
+            for (int index = 0; index < sessionTabs.getTabCount(); index++) {
+                Component component = sessionTabs.getComponentAt(index);
+                if (component instanceof FuzzingSessionTab sessionTab) {
+                    sessionTab.cleanup();
+                }
             }
         }
         if (sweepPanel != null) {
             sweepPanel.cleanup();
+        }
+        if (dashboardPanel != null) {
+            dashboardPanel.cleanup();
         }
 
         sessionRegistry.closeAllSessions();
@@ -226,45 +189,41 @@ public class BypassFuzzerTab extends JPanel {
     /**
      * Create a tab component with a close button.
      */
-    private JPanel createTabComponent(String title, int tabIndex) {
+    private JPanel createSessionTabComponent(String title, JTabbedPane sessionTabs, FuzzingSessionTab sessionTab) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         tabPanel.setOpaque(false);
 
         JLabel tabLabel = new JLabel(title);
         tabPanel.add(tabLabel);
 
-        // Close button (only for per-request session tabs)
-        if (tabIndex > 1) {
-            JButton closeButton = new JButton("×");
-            closeButton.setPreferredSize(new Dimension(17, 17));
-            closeButton.setMargin(new Insets(0, 0, 0, 0));
-            closeButton.setFont(new Font("Arial", Font.BOLD, 12));
-            closeButton.setFocusable(false);
-            closeButton.setBorderPainted(false);
-            closeButton.setContentAreaFilled(false);
+        JButton closeButton = new JButton("×");
+        closeButton.setPreferredSize(new Dimension(17, 17));
+        closeButton.setMargin(new Insets(0, 0, 0, 0));
+        closeButton.setFont(new Font("Arial", Font.BOLD, 12));
+        closeButton.setFocusable(false);
+        closeButton.setBorderPainted(false);
+        closeButton.setContentAreaFilled(false);
 
-            closeButton.addActionListener(e -> {
-                int currentIndex = tabbedPane.indexOfTabComponent(tabPanel);
-                if (currentIndex != -1) {
-                    int confirm = JOptionPane.showConfirmDialog(
-                        api.userInterface().swingUtils().suiteFrame(),
-                        "Close this fuzzing session?",
-                        "Confirm Close",
-                        JOptionPane.YES_NO_OPTION
-                    );
-                    if (confirm == JOptionPane.YES_OPTION) {
-                        Component tabContent = tabbedPane.getComponentAt(currentIndex);
-                        if (tabContent instanceof FuzzingSessionTab sessionTab) {
-                            sessionTab.cleanup();
-                            sessionRegistry.closeSession(sessionTab.getSessionId());
-                        }
-                        tabbedPane.removeTabAt(currentIndex);
-                    }
+        closeButton.addActionListener(e -> {
+            int currentIndex = sessionTabs.indexOfTabComponent(tabPanel);
+            if (currentIndex != -1) {
+                int confirm = JOptionPane.showConfirmDialog(
+                    api.userInterface().swingUtils().suiteFrame(),
+                    "Close this fuzzing session?",
+                    "Confirm Close",
+                    JOptionPane.YES_NO_OPTION
+                );
+                if (confirm == JOptionPane.YES_OPTION) {
+                    sessionTab.cleanup();
+                    sessionRegistry.closeSession(sessionTab.getSessionId());
+                    activityRegistry.unregister(sessionTab.activityId());
+                    sessionTabs.removeTabAt(currentIndex);
+                    dashboardPanel.refresh();
                 }
-            });
+            }
+        });
 
-            tabPanel.add(closeButton);
-        }
+        tabPanel.add(closeButton);
 
         return tabPanel;
     }

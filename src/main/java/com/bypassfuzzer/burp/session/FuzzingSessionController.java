@@ -5,6 +5,7 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import com.bypassfuzzer.burp.config.FuzzerConfig;
 import com.bypassfuzzer.burp.core.FuzzerEngine;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
+import com.bypassfuzzer.burp.core.throttle.GlobalTrafficGovernor;
 
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +22,7 @@ public class FuzzingSessionController {
     private final HttpRequest request;
     private final FuzzerConfig config;
     private final FuzzerEngine engine;
+    private final GlobalTrafficGovernor globalGovernor;
     private final List<Consumer<AttackResult>> resultListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SessionState>> stateListeners = new CopyOnWriteArrayList<>();
     private final AtomicBoolean disposed = new AtomicBoolean(false);
@@ -29,10 +31,16 @@ public class FuzzingSessionController {
     private volatile boolean stopRequested = false;
 
     public FuzzingSessionController(MontoyaApi api, HttpRequest request) {
+        this(api, request, new GlobalTrafficGovernor());
+    }
+
+    public FuzzingSessionController(MontoyaApi api, HttpRequest request,
+                                    GlobalTrafficGovernor globalGovernor) {
         this.sessionId = UUID.randomUUID().toString();
         this.request = request;
         this.config = new FuzzerConfig();
-        this.engine = new FuzzerEngine(api, this.config);
+        this.globalGovernor = globalGovernor == null ? new GlobalTrafficGovernor() : globalGovernor;
+        this.engine = new FuzzerEngine(api, this.config, this.globalGovernor);
     }
 
     FuzzingSessionController(HttpRequest request, FuzzerConfig config, FuzzerEngine engine) {
@@ -40,6 +48,7 @@ public class FuzzingSessionController {
         this.request = request;
         this.config = config;
         this.engine = engine;
+        this.globalGovernor = new GlobalTrafficGovernor();
     }
 
     public String sessionId() {
@@ -52,6 +61,10 @@ public class FuzzingSessionController {
 
     public FuzzerConfig config() {
         return config;
+    }
+
+    public GlobalTrafficGovernor globalGovernor() {
+        return globalGovernor;
     }
 
     public SessionState state() {
