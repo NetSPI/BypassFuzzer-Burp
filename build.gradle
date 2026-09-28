@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bypassfuzzer'
-version = '1.4.3'
+version = '1.4.4'
 
 subprojects {
     group = rootProject.group
