@@ -62,9 +62,8 @@ public final class BurpScanAdapter {
         RequestTransport transport = (request, timeout) -> {
             HttpRequest montoya = requestPolicy.apply(requests.toMontoya(original, request));
             HttpMode httpMode = requests.httpMode(request.protocol());
-            java.util.function.Supplier<HttpResponse> send = httpMode == null
-                ? () -> sender.send(montoya, timeout.toMillis(), TimeUnit.MILLISECONDS)
-                : () -> sender.send(montoya, httpMode, timeout.toMillis(), TimeUnit.MILLISECONDS);
+            java.util.function.Supplier<HttpResponse> send = () -> sender.sendWithOptionalMode(
+                montoya, httpMode, timeout.toMillis(), TimeUnit.MILLISECONDS, () -> true);
             HttpResponse response = coordinator == null ? send.get()
                 : coordinator.send(montoya, send);
             if (response == null) {

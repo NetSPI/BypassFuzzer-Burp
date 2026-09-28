@@ -39,4 +39,18 @@ public interface RequestSender {
         return shouldContinue == null || shouldContinue.getAsBoolean()
             ? send(request, httpMode, timeout, timeUnit) : null;
     }
+
+    /** A null mode uses Burp's automatic protocol selection. */
+    default HttpResponse sendWithOptionalMode(HttpRequest request, HttpMode httpMode,
+                                              BooleanSupplier shouldContinue) {
+        return httpMode == null ? send(request, shouldContinue)
+            : send(request, httpMode, shouldContinue);
+    }
+
+    default HttpResponse sendWithOptionalMode(HttpRequest request, HttpMode httpMode,
+                                              long timeout, TimeUnit timeUnit,
+                                              BooleanSupplier shouldContinue) {
+        return httpMode == null ? send(request, timeout, timeUnit, shouldContinue)
+            : send(request, httpMode, timeout, timeUnit, shouldContinue);
+    }
 }

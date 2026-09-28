@@ -703,9 +703,7 @@ public class SessionResultsWorkspace {
                                    java.util.function.BooleanSupplier shouldContinue) {
         HttpMode mode = requestMode(request);
         retryRequestsSent.incrementAndGet();
-        return mode == null
-            ? retrySender.send(request, 30, TimeUnit.SECONDS, shouldContinue)
-            : retrySender.send(request, mode, 30, TimeUnit.SECONDS, shouldContinue);
+        return retrySender.sendWithOptionalMode(request, mode, 30, TimeUnit.SECONDS, shouldContinue);
     }
 
     private HttpResponse sendCoordinatedRetry(HostThrottleCoordinator coordinator,

@@ -571,9 +571,8 @@ public class CoverageSweepEngine {
             if (!canContinue()) {
                 return;
             }
-            HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
-                ? requestSender.send(probe.request(), this::awaitSendAdmission)
-                : requestSender.send(probe.request(), probe.httpMode(), this::awaitSendAdmission));
+            HttpResponse response = sendScheduled(probe.request(), () -> requestSender.sendWithOptionalMode(
+                probe.request(), probe.httpMode(), this::awaitSendAdmission));
             completedMainRequests.incrementAndGet();
             if ("Control".equals(probe.family())) {
                 controlResponse = response;
@@ -722,9 +721,8 @@ public class CoverageSweepEngine {
                                          Consumer<AttackResult> resultCallback,
                                          ConcurrentLinkedQueue<RetryTask> retryQueue) {
         CoverageSweepProbe probe = retry.probe();
-        HttpResponse response = sendScheduled(probe.request(), () -> probe.httpMode() == null
-            ? requestSender.send(probe.request(), this::awaitSendAdmission)
-            : requestSender.send(probe.request(), probe.httpMode(), this::awaitSendAdmission));
+        HttpResponse response = sendScheduled(probe.request(), () -> requestSender.sendWithOptionalMode(
+            probe.request(), probe.httpMode(), this::awaitSendAdmission));
         AttackResult retryResult = AttackResult.throttleRetryOf(retry.result(), response, attempt)
             .copyEvidenceToTempFile();
         if (resultCallback != null) {

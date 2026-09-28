@@ -218,15 +218,11 @@ public class AttackExecutor {
 
     private HttpResponse sendPaced(HostThrottleCoordinator coordinator, HttpRequest request, HttpMode httpMode,
                                    BooleanSupplier shouldContinue) {
-        Supplier<HttpResponse> networkSend = httpMode == null
-            ? () -> {
-                requestAttemptListener.run();
-                return requestSender.send(request, () -> awaitResume(shouldContinue));
-            }
-            : () -> {
-                requestAttemptListener.run();
-                return requestSender.send(request, httpMode, () -> awaitResume(shouldContinue));
-            };
+        Supplier<HttpResponse> networkSend = () -> {
+            requestAttemptListener.run();
+            return requestSender.sendWithOptionalMode(request, httpMode,
+                () -> awaitResume(shouldContinue));
+        };
         // Recheck at the actual network boundary. A worker may have passed the first pause gate and
         // then waited in the throttle coordinator for pacing, a cooldown, or an in-flight permit.
         return coordinator == null
