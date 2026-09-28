@@ -38,6 +38,26 @@ import static org.mockito.Mockito.when;
 class CoverageSweepEngineTest {
 
     @Test
+    void automaticSweepSendRetainsHttp500Response() throws Exception {
+        ModeTrackingSender sender = new ModeTrackingSender(response(500, "text/plain", "denied"));
+        CoverageSweepEngine engine = new CoverageSweepEngine(api(List.of()), sender,
+            new CoverageSweepProbeGenerator());
+        CoverageSweepOptions options = new CoverageSweepOptions(
+            Set.of(403), true, 1, 1, 1, 1, Set.of(429, 503));
+        List<AttackResult> results = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch completed = new CountDownLatch(1);
+
+        assertTrue(engine.start(List.of(candidate(request("/admin", "", "GET", null, ""), 403)),
+            options, results::add, completed::countDown));
+        assertTrue(completed.await(5, TimeUnit.SECONDS));
+
+        assertFalse(sender.automaticRequests.isEmpty());
+        assertFalse(results.isEmpty());
+        assertTrue(results.stream().allMatch(result -> result.getStatusCode() == 500
+            && result.getContentLength() == 6 && result.getResponse() != null));
+    }
+
+    @Test
     void sweepSuffixAndNegotiationProbesNormalizeOriginalTrailingSlash() {
         CoverageSweepEngine engine = new CoverageSweepEngine(
             api(List.of()), new StaticSender(response(403, "text/plain", "blocked")),

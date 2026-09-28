@@ -2,6 +2,7 @@ package com.bypassfuzzer.burp.http;
 
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.responses.HttpResponse;
+import burp.api.montoya.http.HttpMode;
 import com.bypassfuzzer.burp.core.attacks.AttackResult;
 import com.bypassfuzzer.burp.core.throttle.HostThrottleCoordinator;
 import com.bypassfuzzer.core.http.HttpHeader;
@@ -60,8 +61,10 @@ public final class BurpScanAdapter {
                                   Consumer<AttackResult> results) throws Exception {
         RequestTransport transport = (request, timeout) -> {
             HttpRequest montoya = requestPolicy.apply(requests.toMontoya(original, request));
-            java.util.function.Supplier<HttpResponse> send = () -> sender.send(montoya,
-                requests.httpMode(request.protocol()), timeout.toMillis(), TimeUnit.MILLISECONDS);
+            HttpMode httpMode = requests.httpMode(request.protocol());
+            java.util.function.Supplier<HttpResponse> send = httpMode == null
+                ? () -> sender.send(montoya, timeout.toMillis(), TimeUnit.MILLISECONDS)
+                : () -> sender.send(montoya, httpMode, timeout.toMillis(), TimeUnit.MILLISECONDS);
             HttpResponse response = coordinator == null ? send.get()
                 : coordinator.send(montoya, send);
             if (response == null) {
