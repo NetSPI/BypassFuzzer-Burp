@@ -39,3 +39,6 @@ scripts/build-presentation.py
 
 # Local verification evidence
 artifacts/verification/
+
+# Python release helpers
+__pycache__/

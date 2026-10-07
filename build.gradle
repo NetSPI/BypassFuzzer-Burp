@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.bypassfuzzer'
-version = '1.4.4'
+apply from: 'gradle/versioning.gradle'
 
 subprojects {
     group = rootProject.group
@@ -85,6 +85,20 @@ tasks.withType(Jar).configureEach {
             'Implementation-Title': 'BypassFuzzer',
             'Implementation-Version': project.version.toString()
         )
+    }
+}
+
+tasks.register('printVersion') {
+    doLast { println project.version }
+}
+
+tasks.register('writeVersionManifest') {
+    def destination = layout.buildDirectory.file('release/bypassfuzzer_version.txt')
+    inputs.property('version', project.version.toString())
+    outputs.file(destination)
+    doLast {
+        destination.get().asFile.parentFile.mkdirs()
+        destination.get().asFile.setText(project.version.toString() + '\n', 'UTF-8')
     }
 }
 

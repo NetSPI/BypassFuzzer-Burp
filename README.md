@@ -152,6 +152,16 @@ sh build.sh clean shadowJar
 
 On Windows PowerShell, run `.\build.ps1 clean shadowJar`. On systems where the shell does not preserve executable bits, run `sh build.sh clean shadowJar`. These helpers use an existing Java 17+ installation when available. Otherwise they download Temurin 17 into `.gradle/jdks` and reuse it on later builds. You can still invoke `./gradlew` or `gradlew.bat` directly when Java is already configured.
 
+Publish a GitHub release tagged `v1.4.5` to build both the extension and CLI as `1.4.5`; no version-bump commit is needed. Local builds derive their version from Git tags and commit history, adding a development suffix for commits after a tag or tracked changes. Source ZIPs without Git metadata use `0.0.0-dev`. To reproduce a release version locally, run:
+
+```bash
+sh build.sh build writeVersionManifest -PreleaseVersion=1.4.5
+```
+
+The release workflow verifies both JARs and the generated version manifest before uploading. Only stable releases from `intrudir/BypassFuzzer-Burp` update the S3 manifest after the JARs upload; manual runs and prereleases skip it, and rerunning an older release cannot downgrade it.
+
+The existing AWS publishing role needs `s3:GetObject` access to the version manifest alongside its upload permissions. To verify version resolution, run `python3 scripts/verify-versioning.py`. After building both JARs and `writeVersionManifest`, run `python3 scripts/verify-release-workflow.py` (requires PyYAML) to check the packaged versions and exercise publishing with local substitutes for GitHub and AWS.
+
 Builds embed the public S3 version manifest URL by default so BypassFuzzer can notify users when a newer release is available. Override it for custom release channels with `-PupdateManifestUrl=...`. To preview the update banner locally without changing S3, build with `-PdevLatestVersion=1.4.5`.
 
 ## CLI usage
